@@ -5,6 +5,7 @@
 #import "ODataQuery.h"
 #import "ODataPredicateTranslator.h"
 #import <ODataKit/ODataRegex.h>
+#import <ODataKit/ODataApply.h>
 #import "ODataError.h"
 #import "ODataFunctionExpression.h"
 #include <string.h>
@@ -475,8 +476,21 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                  [NSString stringWithFormat:@"%@: sum, average, min, max or countdistinct of an attribute of %@", expression, self.entity.name]);
     return nil;
   }
-  return [ODataExpression aggregateOf:these text:[NSString stringWithFormat:@"%@ with %@",
-                                                  [self.mapper propertyPathForKeyPath:expression.aggregatedKeyPath entity:self.entity], expression.method]];
+  NSString *path = [self.mapper propertyPathForKeyPath:expression.aggregatedKeyPath entity:self.entity];
+  return [self aggregateOf:these path:path method:expression.method error:error];
+}
+
+// collection/aggregate(path with method), built: a name that is no OData
+// identifier is refused, not written into the filter.
+- (ODataExpression *)aggregateOf:(ODataExpression *)collection path:(NSString *)path method:(NSString *)method error:(NSError **)error
+{
+  ODataAggregate *aggregate = [ODataAggregate aggregateOfPath:[path componentsSeparatedByString:@"/"] method:method alias:@"value"];
+  ODataExpression *built = [ODataExpression aggregateOf:collection aggregate:aggregate];
+  if (!built && error) {
+    *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression,
+                      [NSString stringWithFormat:@"%@ with %@: not OData identifiers", path, method]);
+  }
+  return built;
 }
 
 - (ODataExpression *)translateFunction:(NSExpression *)expression error:(NSError **)error
@@ -548,7 +562,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                      [NSString stringWithFormat:@"%@: %@ is no attribute of %@ through to-one relationships", path, rest, current.name]);
         return nil;
       }
-      return [ODataExpression aggregateOf:mapped text:[NSString stringWithFormat:@"%@ with %@", [self.mapper propertyPathForKeyPath:rest entity:current], method]];
+      return [self aggregateOf:mapped path:[self.mapper propertyPathForKeyPath:rest entity:current] method:method error:error];
     }
     if (collection) break;
     NSPropertyDescription *property = current.propertiesByName[part];

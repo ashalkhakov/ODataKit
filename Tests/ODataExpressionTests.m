@@ -70,6 +70,17 @@
   XCTAssertEqualObjects(([ODataExpression binary:@"in" left:price right:[ODataExpression list:@[ [ODataExpression literalWithValue:@1], [ODataExpression literalWithValue:@2] ]]].description),
                         @"UnitPrice in (1,2)");
   XCTAssertEqualObjects(([ODataExpression aggregateOf:[ODataExpression variable:@"$these"] text:@"Amount with sum"].description), @"$these/aggregate(Amount with sum)");
+  // Built rather than read: the same, and what is no identifier refused.
+  ODataExpression *sales = [ODataExpression member:@"Sales" of:nil];
+  ODataExpression *total = [ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Product", @"Price" ] method:@"sum" alias:@"x"]];
+  XCTAssertEqualObjects(total.description, @"Sales/aggregate(Product/Price with sum)");
+  XCTAssertEqualObjects([ODataExpression expressionWithString:[total.description stringByAppendingString:@" gt 5"] error:NULL].description,
+                        [total.description stringByAppendingString:@" gt 5"]);
+  XCTAssertEqualObjects(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:nil method:nil alias:@"n"]].description),
+                        @"Sales/aggregate($count)");
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price) gt 0 or (1" ] method:@"sum" alias:@"x"]]));
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"sum) or (x" alias:@"x"]]));
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:@"Price with sum"]));
   XCTAssertEqualObjects(([ODataExpression literalWithText:@"Zoo.Diet'Carnivore'"].description), @"Zoo.Diet'Carnivore'");
   XCTAssertNil(([ODataExpression literalWithText:@"Name"]), @"no literal");
   XCTAssertEqualObjects(([ODataExpression alias:@"p"].description), @"@p");

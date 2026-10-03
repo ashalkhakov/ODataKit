@@ -292,6 +292,57 @@ static NSString *OISQuoted(NSString *text)
   return call;
 }
 
+// An OData identifier (Part 2 section 4.3): a letter or underscore, then
+// letters, digits and underscores.
+static BOOL OISIsODataIdentifier(NSString *name)
+{
+  if (name.length == 0 || name.length > 128) return NO;
+  NSCharacterSet *first = [NSCharacterSet letterCharacterSet];
+  NSCharacterSet *rest = [NSCharacterSet alphanumericCharacterSet];
+  for (NSUInteger i = 0; i < name.length; i++) {
+    unichar c = [name characterAtIndex:i];
+    if (c == '_') continue;
+    if (![(i == 0 ? first : rest) characterIsMember:c]) return NO;
+  }
+  return YES;
+}
+
+static BOOL OISIsQualifiedName(NSString *name)
+{
+  NSArray *parts = [name componentsSeparatedByString:@"."];
+  if (parts.count < 2) return NO;
+  for (NSString *part in parts) {
+    if (!OISIsODataIdentifier(part)) return NO;
+  }
+  return YES;
+}
+
++ (instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate
+{
+  if (![aggregate isKindOfClass:[ODataAggregate class]]) return nil;
+  ODataAggregate *a = aggregate;
+  if (a.isCustom || a.expression) return nil;
+  for (NSString *name in a.path ?: @[]) {
+    if (!OISIsODataIdentifier(name)) return nil;
+  }
+  NSString *text = nil;
+  if (!a.path) {
+    text = @"$count";
+  } else if (a.isCount) {
+    text = [[a.path componentsJoinedByString:@"/"] stringByAppendingString:@"/$count"];
+  } else {
+    NSSet *methods = [NSSet setWithObjects:@"sum", @"min", @"max", @"average", @"countdistinct", nil];
+    if (!a.path.count || !([methods containsObject:a.method] || OISIsQualifiedName(a.method))) return nil;
+    text = [NSString stringWithFormat:@"%@ with %@", [a.path componentsJoinedByString:@"/"], a.method];
+  }
+  ODataExpression *call = [ODataExpression ofKind:ODataExpressionCall name:@"aggregate"];
+  call.operand = collection;
+  call.arguments = @[];
+  call.aggregate = a;
+  call.aggregateText = text;
+  return call;
+}
+
 + (instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values
 {
   if (!values.count) return [self literalWithValue:@NO];

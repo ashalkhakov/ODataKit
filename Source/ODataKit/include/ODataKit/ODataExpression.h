@@ -105,6 +105,12 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 // collection/aggregate(...): an aggregate expression as $apply writes it
 // (Amount with sum, $count); nil for text that is none.
 + (nullable instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text;
+// The same of an aggregate built (ODataApply.h: a path with a method, or
+// $count), its alias not written: nothing is read from text. nil for one
+// whose path is not OData identifiers, whose method is not sum, min, max,
+// average, countdistinct or a qualified name, or that is an expression's
+// or a custom aggregate.
++ (nullable instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate;
 // e in (values...), literals; false for no values.
 + (instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values;
 
