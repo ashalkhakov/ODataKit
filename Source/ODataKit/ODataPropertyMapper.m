@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODataPropertyMapper.h"
+#import "ODataExpression.h"
 #import "ODataRegex.h"
 
 NSString * const ODataUserInfoEntitySet = @"OData.entitySet";
@@ -603,15 +604,36 @@ static NSString *OISJoinedSorted(NSSet *names)
   return [self problemsWithModel:model configuration:nil];
 }
 
+// OData.entitySet and OData.property overrides that are no OData
+// identifier: the expression builders refuse them (ODataExpression.h), so
+// each request naming one fails.
+static void OISAddNameProblems(NSArray<NSEntityDescription *> *entities, NSMutableArray *problems)
+{
+  for (NSEntityDescription *entity in entities) {
+    id set = entity.userInfo[ODataUserInfoEntitySet];
+    if ([set isKindOfClass:[NSString class]] && !ODataIsIdentifier(set)) {
+      [problems addObject:[NSString stringWithFormat:@"%@: its %@ \"%@\" is no OData identifier", entity.name, ODataUserInfoEntitySet, set]];
+    }
+    for (NSPropertyDescription *property in [entity.properties sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]]) {
+      id name = property.userInfo[ODataUserInfoProperty];
+      if ([name isKindOfClass:[NSString class]] && !ODataIsIdentifier(name)) {
+        [problems addObject:[NSString stringWithFormat:@"%@.%@: its %@ \"%@\" is no OData identifier", entity.name, property.name,
+                                                       ODataUserInfoProperty, name]];
+      }
+    }
+  }
+}
+
 - (NSArray *)problemsWithModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
 {
-  if (!self.schema) return @[];
   NSMutableArray *problems = [NSMutableArray array];
   NSArray *all = configuration ? [model entitiesForConfiguration:configuration] ?: @[] : model.entities;
   NSSet *checked = [NSSet setWithArray:all];
   NSArray *entities = [all sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
     return [[a name] compare:[b name]];
   }];
+  OISAddNameProblems(entities, problems);
+  if (!self.schema) return problems;
   for (NSEntityDescription *entity in entities) {
     ODataSchemaEntityType *type = [self entityTypeForEntity:entity];
     if (!type) {

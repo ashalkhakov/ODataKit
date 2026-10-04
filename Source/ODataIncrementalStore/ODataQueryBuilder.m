@@ -329,6 +329,13 @@ static ODataSearchExpression *OISAllOf(NSArray<ODataSearchExpression *> *searche
 
 - (ODataMutableQueryOptions *)optionsForFetch:(NSFetchRequest *)fetch entity:(NSEntityDescription *)entity error:(NSError **)error
 {
+  return ODataExpressionBuilding(error, ^id {
+    return [self uncheckedOptionsForFetch:fetch entity:entity error:error];
+  });
+}
+
+- (ODataMutableQueryOptions *)uncheckedOptionsForFetch:(NSFetchRequest *)fetch entity:(NSEntityDescription *)entity error:(NSError **)error
+{
   ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
   NSMutableArray *temporal = [NSMutableArray array];
   NSPredicate *timeless = OISWithout(fetch.predicate, [ODataTemporalPredicate class], temporal);
@@ -529,6 +536,15 @@ static ODataSearchExpression *OISAllOf(NSArray<ODataSearchExpression *> *searche
                                              groupPaths:(NSArray *)paths aggregates:(NSArray *)aggregates
                                                   after:(NSArray *)after error:(NSError **)error
 {
+  return ODataExpressionBuilding(error, ^id {
+    return [self uncheckedOptionsForAggregateFetch:fetch entity:entity groupPaths:paths aggregates:aggregates after:after error:error];
+  });
+}
+
+- (ODataMutableQueryOptions *)uncheckedOptionsForAggregateFetch:(NSFetchRequest *)fetch entity:(NSEntityDescription *)entity
+                                                      groupPaths:(NSArray *)paths aggregates:(NSArray *)aggregates
+                                                           after:(NSArray *)after error:(NSError **)error
+{
   ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
   NSMutableArray<ODataSearchExpression *> *searches = [NSMutableArray array];
   NSPredicate *predicate = OISWithoutSearches(fetch.predicate, searches);
@@ -569,6 +585,14 @@ static NSString *OISGroupedLiteral(id value)
 }
 
 - (ODataExpression *)groupedFilterExpressionForPredicate:(NSPredicate *)predicate names:(NSDictionary *)names
+{
+  // A name the builders refuse: nil, as for anything it cannot write.
+  return ODataExpressionBuilding(NULL, ^id {
+    return [self uncheckedGroupedFilterForPredicate:predicate names:names];
+  });
+}
+
+- (ODataExpression *)uncheckedGroupedFilterForPredicate:(NSPredicate *)predicate names:(NSDictionary *)names
 {
   if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
     NSCompoundPredicate *compound = (NSCompoundPredicate *)predicate;
@@ -624,6 +648,13 @@ static NSString *OISGroupedLiteral(id value)
 }
 
 - (NSArray<ODataOrderItem *> *)groupedOrderItemsForSortDescriptors:(NSArray *)descriptors names:(NSDictionary *)names
+{
+  return ODataExpressionBuilding(NULL, ^id {
+    return [self uncheckedGroupedOrderItemsForSortDescriptors:descriptors names:names];
+  });
+}
+
+- (NSArray<ODataOrderItem *> *)uncheckedGroupedOrderItemsForSortDescriptors:(NSArray *)descriptors names:(NSDictionary *)names
 {
   NSMutableArray *items = [NSMutableArray array];
   for (NSSortDescriptor *descriptor in descriptors) {

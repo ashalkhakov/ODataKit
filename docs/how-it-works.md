@@ -120,6 +120,7 @@ precedence needs them: `UnitPrice gt 20 and Discontinued eq false`.
 | `category.name == 'x'` | `Category/Name eq 'x'` |
 | `ANY products.price > 20`, `ALL …` | `Products/any(p:p/Price gt 20)`, `all(…)` |
 | `SUBQUERY(products, $p, …).@count > 0` | `Products/any(p:…)` |
+| `SUBQUERY(products, $p, $p.price > 20).@count > 2` | `Products/$count($filter=Price gt 20) gt 2` (4.01) |
 | `products.@count > 2` | `Products/$count gt 2` |
 | `name.length > 3` | `length(Name) gt 3` |
 | `lowercase:(x)`, `uppercase:(x)` | `tolower(x)`, `toupper(x)` |
@@ -229,6 +230,7 @@ the comparison is then rewritten into something the store does have.
 |---|---|
 | `Products/any(p:p/Price gt 20)` | `SUBQUERY(products, $p, $p.price > 20).@count > 0` |
 | `Products/all(p:p/Price gt 20)` | `SUBQUERY(products, $p, NOT $p.price > 20).@count == 0` |
+| `Products/$count($filter=Price gt 20) gt 2` | `count:(SUBQUERY(products, $p, $p.price > 20)) > 2` |
 | `Products/any()` | `products.@count > 0` |
 | `Products/$count gt 2` | `products.@count > 2` |
 | `isof(NS.Manager)` | `entity IN {Manager, and its sub-entities}` |

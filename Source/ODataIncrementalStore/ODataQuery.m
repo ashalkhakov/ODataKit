@@ -104,8 +104,16 @@
                    @"sort": sortDescriptors ?: @[] }];
 }
 
-// A step, typed; nil and the error for one that cannot be.
+// A step, typed; nil and the error for one that cannot be (a name from
+// the model the expression builders refuse among them).
 - (ODataApplyTransformation *)applyStep:(NSDictionary *)step error:(NSError **)error
+{
+  return ODataExpressionBuilding(error, ^id {
+    return [self uncheckedApplyStep:step error:error];
+  });
+}
+
+- (ODataApplyTransformation *)uncheckedApplyStep:(NSDictionary *)step error:(NSError **)error
 {
   ODataPropertyMapper *mapper = _store.mapper;
   ODataPredicateTranslator *translator = [[ODataPredicateTranslator alloc] initWithMapper:mapper entity:_entity];
