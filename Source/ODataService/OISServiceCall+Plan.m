@@ -492,10 +492,13 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
   return plan;
 }
 
-static void OISAddExpansions(NSArray<ODataApplyTransformation *> *transformations, NSMutableArray *into, NSMutableSet *aliases)
+// $apply's expand() items, each once.
+static void OISAddExpansions(NSArray<ODataApplyTransformation *> *transformations, NSMutableArray<ODataExpandItem *> *into, NSMutableSet *aliases)
 {
   for (ODataApplyTransformation *t in transformations) {
-    if (t.kind == ODataApplyExpand && ![into containsObject:t.expansion]) [into addObject:t.expansion];
+    if (t.kind == ODataApplyExpand && t.expandItem && ![[into valueForKey:@"description"] containsObject:t.expandItem.description]) {
+      [into addObject:t.expandItem];
+    }
     if (t.kind == ODataApplyJoin && t.alias) [aliases addObject:t.alias];
     OISAddExpansions(t.sequence, into, aliases);
     for (NSArray *branch in t.branches) OISAddExpansions(branch, into, aliases);
@@ -523,14 +526,13 @@ static NSSet<NSString *> *OISJoinAliases(ODataQueryOptions *options)
   if (!expansions.count && !joined) return options;
   NSMutableArray *expand = [NSMutableArray arrayWithArray:expansions];
   for (ODataExpandItem *item in options.expand) {
-    if (!(item.path.count == 1 && [aliases containsObject:item.path[0]])) [expand addObject:item.description];
+    if (!(item.path.count == 1 && [aliases containsObject:item.path[0]])) [expand addObject:item];
   }
-  NSMutableDictionary *query = [NSMutableDictionary dictionary];
-  if (options.select.count) query[@"$select"] = [[options.select valueForKey:@"description"] componentsJoinedByString:@","];
-  if (expand.count) query[@"$expand"] = [expand componentsJoinedByString:@","];
-  NSError *error = nil;
-  ODataQueryOptions *written = [ODataQueryOptions optionsWithQuery:query error:&error];
-  return written ?: options;
+  // Typed, as they were read: the $select, and the expansions.
+  ODataMutableQueryOptions *written = [[ODataMutableQueryOptions alloc] init];
+  written.select = options.select ?: @[];
+  written.expand = expand;
+  return written;
 }
 
 // Objects in hand (an entity read, an operation's result, a write's):
@@ -837,10 +839,7 @@ static BOOL OISNestsPerParent(ODataQueryOptions *options)
     for (ODataAggregate *aggregate in t.aggregates) [self readAggregate:aggregate from:entity aliases:aliases into:permissions];
     for (ODataComputeItem *item in t.compute) [self readExpression:item.expression entity:entity into:permissions];
     for (ODataOrderItem *item in t.orderBy) [self readExpression:item.expression entity:entity into:permissions];
-    if (t.kind == ODataApplyExpand && t.expansion) {
-      ODataQueryOptions *expanded = [ODataQueryOptions optionsWithQuery:@{ @"$expand": t.expansion } error:NULL];
-      for (ODataExpandItem *item in expanded.expand) [self readExpansion:item entity:entity into:permissions];
-    }
+    if (t.kind == ODataApplyExpand && t.expandItem) [self readExpansion:t.expandItem entity:entity into:permissions];
     if (t.kind == ODataApplyJoin && t.joinPath) {
       NSEntityDescription *members = [self readPath:t.joinPath from:entity aliases:aliases into:permissions];
       if (members && t.alias) aliases[t.alias] = members;

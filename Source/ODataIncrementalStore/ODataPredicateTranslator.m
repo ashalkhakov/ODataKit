@@ -121,28 +121,32 @@ static NSArray<NSEntityDescription *> *OISEntitiesIn(NSExpression *expression)
 }
 
 // a and b and c, left to right, as the parser reads it; none is `empty`.
-static ODataExpression *OISJoined(NSArray<ODataExpression *> *parts, NSString *op, BOOL empty)
+static ODataExpression *OISJoined(NSArray<ODataExpression *> *parts, NSString *op, BOOL empty, NSError **error)
 {
   if (!parts.count) return [ODataExpression literalWithValue:@(empty)];
   ODataExpression *out = parts.firstObject;
-  for (NSUInteger i = 1; i < parts.count; i++) out = [ODataExpression binary:op left:out right:parts[i]];
+  for (NSUInteger i = 1; i < parts.count; i++) out = [ODataExpression binary:op left:out right:parts[i] error:error];
   return out;
 }
 
-static ODataExpression *OISCall1(NSString *name, ODataExpression *argument)
+// name(argument); nil for a nil argument (what built it has said why).
+static ODataExpression *OISCall1(NSString *name, ODataExpression *argument, NSError **error)
 {
-  return [ODataExpression call:name arguments:@[ argument ]];
+  return argument ? [ODataExpression call:name arguments:@[ argument ] error:error] : nil;
 }
 
 // A path as OData writes it (Category/Name, Zoo.Lion/MaxRoar, Address/City)
 // on from an expression (nil: from $it): a segment with a dot is a type
 // cast.
-static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
+// nil, and the error, for a segment that is no name OData allows there.
+static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSError **error)
 {
   ODataExpression *e = from;
   for (NSString *segment in [path componentsSeparatedByString:@"/"]) {
     if (!segment.length) continue;
-    e = [segment rangeOfString:@"."].location != NSNotFound ? [ODataExpression cast:segment of:e] : [ODataExpression member:segment of:e];
+    e = [segment rangeOfString:@"."].location != NSNotFound ? [ODataExpression cast:segment of:e error:error]
+                                                            : [ODataExpression member:segment of:e error:error];
+    if (!e) return nil;
   }
   return e;
 }
@@ -155,17 +159,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   return e;
 }
 
-// A name from the model the expression builders refuse (an OData.property
-// that is no OData identifier) is an error of the fetch, not an exception
-// out of it (ODataExpressionBuilding).
 - (ODataExpression *)expressionForPredicate:(NSPredicate *)predicate error:(NSError **)error
-{
-  return ODataExpressionBuilding(error, ^id {
-    return [self uncheckedExpressionForPredicate:predicate error:error];
-  });
-}
-
-- (ODataExpression *)uncheckedExpressionForPredicate:(NSPredicate *)predicate error:(NSError **)error
 {
   if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
     return [self translateCompound:(NSCompoundPredicate *)predicate error:error];
@@ -212,7 +206,9 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   NSEntityDescription *root = entity;
   while (root.superentity) root = root.superentity;
   NSMutableDictionary *parameters = [NSMutableDictionary dictionary];
-  parameters[@"HierarchyNodes"] = [ODataExpression member:[self.mapper entitySetForEntity:root] of:[ODataExpression variable:@"$root"]];
+  ODataExpression *nodes = [ODataExpression member:[self.mapper entitySetForEntity:root] of:[ODataExpression variable:@"$root" error:error] error:error];
+  if (!nodes) return nil;
+  parameters[@"HierarchyNodes"] = nodes;
   parameters[@"HierarchyQualifier"] = [ODataExpression literalWithValue:h.qualifier];
   parameters[@"Node"] = node;
   NSString *other = h.test == ODataHierarchyIsAncestor ? @"Descendant" : h.test == ODataHierarchyIsDescendant ? @"Ancestor"
@@ -229,7 +225,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     if (h.maxDistance && h.test != ODataHierarchyIsSibling) parameters[@"MaxDistance"] = [ODataExpression literalWithValue:@(h.maxDistance)];
     if (h.includeSelf && h.test != ODataHierarchyIsSibling) parameters[@"IncludeSelf"] = [ODataExpression literalWithValue:@YES];
   }
-  return [ODataExpression call:[@"Org.OData.Aggregation.V1." stringByAppendingString:h.functionName] of:nil namedArguments:parameters];
+  return [ODataExpression call:[@"Org.OData.Aggregation.V1." stringByAppendingString:h.functionName] of:nil namedArguments:parameters error:error];
 }
 
 - (NSPropertyDescription *)propertyAtKeyPath:(NSString *)keyPath of:(NSEntityDescription *)entity
@@ -251,10 +247,10 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     [parts addObject:t];
   }
   switch (compound.compoundPredicateType) {
-    case NSAndPredicateType: return OISJoined(parts, @"and", YES);
-    case NSOrPredicateType: return OISJoined(parts, @"or", NO);
+    case NSAndPredicateType: return OISJoined(parts, @"and", YES, error);
+    case NSOrPredicateType: return OISJoined(parts, @"or", NO, error);
     case NSNotPredicateType:
-      return parts.count ? [ODataExpression unary:@"not" operand:parts.firstObject] : [ODataExpression literalWithValue:@NO];
+      return parts.count ? [ODataExpression unary:@"not" operand:parts.firstObject error:error] : [ODataExpression literalWithValue:@NO];
     default:
       if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate, compound.description);
       return nil;
@@ -262,9 +258,14 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
 }
 
 - (ODataExpression *)function:(NSString *)name left:(ODataExpression *)lhs right:(ODataExpression *)rhs caseInsensitive:(BOOL)ci
+                         error:(NSError **)error
 {
-  if (ci) return [ODataExpression call:name arguments:@[ OISCall1(@"tolower", lhs), OISCall1(@"tolower", rhs) ]];
-  return [ODataExpression call:name arguments:@[ lhs, rhs ]];
+  if (ci) {
+    lhs = OISCall1(@"tolower", lhs, error);
+    rhs = OISCall1(@"tolower", rhs, error);
+  }
+  if (!lhs || !rhs) return nil;
+  return [ODataExpression call:name arguments:@[ lhs, rhs ] error:error];
 }
 
 - (ODataExpression *)translateComparison:(NSComparisonPredicate *)cmp error:(NSError **)error
@@ -301,30 +302,30 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   }
   BOOL ci = (cmp.options & NSCaseInsensitivePredicateOption) != 0;
   // ==[c] as tolower on both sides, as startswith and the others have it.
-  ODataExpression *lowered = ci ? OISCall1(@"tolower", lhs) : lhs;
-  ODataExpression *loweredRight = ci ? OISCall1(@"tolower", rhs) : rhs;
+  ODataExpression *lowered = ci ? OISCall1(@"tolower", lhs, error) : lhs;
+  ODataExpression *loweredRight = ci ? OISCall1(@"tolower", rhs, error) : rhs;
   switch (cmp.predicateOperatorType) {
     case NSEqualToPredicateOperatorType:
-      return [ODataExpression binary:@"eq" left:lowered right:loweredRight];
+      return [ODataExpression binary:@"eq" left:lowered right:loweredRight error:error];
     case NSNotEqualToPredicateOperatorType:
-      return [ODataExpression binary:@"ne" left:lowered right:loweredRight];
+      return [ODataExpression binary:@"ne" left:lowered right:loweredRight error:error];
     case NSLessThanPredicateOperatorType:
-      return [ODataExpression binary:@"lt" left:lhs right:rhs];
+      return [ODataExpression binary:@"lt" left:lhs right:rhs error:error];
     case NSLessThanOrEqualToPredicateOperatorType:
-      return [ODataExpression binary:@"le" left:lhs right:rhs];
+      return [ODataExpression binary:@"le" left:lhs right:rhs error:error];
     case NSGreaterThanPredicateOperatorType:
-      return [ODataExpression binary:@"gt" left:lhs right:rhs];
+      return [ODataExpression binary:@"gt" left:lhs right:rhs error:error];
     case NSGreaterThanOrEqualToPredicateOperatorType:
-      return [ODataExpression binary:@"ge" left:lhs right:rhs];
+      return [ODataExpression binary:@"ge" left:lhs right:rhs error:error];
     case NSBeginsWithPredicateOperatorType:
-      return [self function:@"startswith" left:lhs right:rhs caseInsensitive:ci];
+      return [self function:@"startswith" left:lhs right:rhs caseInsensitive:ci error:error];
     case NSEndsWithPredicateOperatorType:
-      return [self function:@"endswith" left:lhs right:rhs caseInsensitive:ci];
+      return [self function:@"endswith" left:lhs right:rhs caseInsensitive:ci error:error];
     case NSContainsPredicateOperatorType:
-      return [self function:@"contains" left:lhs right:rhs caseInsensitive:ci];
+      return [self function:@"contains" left:lhs right:rhs caseInsensitive:ci error:error];
     case NSInPredicateOperatorType: {
       NSArray *literals = [self literalsInExpression:cmp.rightExpression error:error];
-      return literals ? [self membership:lhs literals:literals] : nil;
+      return literals ? [self membership:lhs literals:literals error:error] : nil;
     }
     case NSBetweenPredicateOperatorType:
       if (cmp.rightExpression.expressionType == NSAggregateExpressionType) {
@@ -333,8 +334,8 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
           ODataExpression *low = [self expressionForValue:col[0] error:error];
           ODataExpression *high = low ? [self expressionForValue:col[1] error:error] : nil;
           if (!high) return nil;
-          return [ODataExpression binary:@"and" left:[ODataExpression binary:@"ge" left:lhs right:low]
-                                   right:[ODataExpression binary:@"le" left:lhs right:high]];
+          return [ODataExpression binary:@"and" left:[ODataExpression binary:@"ge" left:lhs right:low error:error]
+                                   right:[ODataExpression binary:@"le" left:lhs right:high error:error] error:error];
         }
       }
       if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate, cmp.description);
@@ -352,14 +353,18 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
 
 // x in (a, b) in 4.01 (Part 2 section 5.1.1.1.12); x eq a or x eq b in
 // 4.0, which has no `in`. Nothing to be in is false.
-- (ODataExpression *)membership:(ODataExpression *)lhs literals:(NSArray<ODataExpression *> *)literals
+- (ODataExpression *)membership:(ODataExpression *)lhs literals:(NSArray<ODataExpression *> *)literals error:(NSError **)error
 {
   if (!literals.count) return [ODataExpression literalWithValue:@NO];
-  if (literals.count == 1) return [ODataExpression binary:@"eq" left:lhs right:literals[0]];
-  if (self.speaks401) return [ODataExpression binary:@"in" left:lhs right:[ODataExpression list:literals]];
+  if (literals.count == 1) return [ODataExpression binary:@"eq" left:lhs right:literals[0] error:error];
+  if (self.speaks401) return [ODataExpression binary:@"in" left:lhs right:[ODataExpression list:literals] error:error];
   NSMutableArray *parts = [NSMutableArray array];
-  for (ODataExpression *literal in literals) [parts addObject:[ODataExpression binary:@"eq" left:lhs right:literal]];
-  return OISJoined(parts, @"or", NO);
+  for (ODataExpression *literal in literals) {
+    ODataExpression *equal = [ODataExpression binary:@"eq" left:lhs right:literal error:error];
+    if (!equal) return nil;
+    [parts addObject:equal];
+  }
+  return OISJoined(parts, @"or", NO, error);
 }
 
 // The members of IN's right side, each as a literal.
@@ -417,17 +422,12 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   }
   ODataExpression *lhs = [self expressionForValue:cmp.leftExpression error:error];
   if (!lhs) return nil;
-  return [ODataExpression call:@"matchesPattern" arguments:@[ ci ? OISCall1(@"tolower", lhs) : lhs, [ODataExpression literalWithValue:regex] ]];
+  ODataExpression *subject = ci ? OISCall1(@"tolower", lhs, error) : lhs;
+  if (!subject) return nil;
+  return [ODataExpression call:@"matchesPattern" arguments:@[ subject, [ODataExpression literalWithValue:regex] ] error:error];
 }
 
 - (ODataExpression *)expressionForValue:(NSExpression *)expression error:(NSError **)error
-{
-  return ODataExpressionBuilding(error, ^id {
-    return [self uncheckedExpressionForValue:expression error:error];
-  });
-}
-
-- (ODataExpression *)uncheckedExpressionForValue:(NSExpression *)expression error:(NSError **)error
 {
   switch (expression.expressionType) {
     case NSConstantValueExpressionType:
@@ -440,10 +440,10 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     case NSKeyPathExpressionType:
       return [self mapKeyPath:expression.keyPath error:error];
     case NSEvaluatedObjectExpressionType:
-      return [ODataExpression variable:self.lambdaVariable ?: @"$it"];
+      return [ODataExpression variable:self.lambdaVariable ?: @"$it" error:error];
     case NSVariableExpressionType:
       if (self.subqueryVariable && [expression.variable isEqualToString:self.subqueryVariable]) {
-        return [ODataExpression variable:self.lambdaVariable ?: @"$this"];
+        return [ODataExpression variable:self.lambdaVariable ?: @"$this" error:error];
       }
       if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression, expression.description);
       return nil;
@@ -495,7 +495,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                                       : @"the service has no Data Aggregation (Aggregation.ApplySupported)"]);
     return nil;
   }
-  ODataExpression *these = [ODataExpression variable:@"$these"];
+  ODataExpression *these = [ODataExpression variable:@"$these" error:error];
   if (!expression.method) return [ODataExpression countOf:these];
   if (![@[ @"sum", @"average", @"min", @"max", @"countdistinct" ] containsObject:expression.method] ||
       ![self attributeAtKeyPath:expression.aggregatedKeyPath entity:self.entity]) {
@@ -511,13 +511,8 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
 // identifier is refused, not written into the filter.
 - (ODataExpression *)aggregateOf:(ODataExpression *)collection path:(NSString *)path method:(NSString *)method error:(NSError **)error
 {
-  ODataAggregate *aggregate = [ODataAggregate aggregateOfPath:[path componentsSeparatedByString:@"/"] method:method alias:@"value"];
-  ODataExpression *built = [ODataExpression aggregateOf:collection aggregate:aggregate];
-  if (!built && error) {
-    *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression,
-                      [NSString stringWithFormat:@"%@ with %@: not OData identifiers", path, method]);
-  }
-  return built;
+  ODataAggregate *aggregate = [ODataAggregate aggregateOfPath:[path componentsSeparatedByString:@"/"] method:method alias:@"value" error:error];
+  return aggregate ? [ODataExpression aggregateOf:collection aggregate:aggregate error:error] : nil;
 }
 
 - (ODataExpression *)translateFunction:(NSExpression *)expression error:(NSError **)error
@@ -531,7 +526,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   if ([name isEqualToString:@"lowercase:"] || [name isEqualToString:@"uppercase:"]) {
     ODataExpression *inner = [self expressionForValue:args.firstObject error:error];
     if (!inner) return nil;
-    return OISCall1([name hasPrefix:@"lower"] ? @"tolower" : @"toupper", inner);
+    return OISCall1([name hasPrefix:@"lower"] ? @"tolower" : @"toupper", inner, error);
   }
   // Arithmetic, as Apple and gnustep-base each name it.
   NSDictionary *operators = @{ @"add:to:": @"add", @"from:subtract:": @"sub", @"multiply:by:": @"mul", @"divide:by:": @"div",
@@ -540,7 +535,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   if (op && args.count == 2) {
     ODataExpression *left = [self expressionForValue:args[0] error:error];
     ODataExpression *right = left ? [self expressionForValue:args[1] error:error] : nil;
-    return right ? [ODataExpression binary:op left:left right:right] : nil;
+    return right ? [ODataExpression binary:op left:left right:right error:error] : nil;
   }
   if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression, expression.description);
   return nil;
@@ -562,9 +557,14 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                                             @"object's; write it through the variable ($%@.%@)", path, self.subqueryVariable, path]);
     return nil;
   }
-  ODataExpression *mapped = self.lambdaVariable ? [ODataExpression variable:self.lambdaVariable] : nil;
+  // nil: from $it. So each step built is checked: a failed one is no $it.
+  ODataExpression *mapped = nil;
+  if (self.lambdaVariable) {
+    mapped = [ODataExpression variable:self.lambdaVariable error:error];
+    if (!mapped) return nil;
+  }
   if (self.elementType) {
-    return OISAlongPath(mapped, [self.mapper memberPath:[path componentsSeparatedByString:@"."] ofType:self.elementType memberType:NULL]);
+    return OISAlongPath(mapped, [self.mapper memberPath:[path componentsSeparatedByString:@"."] ofType:self.elementType memberType:NULL], error);
   }
   NSArray<NSString *> *parts = [path componentsSeparatedByString:@"."];
   NSEntityDescription *current = self.entity;
@@ -609,7 +609,8 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
         if (property) {
           NSString *cast = [self.mapper qualifiedTypeForEntity:sub];
           if (!cast) break;
-          mapped = [ODataExpression cast:cast of:mapped];
+          mapped = [ODataExpression cast:cast of:mapped error:error];
+          if (!mapped) return nil;
           current = sub;
         } else {
           [queue addObjectsFromArray:sub.subentities];
@@ -632,18 +633,20 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                        [NSString stringWithFormat:@"%@: name a dynamic property in %@ (%@.Name)", path, part, part]);
           return nil;
         }
-        return OISAlongPath(mapped, [rest componentsJoinedByString:@"/"]);
+        return OISAlongPath(mapped, [rest componentsJoinedByString:@"/"], error);
       }
-      mapped = [ODataExpression member:[self.mapper propertyForAttribute:attribute] of:mapped];
+      mapped = [ODataExpression member:[self.mapper propertyForAttribute:attribute] of:mapped error:error];
+      if (!mapped) return nil;
       if (rest.count == 1 && [rest[0] isEqualToString:@"length"] && attribute.attributeType == NSStringAttributeType) {
-        return OISCall1(@"length", mapped);
+        return OISCall1(@"length", mapped, error);
       }
-      if (rest.count) mapped = OISAlongPath(mapped, [self.mapper memberPath:rest ofType:[self.mapper.values typeNameOfAttribute:attribute] memberType:NULL]);
+      if (rest.count) mapped = OISAlongPath(mapped, [self.mapper memberPath:rest ofType:[self.mapper.values typeNameOfAttribute:attribute] memberType:NULL], error);
       return mapped;
     }
     if ([property isKindOfClass:[NSRelationshipDescription class]]) {
       NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
-      mapped = [ODataExpression member:[self.mapper propertyForRelationship:relationship] of:mapped];
+      mapped = [ODataExpression member:[self.mapper propertyForRelationship:relationship] of:mapped error:error];
+      if (!mapped) return nil;
       current = relationship.destinationEntity;
       collection = relationship.isToMany;
       continue;
@@ -666,7 +669,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     }
     walk = relationship.destinationEntity;
   }
-  return mapped ?: [ODataExpression variable:@"$it"];
+  return mapped ?: [ODataExpression variable:@"$it" error:error];
 }
 
 // $s.city inside a SUBQUERY: the lambda variable's path; nil for any other
@@ -716,7 +719,8 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     if (base) self.throughVariable--;
     if (!object) return nil;
   } else if (self.lambdaVariable) {
-    object = [ODataExpression variable:self.lambdaVariable];
+    object = [ODataExpression variable:self.lambdaVariable error:error];
+    if (!object) return nil;
   }
   NSSet *set = [NSSet setWithArray:entities];
   NSMutableArray *clauses = [NSMutableArray array];
@@ -736,14 +740,16 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
         } else {
           ODataExpression *excluded = [self isof:sub object:object error:error];
           if (!excluded) return nil;
-          [terms addObject:[ODataExpression unary:@"not" operand:excluded]];
+          ODataExpression *notOf = [ODataExpression unary:@"not" operand:excluded error:error];
+          if (!notOf) return nil;
+          [terms addObject:notOf];
         }
       }
     }
-    [clauses addObject:OISJoined(terms, @"and", YES)];
+    [clauses addObject:OISJoined(terms, @"and", YES, error)];
   }
-  ODataExpression *test = OISJoined(clauses, @"or", NO);
-  return type == NSNotEqualToPredicateOperatorType ? [ODataExpression unary:@"not" operand:test] : test;
+  ODataExpression *test = OISJoined(clauses, @"or", NO, error);
+  return type == NSNotEqualToPredicateOperatorType ? [ODataExpression unary:@"not" operand:test error:error] : test;
 }
 
 - (ODataExpression *)isof:(NSEntityDescription *)entity object:(ODataExpression *)object error:(NSError **)error
@@ -753,8 +759,9 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate, [NSString stringWithFormat:@"%@ has no entity type to test for", entity.name]);
     return nil;
   }
-  ODataExpression *named = [ODataExpression cast:type of:nil];
-  return [ODataExpression call:@"isof" arguments:object ? @[ object, named ] : @[ named ]];
+  ODataExpression *named = [ODataExpression cast:type of:nil error:error];
+  if (!named) return nil;
+  return [ODataExpression call:@"isof" arguments:object ? @[ object, named ] : @[ named ] error:error];
 }
 
 // count:(collection) and collection.@count as $count; a SUBQUERY's count
@@ -829,8 +836,8 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   inner.subqueryVariable = counted.variable;
   ODataExpression *test = [inner expressionForPredicate:body error:error];
   if (!test) return nil;
-  ODataExpression *lambda = [ODataExpression lambda:function of:path variable:inner.lambdaVariable body:test];
-  return none ? [ODataExpression unary:@"not" operand:lambda] : lambda;
+  ODataExpression *lambda = [ODataExpression lambda:function of:path variable:inner.lambdaVariable body:test error:error];
+  return none ? [ODataExpression unary:@"not" operand:lambda error:error] : lambda;
 }
 
 // SUBQUERY(cars, $c, q).@count > 1, at 4.01: Cars/$count($filter=q') gt 1,
@@ -854,7 +861,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   if (!test) return nil;
   ODataExpression *right = [self expressionForValue:value error:error];
   if (!right) return nil;
-  return [ODataExpression binary:op left:[ODataExpression countOf:path filter:test] right:right];
+  return [ODataExpression binary:op left:[ODataExpression countOf:path filter:test] right:right error:error];
 }
 
 // What an expression counts: the SUBQUERY of count:(SUBQUERY(...)) or
@@ -960,10 +967,15 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     return nil;
   }
 
-  ODataExpression *prefix = expression.bindingKeyPath ? [self mapKeyPath:expression.bindingKeyPath error:NULL]
-                          : self.lambdaVariable ? [ODataExpression variable:self.lambdaVariable] : nil;
-  ODataExpression *call = [ODataExpression call:function.qualifiedName of:prefix namedArguments:arguments];
-  if (resultPath.length) call = OISAlongPath(call, resultPath);
+  ODataExpression *prefix = nil;
+  if (expression.bindingKeyPath || self.lambdaVariable) {
+    prefix = expression.bindingKeyPath ? [self mapKeyPath:expression.bindingKeyPath error:error]
+                                       : [ODataExpression variable:self.lambdaVariable error:error];
+    if (!prefix) return nil;
+  }
+  ODataExpression *call = [ODataExpression call:function.qualifiedName of:prefix namedArguments:arguments error:error];
+  if (!call) return nil;
+  if (resultPath.length) call = OISAlongPath(call, resultPath, error);
   if (typeOut) *typeOut = attribute ? nil : resultType;
   if (attributeOut) *attributeOut = attribute;
   return call;
@@ -1053,7 +1065,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
                                                  options:cmp.options];
   ODataExpression *body = [inner expressionForPredicate:innerPredicate error:error];
   if (!body) return nil;
-  return [ODataExpression lambda:function of:collection variable:variable body:body];
+  return [ODataExpression lambda:function of:collection variable:variable body:body error:error];
 }
 
 #pragma mark - Managed objects as constants
@@ -1142,7 +1154,10 @@ static NSArray *OISObjectsInExpression(NSExpression *expression)
   ODataExpression *path = nil;
   if (left.expressionType == NSEvaluatedObjectExpressionType) {
     target = self.entity;
-    path = self.lambdaVariable ? [ODataExpression variable:self.lambdaVariable] : nil;
+    if (self.lambdaVariable) {
+      path = [ODataExpression variable:self.lambdaVariable error:error];
+      if (!path) return nil;
+    }
   } else if (left.expressionType == NSKeyPathExpressionType) {
     NSEntityDescription *current = self.entity;
     for (NSString *part in [left.keyPath componentsSeparatedByString:@"."]) {
@@ -1171,14 +1186,17 @@ static NSArray *OISObjectsInExpression(NSExpression *expression)
     if (!keys) return nil;
     NSMutableArray *parts = [NSMutableArray array];
     for (NSString *wire in [keys.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
-      ODataExpression *property = [ODataExpression member:wire of:path];
+      ODataExpression *property = [ODataExpression member:wire of:path error:error];
+      if (!property) return nil;
       ODataExpression *literal = [self keyLiteral:keys[wire] property:wire entity:target error:error];
       if (!literal) return nil;
-      [parts addObject:[ODataExpression binary:@"eq" left:property right:literal]];
+      ODataExpression *equal = [ODataExpression binary:@"eq" left:property right:literal error:error];
+      if (!equal) return nil;
+      [parts addObject:equal];
       if (keys.count == 1) [singles addObject:@[ property, literal ]];
     }
     singleKey = singleKey && keys.count == 1;
-    [clauses addObject:OISJoined(parts, @"and", YES)];
+    [clauses addObject:OISJoined(parts, @"and", YES, error)];
   }
 
   switch (cmp.predicateOperatorType) {
@@ -1186,15 +1204,15 @@ static NSArray *OISObjectsInExpression(NSExpression *expression)
       if (clauses.count == 1) return clauses[0];
       break;
     case NSNotEqualToPredicateOperatorType:
-      if (clauses.count == 1) return [ODataExpression unary:@"not" operand:clauses[0]];
+      if (clauses.count == 1) return [ODataExpression unary:@"not" operand:clauses[0] error:error];
       break;
     case NSInPredicateOperatorType: {
       if (singleKey) {
         NSMutableArray *literals = [NSMutableArray array];
         for (NSArray *pair in singles) [literals addObject:pair[1]];
-        return [self membership:singles.firstObject[0] literals:literals];
+        return [self membership:singles.firstObject[0] literals:literals error:error];
       }
-      return OISJoined(clauses, @"or", NO);
+      return OISJoined(clauses, @"or", NO, error);
     }
     default:
       break;

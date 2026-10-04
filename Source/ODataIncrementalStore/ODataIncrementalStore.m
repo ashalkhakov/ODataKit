@@ -989,10 +989,16 @@ static NSAttributeDescription *OISAttributeAtKeyPath(NSEntityDescription *entity
       return NO;
     }
     BOOL count = [method isEqualToString:@"$count"];
-    [local addObject:[ODataAggregate aggregateOfPath:count ? nil : [keyPath componentsSeparatedByString:@"."]
-                                              method:count ? nil : method alias:description.name]];
-    [wire addObject:[ODataAggregate aggregateOfPath:count ? nil : [[_mapper propertyPathForKeyPath:keyPath entity:entity] componentsSeparatedByString:@"/"]
-                                             method:count ? nil : method alias:description.name]];
+    // The expression description's name is the alias: an OData identifier,
+    // as the model's names are (the mapper's).
+    ODataAggregate *here = [ODataAggregate aggregateOfPath:count ? nil : [keyPath componentsSeparatedByString:@"."]
+                                                    method:count ? nil : method alias:description.name error:error];
+    ODataAggregate *there = here ? [ODataAggregate aggregateOfPath:count ? nil : [[_mapper propertyPathForKeyPath:keyPath entity:entity]
+                                                                                   componentsSeparatedByString:@"/"]
+                                                            method:count ? nil : method alias:description.name error:error] : nil;
+    if (!there) return NO;
+    [local addObject:here];
+    [wire addObject:there];
     resultTypes[description.name] = @(description.expressionResultType);
     if (attribute) aggregateAttributes[description.name] = attribute;
     [outputs addObject:description.name];

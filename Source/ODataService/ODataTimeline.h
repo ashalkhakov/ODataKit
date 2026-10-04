@@ -13,6 +13,7 @@
 #pragma once
 #import <ODataKit/OISCoreData.h>
 #import <ODataKit/ODataPropertyMapper.h>
+#import <ODataKit/ODataExpression.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -63,9 +64,12 @@ NS_ASSUME_NONNULL_BEGIN
 // Temporal.ApplicationTimeSupport, as JSON CSDL has it.
 - (NSDictionary *)applicationTimeSupport;
 
-// $at, or $from with $to or $toInclusive, as a $filter over the period
-// (OData-Temporal section 4.2.3): literals as the request wrote them.
-- (NSString *)filterFrom:(NSString *)from to:(nullable NSString *)to inclusive:(BOOL)inclusive;
+// $at, or $from with $to or $toInclusive, as a filter over the period
+// (OData-Temporal section 4.2.3), built of the literals the request gave
+// and the period's properties; nil and the error for a property's name
+// that cannot be written.
+- (nullable ODataExpression *)filterFrom:(ODataExpression *)from to:(nullable ODataExpression *)to inclusive:(BOOL)inclusive
+                                   error:(NSError **)error;
 
 // Temporal.Update, Upsert or Delete (the vocabulary's names, unqualified)
 // of these delta time slices (Core Data values, each with its period),

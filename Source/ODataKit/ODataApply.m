@@ -3,11 +3,28 @@
 
 #import "ODataApply.h"
 #import "ODataError.h"
+#import "OISNames.h"
+
+// sum, min, max, average, countdistinct, or a custom one (a qualified name).
+static BOOL OISIsAggregationMethod(NSString *method)
+{
+  return [@[ @"sum", @"min", @"max", @"average", @"countdistinct" ] containsObject:method ?: @""] || OISIsQualifiedName(method);
+}
+
+static NSString * const OISMethods = @"an aggregation method (sum, min, max, average, countdistinct or a qualified name)";
 
 @implementation ODataAggregate
 
-+ (instancetype)aggregateOfPath:(NSArray *)path method:(NSString *)method alias:(NSString *)alias
++ (instancetype)aggregateOfPath:(NSArray *)path method:(NSString *)method alias:(NSString *)alias error:(NSError **)error
 {
+  if (!OISCheckName(OISIsODataIdentifier(alias), @"an aggregate's alias (an OData identifier)", alias, error)) return nil;
+  if (path && !OISCheckPath(path, @"an aggregate's path segment (an OData identifier or a qualified name)", NO, NO, error)) return nil;
+  if (!path) {
+    // $count of the input: no method, or $count.
+    if (!OISCheckName(!method || [method isEqualToString:@"$count"], @"an aggregate of the input itself ($count)", method, error)) return nil;
+  } else if (![method isEqualToString:@"$count"] && !OISCheckName(OISIsAggregationMethod(method), OISMethods, method, error)) {
+    return nil;
+  }
   ODataAggregate *a = [[self alloc] init];
   a->_path = [path copy];
   a->_method = [method copy];
@@ -16,7 +33,11 @@
 }
 
 + (instancetype)aggregateOfExpression:(ODataExpression *)expression method:(NSString *)method alias:(NSString *)alias
+                                error:(NSError **)error
 {
+  if (!expression) return nil;
+  if (!OISCheckName(OISIsAggregationMethod(method), OISMethods, method, error)) return nil;
+  if (!OISCheckName(OISIsODataIdentifier(alias), @"an aggregate's alias (an OData identifier)", alias, error)) return nil;
   ODataAggregate *a = [[self alloc] init];
   a->_expression = expression;
   a->_method = [method copy];
@@ -24,8 +45,10 @@
   return a;
 }
 
-+ (instancetype)aggregateOfCustom:(NSString *)name alias:(NSString *)alias
++ (instancetype)aggregateOfCustom:(NSString *)name alias:(NSString *)alias error:(NSError **)error
 {
+  if (!OISCheckName(OISIsODataIdentifier(name), @"a custom aggregate's name (an OData identifier)", name, error)) return nil;
+  if (!OISCheckName(OISIsODataIdentifier(alias), @"an aggregate's alias (an OData identifier)", alias, error)) return nil;
   ODataAggregate *a = [[self alloc] init];
   a->_custom = [name copy];
   a->_alias = [alias copy];
@@ -58,6 +81,7 @@
 
 + (instancetype)filterWithExpression:(ODataExpression *)expression
 {
+  if (!expression) return nil;
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyFilter;
   t->_filter = expression;
@@ -66,8 +90,18 @@
   return t;
 }
 
-+ (instancetype)groupByPaths:(NSArray *)paths aggregates:(NSArray *)aggregates
+// Each a path of segments.
+static BOOL OISCheckGroupPaths(NSArray *paths, NSError **error)
 {
+  for (NSArray *path in paths) {
+    if (!OISCheckPath(path, @"a groupby path's segment (an OData identifier or a qualified name)", NO, NO, error)) return NO;
+  }
+  return YES;
+}
+
++ (instancetype)groupByPaths:(NSArray *)paths aggregates:(NSArray *)aggregates error:(NSError **)error
+{
+  if (!OISCheckGroupPaths(paths, error)) return nil;
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyGroupBy;
   t->_groupPaths = [paths copy];
@@ -75,8 +109,9 @@
   return t;
 }
 
-+ (instancetype)groupByPaths:(NSArray *)paths sequence:(NSArray *)sequence
++ (instancetype)groupByPaths:(NSArray *)paths sequence:(NSArray *)sequence error:(NSError **)error
 {
+  if (!OISCheckGroupPaths(paths, error)) return nil;
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyGroupBy;
   t->_groupPaths = [paths copy];
@@ -120,8 +155,13 @@
       for (NSArray *branch in self.branches) [branches addObject:[ODataApplyTransformation stringForTransformations:branch]];
       return [NSString stringWithFormat:@"concat(%@)", [branches componentsJoinedByString:@","]];
     }
-    case ODataApplyExpand:
-      return [NSString stringWithFormat:@"expand(%@)", self.expansion];
+    case ODataApplyExpand: {
+      // $apply's own syntax, which its reader reads back: the filter a
+      // transformation, not a query option.
+      NSString *path = [self.expandItem.path componentsJoinedByString:@"/"];
+      ODataExpression *filter = self.expandItem.options.filter;
+      return filter ? [NSString stringWithFormat:@"expand(%@,filter(%@))", path, filter] : [NSString stringWithFormat:@"expand(%@)", path];
+    }
     case ODataApplyJoin: {
       NSString *joined = [NSString stringWithFormat:@"%@ as %@", [self.joinPath componentsJoinedByString:@"/"], self.alias];
       if (self.sequence.count) joined = [joined stringByAppendingFormat:@",%@", [ODataApplyTransformation stringForTransformations:self.sequence]];
@@ -167,6 +207,16 @@ static NSError *OISApplyError(ODataIncrementalStoreErrorCode code, NSString *mes
   return OISError(code, [NSString stringWithFormat:@"$apply: %@ in \"%@\"", message, text]);
 }
 
+// nil, a builder's refusal of a name read (which the stricter reading of
+// paths leaves none of) said as the syntax error it is: a 400, not a 501.
+static id OISSyntax(NSError **error, NSString *text)
+{
+  if (error && (*error).code == ODataIncrementalStoreErrorInvalidName) {
+    *error = OISApplyError(ODataIncrementalStoreErrorSyntax, (*error).localizedDescription, text);
+  }
+  return nil;
+}
+
 // text split at separator where it is outside parentheses and quotes.
 static NSArray<NSString *> *OISSplitTop(NSString *text, unichar separator)
 {
@@ -202,11 +252,9 @@ static NSArray<NSString *> *OISPath(NSString *text)
 {
   NSArray *segments = [text componentsSeparatedByString:@"/"];
   for (NSString *segment in segments) {
-    if (!segment.length) return nil;
-    for (NSUInteger i = 0; i < segment.length; i++) {
-      unichar c = [segment characterAtIndex:i];
-      if (!(c == '_' || c == '.' || [[NSCharacterSet alphanumericCharacterSet] characterIsMember:c])) return nil;
-    }
+    // An identifier, or a qualified name (a cast, a custom method): what
+    // the builders take, so what is read is what can be written.
+    if (!OISIsPathSegment(segment)) return nil;
   }
   return segments;
 }
@@ -259,7 +307,9 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
         if (error) *error = OISApplyError(ODataIncrementalStoreErrorSyntax, [NSString stringWithFormat:@"\"%@\" is not an alias", alias], text);
         return nil;
       }
-      [aggregates addObject:[ODataAggregate aggregateOfCustom:named[0] alias:alias ?: named[0]]];
+      ODataAggregate *custom = [ODataAggregate aggregateOfCustom:named[0] alias:alias ?: named[0] error:error];
+      if (!custom) return OISSyntax(error, text);
+      [aggregates addObject:custom];
       continue;
     }
     if (OISPath(alias ?: @"").count != 1) {
@@ -268,7 +318,9 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
     }
     // $count, or a collection's: Sales/$count.
     if ([what isEqualToString:@"$count"]) {
-      [aggregates addObject:[ODataAggregate aggregateOfPath:nil method:nil alias:alias]];
+      ODataAggregate *count = [ODataAggregate aggregateOfPath:nil method:nil alias:alias error:error];
+      if (!count) return OISSyntax(error, text);
+      [aggregates addObject:count];
       continue;
     }
     if ([what hasSuffix:@"/$count"]) {
@@ -277,7 +329,9 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
         if (error) *error = OISApplyError(ODataIncrementalStoreErrorSyntax, [NSString stringWithFormat:@"\"%@\" is not a path", what], text);
         return nil;
       }
-      [aggregates addObject:[ODataAggregate aggregateOfPath:path method:@"$count" alias:alias]];
+      ODataAggregate *count = [ODataAggregate aggregateOfPath:path method:@"$count" alias:alias error:error];
+      if (!count) return OISSyntax(error, text);
+      [aggregates addObject:count];
       continue;
     }
     NSUInteger with = OISLastTopWord(what, @"with");
@@ -297,12 +351,16 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
     }
     NSArray *path = OISPath(operand);
     if (path) {
-      [aggregates addObject:[ODataAggregate aggregateOfPath:path method:method alias:alias]];
+      ODataAggregate *aggregate = [ODataAggregate aggregateOfPath:path method:method alias:alias error:error];
+      if (!aggregate) return OISSyntax(error, text);
+      [aggregates addObject:aggregate];
       continue;
     }
     ODataExpression *expression = [ODataExpression expressionWithString:operand error:error];
     if (!expression) return nil;
-    [aggregates addObject:[ODataAggregate aggregateOfExpression:expression method:method alias:alias]];
+    ODataAggregate *aggregate = [ODataAggregate aggregateOfExpression:expression method:method alias:alias error:error];
+    if (!aggregate) return OISSyntax(error, text);
+    [aggregates addObject:aggregate];
   }
   return aggregates;
 }
@@ -377,8 +435,31 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
   return t;
 }
 
++ (instancetype)expandWithItem:(ODataExpandItem *)item error:(NSError **)error
+{
+  if (!item) return nil;
+  NSArray *written = [item.options queryItemsWithError:NULL];
+  BOOL filterAtMost = written && (written.count == 0 || (written.count == 1 && [written[0][0] isEqualToString:@"$filter"]));
+  if (!OISCheckName(item.path.count == 1 && !item.isStar && !item.isRef && !item.isCount && filterAtMost,
+                    @"what expand() takes (one navigation property, with a filter at most)", item.description, error)) {
+    return nil;
+  }
+  ODataApplyTransformation *t = [[self alloc] init];
+  t->_kind = ODataApplyExpand;
+  t->_groupPaths = @[];
+  t->_aggregates = @[];
+  t->_expandItem = item;
+  return t;
+}
+
+- (NSString *)expansion
+{
+  return self.expandItem.description;
+}
+
 + (instancetype)searchWith:(ODataSearchExpression *)search
 {
+  if (!search) return nil;
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplySearch;
   t->_groupPaths = @[];
@@ -406,8 +487,15 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
 
 + (instancetype)hierarchical:(NSString *)method hierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
                     nodePath:(NSArray<NSString *> *)nodePath sequence:(NSArray *)sequence
-                 maxDistance:(NSUInteger)maxDistance keepStart:(BOOL)keepStart
+                 maxDistance:(NSUInteger)maxDistance keepStart:(BOOL)keepStart error:(NSError **)error
 {
+  if (!OISCheckName([@[ @"ancestors", @"descendants", @"traverse" ] containsObject:method ?: @""],
+                    @"a hierarchy transformation (ancestors, descendants or traverse)", method, error) ||
+      !OISCheckPath(hierarchy, @"a hierarchy's path segment (an OData identifier or a qualified name)", NO, NO, error) ||
+      !OISCheckName(OISIsODataIdentifier(qualifier), @"a hierarchy's qualifier (an OData identifier)", qualifier, error) ||
+      !OISCheckPath(nodePath, @"a node path's segment (an OData identifier or a qualified name)", NO, NO, error)) {
+    return nil;
+  }
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyHierarchy;
   t->_groupPaths = @[];
@@ -424,9 +512,11 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
 
 + (instancetype)traverseHierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
                          nodePath:(NSArray<NSString *> *)nodePath postorder:(BOOL)postorder orderBy:(NSArray *)orderBy
+                            error:(NSError **)error
 {
   ODataApplyTransformation *t = [self hierarchical:@"traverse" hierarchy:hierarchy qualifier:qualifier nodePath:nodePath sequence:@[]
-                                       maxDistance:0 keepStart:NO];
+                                       maxDistance:0 keepStart:NO error:error];
+  if (!t) return nil;
   t->_sequence = nil;
   t->_traversal = postorder ? @"postorder" : @"preorder";
   t->_orderBy = [orderBy copy];
@@ -548,7 +638,9 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
         [paths addObject:path];
       }
       if (arguments.count < 2) {
-        [transformations addObject:[self groupByPaths:paths aggregates:@[]]];
+        ODataApplyTransformation *grouped = [self groupByPaths:paths aggregates:@[] error:error];
+        if (!grouped) return OISSyntax(error, text);
+        [transformations addObject:grouped];
         continue;
       }
       // The transformations applied to each group: one aggregate, the
@@ -556,8 +648,10 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
       NSArray *sequence = [self transformationsWithString:arguments[1] error:error];
       if (!sequence) return nil;
       ODataApplyTransformation *only = sequence.count == 1 ? sequence.firstObject : nil;
-      [transformations addObject:only.kind == ODataApplyAggregate ? [self groupByPaths:paths aggregates:only.aggregates]
-                                                                  : [self groupByPaths:paths sequence:sequence]];
+      ODataApplyTransformation *grouped = only.kind == ODataApplyAggregate ? [self groupByPaths:paths aggregates:only.aggregates error:error]
+                                                                           : [self groupByPaths:paths sequence:sequence error:error];
+      if (!grouped) return OISSyntax(error, text);
+      [transformations addObject:grouped];
     } else if ([@[ @"search", @"compute", @"orderby", @"top", @"skip", @"topcount", @"topsum", @"toppercent",
                    @"bottomcount", @"bottomsum", @"bottompercent" ] containsObject:name]) {
       ODataApplyTransformation *t = [self readOther:name inside:inside text:text error:error];
@@ -592,11 +686,16 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
                                           @"expand takes a navigation property and a filter", text);
         return nil;
       }
-      ODataApplyTransformation *t = [[self alloc] init];
-      t->_kind = ODataApplyExpand;
-      t->_groupPaths = @[];
-      t->_aggregates = @[];
-      t->_expansion = filter ? [NSString stringWithFormat:@"%@($filter=%@)", path[0], filter] : path[0];
+      // The filter read as an expression, and the expansion built of it:
+      // nothing of the text goes out as it came.
+      ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+      if (filter) {
+        options.filter = [ODataExpression expressionWithString:filter error:error];
+        if (!options.filter) return nil;
+      }
+      ODataExpandItem *item = [ODataExpandItem itemWithPath:path options:options error:error];
+      ODataApplyTransformation *t = item ? [self expandWithItem:item error:error] : nil;
+      if (!t) return OISSyntax(error, text);
       [transformations addObject:t];
     } else if ([name isEqualToString:@"join"] || [name isEqualToString:@"outerjoin"]) {
       // join(p as alias) or join(p as alias,transformations).

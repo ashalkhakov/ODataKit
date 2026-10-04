@@ -359,7 +359,7 @@ FOUNDATION_EXPORT void OISLog(HSLogLevel level, NSURLRequest *_Nullable request,
 - (nullable NSEntityDescription *)entityForTypeName:(NSString *)name;
 - (nullable NSDictionary *)keyFromPartsQuietly:(NSDictionary *)parts entity:(NSEntityDescription *)entity;
 - (nullable ODataExpression *)literalForKeySegment:(NSString *)text;
-- (NSString *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity;
+- (NSArray<ODataExpandItem *> *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity;
 - (NSArray<NSAttributeDescription *> *)servedAttributesOf:(NSEntityDescription *)entity;
 - (nullable NSMutableDictionary *)JSONForObject:(NSManagedObject *)object options:(ODataQueryOptions *)options
                                        expected:(nullable NSEntityDescription *)expected error:(NSError **)error;

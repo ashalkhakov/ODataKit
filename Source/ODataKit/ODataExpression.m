@@ -5,6 +5,7 @@
 #import "ODataLexer.h"
 #import "ODataError.h"
 #import "ODataApply.h"
+#import "OISNames.h"
 
 // The parser, below the tree.
 @class ODataQueryOptions, ODataResourcePath;
@@ -52,11 +53,9 @@ static NSString *OISQuoted(NSString *text)
   return [NSString stringWithFormat:@"'%@'", [text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
 }
 
-// An OData identifier (Part 2 section 4.3): a letter or underscore, then
-// letters, digits and underscores.
-static BOOL OISIsODataIdentifier(NSString *name)
+BOOL OISIsODataIdentifier(NSString *name)
 {
-  if (name.length == 0 || name.length > 128) return NO;
+  if (![name isKindOfClass:[NSString class]] || name.length == 0 || name.length > 128) return NO;
   NSCharacterSet *first = [NSCharacterSet letterCharacterSet];
   NSCharacterSet *rest = [NSCharacterSet alphanumericCharacterSet];
   for (NSUInteger i = 0; i < name.length; i++) {
@@ -67,12 +66,41 @@ static BOOL OISIsODataIdentifier(NSString *name)
   return YES;
 }
 
-static BOOL OISIsQualifiedName(NSString *name)
+BOOL OISIsQualifiedName(NSString *name)
 {
+  if (![name isKindOfClass:[NSString class]]) return NO;
   NSArray *parts = [name componentsSeparatedByString:@"."];
   if (parts.count < 2) return NO;
   for (NSString *part in parts) {
     if (!OISIsODataIdentifier(part)) return NO;
+  }
+  return YES;
+}
+
+BOOL OISIsPathSegment(NSString *name)
+{
+  return OISIsODataIdentifier(name) || OISIsQualifiedName(name);
+}
+
+BOOL OISCheckName(BOOL allowed, NSString *what, id name, NSError **error)
+{
+  if (allowed) return YES;
+  if (error) *error = OISError(ODataIncrementalStoreErrorInvalidName, [NSString stringWithFormat:@"\"%@\" is not %@", name ?: @"(nil)", what]);
+  return NO;
+}
+
+BOOL OISCheckPath(NSArray *path, NSString *what, BOOL star, BOOL namespaceStar, NSError **error)
+{
+  if (![path isKindOfClass:[NSArray class]] || !path.count) return OISCheckName(NO, what, [path description], error);
+  for (NSUInteger i = 0; i < path.count; i++) {
+    NSString *name = path[i];
+    BOOL last = i + 1 == path.count;
+    // * last (alone, or after a cast: NS.Type/*); NS.*, a namespace's
+    // operations, last.
+    BOOL every = last && [name isKindOfClass:[NSString class]] &&
+                 ((star && [name isEqualToString:@"*"]) ||
+                  (namespaceStar && [name hasSuffix:@".*"] && OISIsPathSegment([name substringToIndex:name.length - 2])));
+    if (!every && !OISCheckName(OISIsPathSegment(name), what, name, error)) return NO;
   }
   return YES;
 }
@@ -85,30 +113,6 @@ BOOL ODataIsIdentifier(NSString *name)
 BOOL ODataIsQualifiedName(NSString *name)
 {
   return OISIsQualifiedName(name);
-}
-
-// What the builders write as it is, a name or an operator, checked: one
-// OData's grammar does not allow there could carry filter text, and is a
-// programming or model error. Raises NSInvalidArgumentException, its
-// userInfo marking it the builders' (ODataExpressionBuilding).
-static NSString * const OISRefusedNameKey = @"ODataExpressionRefusedName";
-
-static void OISRequire(BOOL allowed, NSString *what, NSString *name)
-{
-  if (allowed) return;
-  NSString *reason = [NSString stringWithFormat:@"ODataExpression: %@ \"%@\" is not one", what, name ?: @"(nil)"];
-  @throw [NSException exceptionWithName:NSInvalidArgumentException reason:reason userInfo:@{ OISRefusedNameKey: name ?: @"" }];
-}
-
-id ODataExpressionBuilding(NSError **error, id (^build)(void))
-{
-  @try {
-    return build();
-  } @catch (NSException *exception) {
-    if (![exception.name isEqualToString:NSInvalidArgumentException] || !exception.userInfo[OISRefusedNameKey]) @throw;
-    if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression, exception.reason);
-    return nil;
-  }
 }
 
 static BOOL OISIsVariableName(NSString *name)
@@ -258,64 +262,70 @@ static BOOL OISIsVariableName(NSString *name)
   return e.kind == ODataExpressionLiteral || (e.kind == ODataExpressionUnary && e.operand.kind == ODataExpressionLiteral) ? e : nil;
 }
 
-+ (instancetype)member:(NSString *)name of:(ODataExpression *)operand
++ (instancetype)member:(NSString *)name of:(ODataExpression *)operand error:(NSError **)error
 {
-  OISRequire(OISIsODataIdentifier(name), @"a member name must be an OData identifier;", name);
+  if (!OISCheckName(OISIsODataIdentifier(name), @"a member name (an OData identifier)", name, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionMember name:name];
   e.operand = operand;
   return e;
 }
 
-+ (instancetype)memberPath:(NSArray<NSString *> *)path of:(ODataExpression *)operand
++ (instancetype)memberPath:(NSArray<NSString *> *)path of:(ODataExpression *)operand error:(NSError **)error
 {
+  if (!OISCheckName(path.count > 0, @"a member path (one name or more)", [path description], error)) return nil;
   ODataExpression *e = operand;
-  for (NSString *name in path) e = [self member:name of:e];
+  for (NSString *name in path) {
+    e = [self member:name of:e error:error];
+    if (!e) return nil;
+  }
   return e;
 }
 
-+ (instancetype)variable:(NSString *)name
++ (instancetype)variable:(NSString *)name error:(NSError **)error
 {
-  OISRequire(OISIsVariableName(name), @"a variable must be $it, $root, $these, $this or an OData identifier;", name);
+  if (!OISCheckName(OISIsVariableName(name), @"a variable ($it, $root, $these, $this or an OData identifier)", name, error)) return nil;
   return [ODataExpression ofKind:ODataExpressionVariable name:name];
 }
 
-+ (instancetype)alias:(NSString *)name
++ (instancetype)alias:(NSString *)name error:(NSError **)error
 {
   NSString *bare = [name hasPrefix:@"@"] ? [name substringFromIndex:1] : name;
-  OISRequire(OISIsODataIdentifier(bare), @"a parameter alias must be @ and an OData identifier;", name);
+  if (!OISCheckName(OISIsODataIdentifier(bare), @"a parameter alias (@ and an OData identifier)", name, error)) return nil;
   return [ODataExpression ofKind:ODataExpressionAlias name:bare];
 }
 
-+ (instancetype)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right
++ (instancetype)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right error:(NSError **)error
 {
-  OISRequire(OISPrecedence(op) > 0, @"a binary operator must be one of eq ne gt ge lt le has in and or add sub mul div divby mod;", op);
+  if (!left || !right) return nil;
+  if (!OISCheckName(OISPrecedence(op) > 0, @"a binary operator (eq ne gt ge lt le has in and or add sub mul div divby mod)", op, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionBinary name:op];
   e.left = left;
   e.right = right;
   return e;
 }
 
-+ (instancetype)unary:(NSString *)op operand:(ODataExpression *)operand
++ (instancetype)unary:(NSString *)op operand:(ODataExpression *)operand error:(NSError **)error
 {
-  OISRequire([op isEqualToString:@"not"] || [op isEqualToString:@"-"], @"a unary operator must be not or -;", op);
+  if (!operand) return nil;
+  if (!OISCheckName([op isEqualToString:@"not"] || [op isEqualToString:@"-"], @"a unary operator (not or -)", op, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionUnary name:op];
   e.operand = operand;
   return e;
 }
 
-+ (instancetype)call:(NSString *)name arguments:(NSArray<ODataExpression *> *)arguments
++ (instancetype)call:(NSString *)name arguments:(NSArray<ODataExpression *> *)arguments error:(NSError **)error
 {
-  OISRequire(OISIsODataIdentifier(name) || OISIsQualifiedName(name), @"a function name must be an OData identifier or a qualified name;", name);
+  if (!OISCheckName(OISIsPathSegment(name), @"a function name (an OData identifier or a qualified name)", name, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionCall name:name];
   e.arguments = arguments ?: @[];
   return e;
 }
 
-+ (instancetype)call:(NSString *)name of:(ODataExpression *)operand namedArguments:(NSDictionary *)namedArguments
++ (instancetype)call:(NSString *)name of:(ODataExpression *)operand namedArguments:(NSDictionary *)namedArguments error:(NSError **)error
 {
-  OISRequire(OISIsODataIdentifier(name) || OISIsQualifiedName(name), @"a function name must be an OData identifier or a qualified name;", name);
+  if (!OISCheckName(OISIsPathSegment(name), @"a function name (an OData identifier or a qualified name)", name, error)) return nil;
   for (NSString *parameter in namedArguments) {
-    OISRequire(OISIsODataIdentifier(parameter), @"a parameter name must be an OData identifier;", parameter);
+    if (!OISCheckName(OISIsODataIdentifier(parameter), @"a parameter name (an OData identifier)", parameter, error)) return nil;
   }
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionCall name:name];
   e.operand = operand;
@@ -325,9 +335,11 @@ static BOOL OISIsVariableName(NSString *name)
 }
 
 + (instancetype)lambda:(NSString *)name of:(ODataExpression *)collection variable:(NSString *)variable body:(ODataExpression *)body
+                 error:(NSError **)error
 {
-  OISRequire([name isEqualToString:@"any"] || [name isEqualToString:@"all"], @"a lambda must be any or all;", name);
-  if (body) OISRequire(OISIsODataIdentifier(variable), @"a lambda variable must be an OData identifier;", variable);
+  if (!collection) return nil;
+  if (!OISCheckName([name isEqualToString:@"any"] || [name isEqualToString:@"all"], @"a lambda (any or all)", name, error)) return nil;
+  if (body && !OISCheckName(OISIsODataIdentifier(variable), @"a lambda variable (an OData identifier)", variable, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionLambda name:name];
   e.operand = collection;
   e.variable = body ? variable : nil;
@@ -342,6 +354,7 @@ static BOOL OISIsVariableName(NSString *name)
 
 + (instancetype)countOf:(ODataExpression *)collection filter:(ODataExpression *)filter
 {
+  if (!collection) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionCount name:@"$count"];
   e.operand = collection;
   e.body = filter;
@@ -353,9 +366,9 @@ static BOOL OISIsVariableName(NSString *name)
   return self.kind == ODataExpressionCount ? self.body : nil;
 }
 
-+ (instancetype)cast:(NSString *)type of:(ODataExpression *)operand
++ (instancetype)cast:(NSString *)type of:(ODataExpression *)operand error:(NSError **)error
 {
-  OISRequire(OISIsQualifiedName(type), @"a cast must name a qualified type (NS.Type, Edm.String);", type);
+  if (!OISCheckName(OISIsQualifiedName(type), @"a type to cast to (a qualified name: NS.Type, Edm.String)", type, error)) return nil;
   ODataExpression *e = [ODataExpression ofKind:ODataExpressionCast name:type];
   e.operand = operand;
   return e;
@@ -368,42 +381,49 @@ static BOOL OISIsVariableName(NSString *name)
   return e;
 }
 
-+ (instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text
++ (instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text error:(NSError **)error
 {
-  // The aggregate expression in $apply's syntax, as the parser reads one.
-  NSArray *transformations = [ODataApplyTransformation transformationsWithString:[NSString stringWithFormat:@"aggregate(%@ as value)", text] error:NULL];
+  // Read as $apply reads an aggregate expression, then written from what
+  // was read: nothing of the text goes out as it came.
+  NSArray *transformations = [ODataApplyTransformation transformationsWithString:[NSString stringWithFormat:@"aggregate(%@ as value)", text]
+                                                                           error:error];
+  if (!transformations) return nil;
   ODataApplyTransformation *only = transformations.count == 1 ? transformations.firstObject : nil;
-  if (only.aggregates.count != 1) return nil;
-  ODataExpression *call = [ODataExpression ofKind:ODataExpressionCall name:@"aggregate"];
-  call.operand = collection;
-  call.arguments = @[];
-  call.aggregate = only.aggregates.firstObject;
-  call.aggregateText = text;
-  return call;
+  if (only.aggregates.count != 1) {
+    if (error) *error = OISError(ODataIncrementalStoreErrorSyntax, [NSString stringWithFormat:@"aggregate(%@): one aggregate expression", text]);
+    return nil;
+  }
+  return [self aggregateOf:collection aggregate:only.aggregates.firstObject error:error];
 }
 
-+ (instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate
++ (instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate error:(NSError **)error
 {
-  if (![aggregate isKindOfClass:[ODataAggregate class]]) return nil;
+  if (!collection) return nil;
+  if (!OISCheckName([aggregate isKindOfClass:[ODataAggregate class]], @"an aggregate (an ODataAggregate)", [aggregate description], error)) return nil;
   ODataAggregate *a = aggregate;
-  // A custom aggregate named alone, or an expression's: not written here.
-  // (A custom method, NS.median, is isCustom too, and is taken below.)
-  if (a.custom || a.expression) return nil;
-  if (a.path && !a.path.count) return nil;
-  for (NSString *name in a.path ?: @[]) {
-    if (!OISIsODataIdentifier(name)) return nil;
-  }
+  // A custom aggregate named alone is $apply's, not an expression's. (A
+  // custom method, NS.median, is isCustom too, and is taken below.)
+  if (!OISCheckName(!a.custom, @"an aggregate a filter can name (a custom aggregate is named alone)", a.custom, error)) return nil;
+  NSSet *methods = [NSSet setWithObjects:@"sum", @"min", @"max", @"average", @"countdistinct", nil];
   NSString *text = nil;
-  if (!a.path) {
+  if (a.expression) {
+    // Amount mul $it/TaxRate with sum: the expression as it describes itself.
+    if (!OISCheckName([methods containsObject:a.method] || OISIsQualifiedName(a.method),
+                      @"an aggregation method (sum, min, max, average, countdistinct or a qualified name)", a.method, error)) return nil;
+    text = [NSString stringWithFormat:@"%@ with %@", a.expression, a.method];
+  } else if (!a.path) {
     // $count of the collection; a method needs a path.
-    if (a.method && ![a.method isEqualToString:@"$count"]) return nil;
+    if (!OISCheckName(!a.method || [a.method isEqualToString:@"$count"], @"an aggregate of the collection itself ($count)", a.method, error)) return nil;
     text = @"$count";
-  } else if (a.isCount) {
-    text = [[a.path componentsJoinedByString:@"/"] stringByAppendingString:@"/$count"];
   } else {
-    NSSet *methods = [NSSet setWithObjects:@"sum", @"min", @"max", @"average", @"countdistinct", nil];
-    if (!([methods containsObject:a.method] || OISIsQualifiedName(a.method))) return nil;
-    text = [NSString stringWithFormat:@"%@ with %@", [a.path componentsJoinedByString:@"/"], a.method];
+    if (!OISCheckPath(a.path, @"an aggregate's path segment (an OData identifier or a qualified name)", NO, NO, error)) return nil;
+    if (a.isCount) {
+      text = [[a.path componentsJoinedByString:@"/"] stringByAppendingString:@"/$count"];
+    } else {
+      if (!OISCheckName([methods containsObject:a.method] || OISIsQualifiedName(a.method),
+                        @"an aggregation method (sum, min, max, average, countdistinct or a qualified name)", a.method, error)) return nil;
+      text = [NSString stringWithFormat:@"%@ with %@", [a.path componentsJoinedByString:@"/"], a.method];
+    }
   }
   ODataExpression *call = [ODataExpression ofKind:ODataExpressionCall name:@"aggregate"];
   call.operand = collection;
@@ -415,6 +435,7 @@ static BOOL OISIsVariableName(NSString *name)
 
 + (instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values
 {
+  if (!e) return nil;
   if (!values.count) return [self literalWithValue:@NO];
   ODataExpression *list = [ODataExpression ofKind:ODataExpressionList name:@""];
   NSMutableArray *items = [NSMutableArray array];
@@ -477,6 +498,7 @@ static BOOL OISIsVariableName(NSString *name)
 @implementation ODataOrderItem
 + (instancetype)itemWithExpression:(ODataExpression *)expression descending:(BOOL)descending
 {
+  if (!expression) return nil;
   return [[self alloc] initWithExpression:expression descending:descending];
 }
 - (instancetype)initWithExpression:(ODataExpression *)expression descending:(BOOL)descending
@@ -494,8 +516,11 @@ static BOOL OISIsVariableName(NSString *name)
 @end
 
 @implementation ODataSelectItem
-+ (instancetype)itemWithPath:(NSArray<NSString *> *)path
++ (instancetype)itemWithPath:(NSArray<NSString *> *)path error:(NSError **)error
 {
+  if (!OISCheckPath(path, @"a $select path's segment (an OData identifier or a qualified name; * or NS.* last)", YES, YES, error)) {
+    return nil;
+  }
   return [[self alloc] initWithPath:path star:[path isEqual:@[ @"*" ]]];
 }
 - (instancetype)initWithPath:(NSArray *)path star:(BOOL)star
@@ -543,8 +568,10 @@ static BOOL OISIsVariableName(NSString *name)
 @end
 
 @implementation ODataComputeItem
-+ (instancetype)itemWithExpression:(ODataExpression *)expression alias:(NSString *)alias
++ (instancetype)itemWithExpression:(ODataExpression *)expression alias:(NSString *)alias error:(NSError **)error
 {
+  if (!expression) return nil;
+  if (!OISCheckName(OISIsODataIdentifier(alias), @"a $compute alias (an OData identifier)", alias, error)) return nil;
   ODataComputeItem *item = [[self alloc] init];
   item.expression = expression;
   item.alias = alias;
@@ -586,9 +613,12 @@ static NSArray *OISComputeItems(NSString *text, NSError **error)
                                               [NSString stringWithFormat:@"$compute=%@: each item is an expression as a name", trimmed]);
       return nil;
     }
-    ODataComputeItem *item = [[ODataComputeItem alloc] init];
-    item.expression = expression;
-    item.alias = [trimmed substringWithRange:[match rangeAtIndex:2]];
+    NSError *itemError = nil;
+    ODataComputeItem *item = [ODataComputeItem itemWithExpression:expression alias:[trimmed substringWithRange:[match rangeAtIndex:2]] error:&itemError];
+    if (!item) {
+      if (error) *error = OISError(ODataIncrementalStoreErrorSyntax, [NSString stringWithFormat:@"$compute=%@: %@", trimmed, itemError.localizedDescription]);
+      return nil;
+    }
     [items addObject:item];
   }
   return items;
@@ -603,8 +633,10 @@ static NSArray *OISComputeItems(NSString *text, NSError **error)
 @end
 
 @implementation ODataExpandItem
-+ (instancetype)itemWithPath:(NSArray<NSString *> *)path options:(ODataQueryOptions *)options
++ (instancetype)itemWithPath:(NSArray<NSString *> *)path options:(ODataQueryOptions *)options error:(NSError **)error
 {
+  BOOL star = [path isEqual:@[ @"*" ]];
+  if (!star && !OISCheckPath(path, @"an $expand path's segment (an OData identifier or a qualified name; * alone)", NO, NO, error)) return nil;
   ODataExpandItem *item = [[self alloc] init];
   item.path = path;
   item.isStar = [path isEqual:@[ @"*" ]];
@@ -743,13 +775,19 @@ static const NSInteger OISMaxNesting = 100;
 
 #pragma mark Expressions
 
+// What the builders made of what was read; nil, and the syntax error of a
+// name they refused (a part that failed before has said why already).
+- (id)built:(id)node error:(NSError *)error
+{
+  if (node) return node;
+  return [self fail:error.localizedDescription ?: @"cannot be built"];
+}
+
 - (ODataExpression *)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right
 {
   if (!left || !right) return nil;
-  ODataExpression *e = [ODataExpression ofKind:ODataExpressionBinary name:op];
-  e.left = left;
-  e.right = right;
-  return e;
+  NSError *error = nil;
+  return [self built:[ODataExpression binary:op left:left right:right error:&error] error:error];
 }
 
 // One level of left-associative binary operators.
@@ -812,16 +850,14 @@ static const NSInteger OISMaxNesting = 100;
     [self advance];
     ODataExpression *operand = [self parseUnary];
     if (!operand) return nil;
-    ODataExpression *e = [ODataExpression ofKind:ODataExpressionUnary name:@"not"];
-    e.operand = operand;
-    return e;
+    NSError *error = nil;
+    return [self built:[ODataExpression unary:@"not" operand:operand error:&error] error:error];
   }
   if ([self accept:OISTokenMinus]) {
     ODataExpression *operand = [self parseUnary];
     if (!operand) return nil;
-    ODataExpression *e = [ODataExpression ofKind:ODataExpressionUnary name:@"-"];
-    e.operand = operand;
-    return e;
+    NSError *error = nil;
+    return [self built:[ODataExpression unary:@"-" operand:operand error:&error] error:error];
   }
   return [self parsePrimary];
 }
@@ -895,9 +931,12 @@ static const NSInteger OISMaxNesting = 100;
                                   @"geography": @"Edm.Geography", @"geometry": @"Edm.Geometry" };
       return [self literal:t.text type:prefixed[prefix] ?: prefix raw:raw];
     }
-    case OISTokenAlias:
+    case OISTokenAlias: {
       [self advance];
-      return [self parsePathAfter:[ODataExpression ofKind:ODataExpressionAlias name:t.text]];
+      NSError *error = nil;
+      ODataExpression *alias = [self built:[ODataExpression alias:t.text error:&error] error:error];
+      return alias ? [self parsePathAfter:alias] : nil;
+    }
     case OISTokenName:
       return [self parseName];
     default:
@@ -920,14 +959,15 @@ static const NSInteger OISMaxNesting = 100;
   }
   [self advance];
   ODataExpression *e;
+  NSError *error = nil;
   if (_token.kind == OISTokenLParen) {
     e = [self parseCallNamed:name];
   } else if ([_variables containsObject:name] || [@[ @"$root", @"$these", @"$this" ] containsObject:name]) {
-    e = [ODataExpression ofKind:ODataExpressionVariable name:name];
+    e = [self built:[ODataExpression variable:name error:&error] error:error];
   } else if ([name rangeOfString:@"."].location != NSNotFound) {
-    e = [ODataExpression ofKind:ODataExpressionCast name:name];
+    e = [self built:[ODataExpression cast:name of:nil error:&error] error:error];
   } else {
-    e = [ODataExpression ofKind:ODataExpressionMember name:name];
+    e = [self built:[ODataExpression member:name of:nil error:&error] error:error];
   }
   return e ? [self parsePathAfter:e] : nil;
 }
@@ -937,7 +977,7 @@ static const NSInteger OISMaxNesting = 100;
 - (ODataExpression *)parseCallNamed:(NSString *)name
 {
   [self advance];  // (
-  ODataExpression *call = [ODataExpression ofKind:ODataExpressionCall name:name];
+  NSError *error = nil;
   if ([name rangeOfString:@"."].location != NSNotFound) {
     NSMutableDictionary *named = [NSMutableDictionary dictionary];
     if (![self accept:OISTokenRParen]) {
@@ -954,13 +994,11 @@ static const NSInteger OISMaxNesting = 100;
         break;
       }
     }
-    call.namedArguments = named;
-    return call;
+    return [self built:[ODataExpression call:name of:nil namedArguments:named error:&error] error:error];
   }
   NSArray *arguments = [self parseListUntil:OISTokenRParen];
   if (!arguments) return nil;
-  call.arguments = arguments;
-  return call;
+  return [self built:[ODataExpression call:name arguments:arguments error:&error] error:error];
 }
 
 // What follows a path's start: /Member, /NS.Cast, /NS.Function(...),
@@ -977,8 +1015,7 @@ static const NSInteger OISMaxNesting = 100;
     if (([name isEqualToString:@"any"] || [name isEqualToString:@"all"]) && _token.kind == OISTokenLParen) {
       next = [self parseLambda:name over:current];
     } else if ([name isEqualToString:@"$count"]) {
-      next = [ODataExpression ofKind:ODataExpressionCount name:name];
-      next.operand = current;
+      next = [ODataExpression countOf:current];
       if (_token.kind == OISTokenLParen && ![self parseCountOptionsOf:next]) return nil;
     } else if ([name isEqualToString:@"aggregate"] && _token.kind == OISTokenLParen) {
       next = [self parseAggregateOf:current];
@@ -986,8 +1023,10 @@ static const NSInteger OISMaxNesting = 100;
       next = [self parseCallNamed:name];
       next.operand = current;
     } else {
-      next = [ODataExpression ofKind:[name rangeOfString:@"."].location != NSNotFound ? ODataExpressionCast : ODataExpressionMember name:name];
-      next.operand = current;
+      NSError *error = nil;
+      next = [name rangeOfString:@"."].location != NSNotFound ? [ODataExpression cast:name of:current error:&error]
+                                                              : [ODataExpression member:name of:current error:&error];
+      next = [self built:next error:error];
     }
     current = next;
   }
@@ -1051,22 +1090,17 @@ static const NSInteger OISMaxNesting = 100;
     if (!self.error) self.error = error ?: OISError(ODataIncrementalStoreErrorSyntax, [NSString stringWithFormat:@"aggregate(%@): one aggregate expression", text]);
     return nil;
   }
-  ODataExpression *call = [ODataExpression ofKind:ODataExpressionCall name:@"aggregate"];
-  call.operand = collection;
-  call.arguments = @[];
-  call.aggregate = only.aggregates.firstObject;
-  call.aggregateText = text;
-  return call;
+  // Written from what was read, as the builder writes it.
+  return [self built:[ODataExpression aggregateOf:collection aggregate:only.aggregates.firstObject error:&error] error:error];
 }
 
 - (ODataExpression *)parseLambda:(NSString *)name over:(ODataExpression *)collection
 {
   [self advance];  // (
-  ODataExpression *lambda = [ODataExpression ofKind:ODataExpressionLambda name:name];
-  lambda.operand = collection;
+  NSError *error = nil;
   if ([self accept:OISTokenRParen]) {
     if ([name isEqualToString:@"all"]) return [self fail:@"all() needs a variable and a condition"];
-    return lambda;
+    return [self built:[ODataExpression lambda:name of:collection variable:nil body:nil error:&error] error:error];
   }
   if (_token.kind != OISTokenName) return [self fail:[NSString stringWithFormat:@"a lambda variable expected, not %@", _token]];
   NSString *variable = _token.text;
@@ -1076,9 +1110,7 @@ static const NSInteger OISMaxNesting = 100;
   ODataExpression *body = [self parseCommon];
   [_variables removeLastObject];
   if (!body || ![self expect:OISTokenRParen what:@"')'"]) return nil;
-  lambda.variable = variable;
-  lambda.body = body;
-  return lambda;
+  return [self built:[ODataExpression lambda:name of:collection variable:variable body:body error:&error] error:error];
 }
 
 #pragma mark Query options
@@ -1129,7 +1161,10 @@ static const NSInteger OISMaxNesting = 100;
         [self advance];
         path = [path arrayByAddingObject:@"*"];
       }
-      [items addObject:[[ODataSelectItem alloc] initWithPath:path star:NO]];
+      NSError *error = nil;
+      ODataSelectItem *item = [self built:[ODataSelectItem itemWithPath:path error:&error] error:error];
+      if (!item) return nil;
+      [items addObject:item];
     }
     if (![self accept:OISTokenComma]) return items;
   }
@@ -1150,15 +1185,18 @@ static const NSInteger OISMaxNesting = 100;
 {
   NSMutableArray *items = [NSMutableArray array];
   while (YES) {
-    ODataExpandItem *item = [[ODataExpandItem alloc] init];
-    item.options = [[ODataQueryOptions alloc] init];
+    ODataExpandItem *item;
     if ([self accept:OISTokenStar]) {
+      item = [[ODataExpandItem alloc] init];
+      item.options = [[ODataQueryOptions alloc] init];
       item.isStar = YES;
       item.path = @[];
     } else {
       NSArray *path = [self parseNamePath];
       if (!path) return nil;
-      item.path = path;
+      NSError *error = nil;
+      item = [self built:[ODataExpandItem itemWithPath:path options:nil error:&error] error:error];
+      if (!item) return nil;
     }
     if (_token.kind == OISTokenSlash) {
       [self advance];
@@ -1503,8 +1541,33 @@ static const NSInteger OISMaxNesting = 100;
   self.temporalText = texts;
 }
 
-- (NSArray<NSArray<NSString *> *> *)queryItems
+// A custom query option's name (4.01 ABNF customName): not a system
+// option's ($) nor an alias's (@), and written as it is, so only what a
+// query string carries unencoded, and no & or =.
+static BOOL OISIsCustomOptionName(NSString *name)
 {
+  if (![name isKindOfClass:[NSString class]] || !name.length) return NO;
+  NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+      @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!()*+,;:/?'@$"];
+  unichar first = [name characterAtIndex:0];
+  if (first == '$' || first == '@') return NO;
+  for (NSUInteger i = 0; i < name.length; i++) {
+    if (![allowed characterIsMember:[name characterAtIndex:i]]) return NO;
+  }
+  return YES;
+}
+
+- (NSArray<NSArray<NSString *> *> *)queryItemsWithError:(NSError **)error
+{
+  // The names written as they are: aliases' and custom options', checked.
+  for (NSString *name in self.aliases) {
+    if (!OISCheckName(OISIsODataIdentifier(name), @"a parameter alias's name (an OData identifier)", name, error)) return nil;
+  }
+  for (NSString *name in self.customOptions) {
+    if (!OISCheckName(OISIsCustomOptionName(name), @"a custom query option's name (not $ or @ first; no &, =, %, # or spaces)", name, error)) {
+      return nil;
+    }
+  }
   NSMutableArray *items = [NSMutableArray array];
   void (^add)(NSString *, NSString *) = ^(NSString *name, NSString *value) {
     if (value) [items addObject:@[ name, value ]];
@@ -1645,7 +1708,7 @@ static const NSInteger OISMaxNesting = 100;
   while (left && [self atKeyword:@"OR"]) {
     ODataSearchExpression *right = [self parseAnd];
     if (!right) return nil;
-    left = [ODataSearchExpression searchWithKind:ODataSearchOr text:nil left:left right:right];
+    left = [ODataSearchExpression searchWithKind:ODataSearchOr text:nil left:left right:right error:NULL];
   }
   return left;
 }
@@ -1667,7 +1730,7 @@ static const NSInteger OISMaxNesting = 100;
     if (!explicitAnd && ![self startsTerm]) break;
     ODataSearchExpression *right = [self parseUnary];
     if (!right) return nil;
-    left = [ODataSearchExpression searchWithKind:ODataSearchAnd text:nil left:left right:right];
+    left = [ODataSearchExpression searchWithKind:ODataSearchAnd text:nil left:left right:right error:NULL];
   }
   return left;
 }
@@ -1687,7 +1750,7 @@ static const NSInteger OISMaxNesting = 100;
 {
   if ([self atKeyword:@"NOT"]) {
     ODataSearchExpression *operand = [self parseUnary];
-    return operand ? [ODataSearchExpression searchWithKind:ODataSearchNot text:nil left:operand right:nil] : nil;
+    return operand ? [ODataSearchExpression searchWithKind:ODataSearchNot text:nil left:operand right:nil error:NULL] : nil;
   }
   [self skipSpace];
   if (_at >= _text.length) return [self fail:@"a word or a phrase is missing"];
@@ -1709,7 +1772,9 @@ static const NSInteger OISMaxNesting = 100;
       unichar d = [_text characterAtIndex:_at++];
       if (d == '"') {
         if (!phrase.length) return [self fail:@"a phrase is empty"];
-        return [ODataSearchExpression searchWithKind:ODataSearchPhrase text:phrase left:nil right:nil];
+        NSError *error = nil;
+        ODataSearchExpression *built = [ODataSearchExpression searchWithKind:ODataSearchPhrase text:phrase left:nil right:nil error:&error];
+        return built ?: [self fail:error.localizedDescription];
       }
       if (d == '\\' && _at < _text.length) d = [_text characterAtIndex:_at++];
       [phrase appendFormat:@"%C", d];
@@ -1720,7 +1785,9 @@ static const NSInteger OISMaxNesting = 100;
   NSString *word = [self peekWord];
   if ([word isEqualToString:@"AND"] || [word isEqualToString:@"OR"]) return [self fail:[NSString stringWithFormat:@"%@ needs a word before it", word]];
   _at += word.length;
-  return [ODataSearchExpression searchWithKind:ODataSearchWord text:word left:nil right:nil];
+  NSError *error = nil;
+  ODataSearchExpression *built = [ODataSearchExpression searchWithKind:ODataSearchWord text:word left:nil right:nil error:&error];
+  return built ?: [self fail:error.localizedDescription];
 }
 
 @end
@@ -1738,7 +1805,41 @@ static const NSInteger OISMaxNesting = 100;
   return e;
 }
 
-+ (instancetype)searchWithKind:(ODataSearchKind)kind text:(NSString *)text left:(ODataSearchExpression *)left right:(ODataSearchExpression *)right
+// A search word (4.01 ABNF searchWord): no space, parenthesis or double
+// quote, not a single quote first, and not AND, OR or NOT.
+static BOOL OISIsSearchWord(NSString *word)
+{
+  if (![word isKindOfClass:[NSString class]] || !word.length || [word hasPrefix:@"'"]) return NO;
+  if ([@[ @"AND", @"OR", @"NOT" ] containsObject:word]) return NO;
+  NSMutableCharacterSet *refused = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
+  [refused addCharactersInString:@"()\""];
+  return [word rangeOfCharacterFromSet:refused].location == NSNotFound;
+}
+
++ (instancetype)searchWithKind:(ODataSearchKind)kind text:(NSString *)text left:(ODataSearchExpression *)left
+                         right:(ODataSearchExpression *)right error:(NSError **)error
+{
+  switch (kind) {
+    case ODataSearchWord:
+      if (!OISCheckName(OISIsSearchWord(text), @"a search word (no space, parenthesis or \", not ' first, not AND, OR or NOT)", text, error)) {
+        return nil;
+      }
+      break;
+    case ODataSearchPhrase:
+      if (!OISCheckName(text.length > 0, @"a search phrase (some text)", text, error)) return nil;
+      break;
+    case ODataSearchAnd:
+    case ODataSearchOr:
+      if (!left || !right) return nil;
+      break;
+    case ODataSearchNot:
+      if (!left) return nil;
+      break;
+  }
+  return [self ofKind:kind text:text left:left right:right];
+}
+
++ (instancetype)ofKind:(ODataSearchKind)kind text:(NSString *)text left:(ODataSearchExpression *)left right:(ODataSearchExpression *)right
 {
   ODataSearchExpression *e = [[self alloc] init];
   e.kind = kind;

@@ -2718,7 +2718,9 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
       if (!value) return nil;
       NSString *hidden = [@"__ois_aggregate_" stringByAppendingString:aggregate.alias];
       expressions[hidden] = value;
-      [aggregates addObject:[ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias]];
+      ODataAggregate *valued = [ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias error:error];
+      if (!valued) return nil;
+      [aggregates addObject:valued];
       continue;
     }
     if (aggregate.custom || !aggregate.path || (aggregate.path.count == 1 && OISIsComputed(computed, aggregate.path[0]))) {
@@ -2740,7 +2742,10 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
     } else if (!aggregate.isCustom) {
       aggregateAttributes[aggregate.alias] = property;
     }
-    [aggregates addObject:[ODataAggregate aggregateOfPath:[keyPath componentsSeparatedByString:@"."] method:aggregate.method alias:aggregate.alias]];
+    ODataAggregate *stored = [ODataAggregate aggregateOfPath:[keyPath componentsSeparatedByString:@"."] method:aggregate.method alias:aggregate.alias
+                                                       error:error];
+    if (!stored) return nil;
+    [aggregates addObject:stored];
   }
   if (expressions.count) {
     NSMutableArray *valued = [NSMutableArray array];
@@ -2937,7 +2942,9 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
       row[hidden] = value;
       valued[i] = row;
     }
-    [aggregates addObject:[ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias]];
+    ODataAggregate *hiddenAggregate = [ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias error:error];
+    if (!hiddenAggregate) return nil;
+    [aggregates addObject:hiddenAggregate];
   }
   for (ODataAggregate *aggregate in aggregates) {
     if (aggregate.custom) {
@@ -3182,10 +3189,17 @@ static NSMutableDictionary *OISMutableRow(NSDictionary *row)
   for (NSUInteger i = 0; i < asked.count; i++) {
     NSString *alias = [NSString stringWithFormat:@"__ois_these_%lu", (unsigned long)i];
     ODataAggregate *a = asked[i].aggregate;
-    [aggregates addObject:!a ? [ODataAggregate aggregateOfPath:nil method:nil alias:alias]
-                          : a.isCustom ? [ODataAggregate aggregateOfCustom:a.custom alias:alias]
-                          : a.expression ? [ODataAggregate aggregateOfExpression:a.expression method:a.method alias:alias]
-                          : [ODataAggregate aggregateOfPath:a.path method:a.method alias:alias]];
+    NSError *aggregateError = nil;
+    // (custom: a custom aggregate named alone; a custom method is a path's.)
+    ODataAggregate *again = !a ? [ODataAggregate aggregateOfPath:nil method:nil alias:alias error:&aggregateError]
+                          : a.custom ? [ODataAggregate aggregateOfCustom:a.custom alias:alias error:&aggregateError]
+                          : a.expression ? [ODataAggregate aggregateOfExpression:a.expression method:a.method alias:alias error:&aggregateError]
+                          : [ODataAggregate aggregateOfPath:a.path method:a.method alias:alias error:&aggregateError];
+    if (!again) {
+      [self respondError:ODataServiceError(400, aggregateError.localizedDescription)];
+      return nil;
+    }
+    [aggregates addObject:again];
   }
   ODataApplyTransformation *t = [ODataApplyTransformation aggregateWith:aggregates];
   NSError *error = nil;
@@ -3261,7 +3275,8 @@ ODataQueryOptions *OISOptionsReplacing(ODataQueryOptions *options, NSDictionary 
     copy.filter = [options.filter expressionReplacing:filterValues];
     NSMutableArray *compute = [NSMutableArray array];
     for (ODataComputeItem *item in options.compute) {
-      [compute addObject:[ODataComputeItem itemWithExpression:[item.expression expressionReplacing:filterValues] alias:item.alias]];
+      // (The alias was checked as the item was made.)
+      [compute addObject:[ODataComputeItem itemWithExpression:[item.expression expressionReplacing:filterValues] alias:item.alias error:NULL]];
     }
     copy.compute = compute;
   }
@@ -4064,9 +4079,10 @@ static id OISSparseAtPath(NSArray<NSString *> *path, NSArray<NSNumber *> *collec
       return nil;
     }
   }
-  NSString *text = at ? [timeline filterFrom:q[@"$at"] to:q[@"$at"] inclusive:YES]
-                      : [timeline filterFrom:q[@"$from"] to:q[@"$to"] ?: q[@"$toInclusive"] inclusive:!to];
-  ODataExpression *expression = [ODataExpression expressionWithString:text error:error];
+  // Built of the literals as they were read, not of their text.
+  ODataExpression *expression = at ? [timeline filterFrom:options.temporalAt to:options.temporalAt inclusive:YES error:error]
+                                   : [timeline filterFrom:options.temporalFrom to:options.temporalTo ?: options.temporalToInclusive inclusive:!to
+                                                    error:error];
   if (!expression) return nil;
   return [self.predicates predicateForExpression:expression entity:entity aliases:nil computed:nil
                                                  spans:self.planSpans error:error];
@@ -4911,8 +4927,10 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   return key;
 }
 
-// What a deep insert's body nested, as $expand: the response shows it.
-- (NSString *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity
+// What a deep insert's body nested, as $expand items: the response shows
+// it. (Each name is a property's wire name; one the builders refuse, which
+// no model should have, is not expanded.)
+- (NSArray<ODataExpandItem *> *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity
 {
   NSMutableArray *items = [NSMutableArray array];
   for (NSString *key in [body.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
@@ -4925,10 +4943,13 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     if (![self holds:[self.service handlerForEntity:relationship.destinationEntity].readScopes]) continue;
     id value = body[key];
     NSDictionary *first = [value isKindOfClass:[NSArray class]] ? [value firstObject] : value;
-    NSString *inner = [first isKindOfClass:[NSDictionary class]] ? [self expansionOfBody:first entity:relationship.destinationEntity] : nil;
-    [items addObject:inner.length ? [NSString stringWithFormat:@"%@($expand=%@)", key, inner] : key];
+    NSArray *inner = [first isKindOfClass:[NSDictionary class]] ? [self expansionOfBody:first entity:relationship.destinationEntity] : nil;
+    ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+    if (inner.count) options.expand = inner;
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ key ] options:options error:NULL];
+    if (item) [items addObject:item];
   }
-  return [items componentsJoinedByString:@","];
+  return items;
 }
 
 - (BOOL)save

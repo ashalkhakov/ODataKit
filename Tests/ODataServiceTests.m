@@ -4628,10 +4628,12 @@ static NSString *OISHTTPDate(NSDate *date)
   XCTAssertEqualObjects(query.queryOptions.filter.description, @"ID gt 2", @"%@", error);
   XCTAssertEqualObjects([query URL:&error], [(ODataIncrementalStore *)client.persistentStores.firstObject URLForFetchRequest:start error:NULL]);
   ODataMutableQueryOptions *more = [query.queryOptions mutableCopy];
+  ODataExpression *four = [ODataExpression binary:@"mul" left:[ODataExpression member:@"Amount" of:nil error:&error]
+                                             right:[ODataExpression literalWithValue:@4] error:&error];
+  ODataExpression *allSales = [ODataExpression aggregateOf:[ODataExpression variable:@"$these" error:&error] text:@"Amount with sum" error:&error];
   more.filter = [ODataExpression binary:@"and" left:more.filter
-                                   right:[ODataExpression binary:@"ge" left:[ODataExpression binary:@"mul" left:[ODataExpression member:@"Amount" of:nil]
-                                                                                              right:[ODataExpression literalWithValue:@4]]
-                                                            right:[ODataExpression aggregateOf:[ODataExpression variable:@"$these"] text:@"Amount with sum"]]];
+                                   right:[ODataExpression binary:@"ge" left:four right:allSales error:&error] error:&error];
+  XCTAssertNotNil(more.filter, @"%@", error);
   query.queryOptions = more;
   XCTAssertEqualObjects([[query execute:&error] valueForKey:saleKey], @[ @4 ], @"%@", error);
   XCTAssertEqualObjects(query.options[@"$filter"], @"ID gt 2 and Amount mul 4 ge $these/aggregate(Amount with sum)");
@@ -7587,6 +7589,19 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   OISServiceResponse *response = [self get:[NSString stringWithFormat:@"Employees?$filter=%@&$orderby=Nr", filter]];
   if (status) *status = response.status;
   return response.status == 200 ? [response.json[@"value"] valueForKey:@"Nr"] : nil;
+}
+
+// $apply naming what the builders refuse: a 400, as any syntax error is,
+// not an exception out of the service.
+- (void)testApplyWithNamesNotAllowed
+{
+  [self serveModel:OISCatalogModel()];
+  for (NSString *apply in @[ @"groupby((1Name))", @"groupby((Category.))", @"aggregate(UnitPrice with sum as 1x)" ]) {
+    OISServiceResponse *response = [self get:[@"Products?$apply=" stringByAppendingString:apply]];
+    XCTAssertEqual(response.status, 400, @"%@: %@", apply, response.text);
+  }
+  XCTAssertEqual([self get:@"Products?$filter=Suppliers/aggregate(Amount.. with sum) gt 1"].status, 400);
+  XCTAssertEqual([self get:@"Products?$apply=groupby((Category/CategoryName))"].status, 200);
 }
 
 // $count($filter=...) in $filter (OData 4.01): the members counted that

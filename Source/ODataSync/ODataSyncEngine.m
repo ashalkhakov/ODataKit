@@ -223,20 +223,21 @@ id ODSUnarchive(NSData *data)
 
 - (BOOL)downloadFromRemote:(ODataSyncRemote *)remote error:(NSError **)error
 {
-  // What the device changed and has not sent, known first.
-  return [[[ODSUploader alloc] initWithEngine:self remote:remote] collect:error] &&
+  // The names requests are written of, checked before any is sent; then
+  // what the device changed and has not sent, known first.
+  return [self.model checkNames:error] && [[[ODSUploader alloc] initWithEngine:self remote:remote] collect:error] &&
          [[[ODSDownloader alloc] initWithEngine:self remote:remote] download:error];
 }
 
 - (BOOL)uploadToRemote:(ODataSyncRemote *)remote error:(NSError **)error
 {
   [self noticeModelVersion];
-  return [[[ODSUploader alloc] initWithEngine:self remote:remote] upload:error];
+  return [self.model checkNames:error] && [[[ODSUploader alloc] initWithEngine:self remote:remote] upload:error];
 }
 
 - (BOOL)reconcileWithRemote:(ODataSyncRemote *)remote error:(NSError **)error
 {
-  return [[[ODSUploader alloc] initWithEngine:self remote:remote] collect:error] &&
+  return [self.model checkNames:error] && [[[ODSUploader alloc] initWithEngine:self remote:remote] collect:error] &&
          [[[ODSDownloader alloc] initWithEngine:self remote:remote] reconcile:error];
 }
 

@@ -247,7 +247,7 @@
   ODataPredicateTranslator *translator = [[ODataPredicateTranslator alloc] initWithMapper:mapper entity:gadget];
   NSError *error = nil;
   XCTAssertNil([translator translatePredicate:[NSPredicate predicateWithFormat:@"price > 1"] error:&error]);
-  XCTAssertEqual(error.code, ODataIncrementalStoreErrorUnsupportedExpression);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorInvalidName);
   XCTAssertTrue([error.localizedDescription containsString:@"Price eq 0 or true"], @"%@", error);
   XCTAssertEqualObjects([translator translatePredicate:[NSPredicate predicateWithFormat:@"id == 1"] error:NULL], @"Id eq 1");
 }

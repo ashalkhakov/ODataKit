@@ -286,6 +286,38 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqualObjects([self values:@"name" of:@"Asset" in:_device], (@[ @"Boiler" ]));
 }
 
+// The remote's filter is $filter text, read as an expression: one that
+// does not parse is the sync's error, not text sent as it is.
+- (void)testAFilterThatDoesNotParse
+{
+  _remote.filters = @{ @"Asset": @"Region eq 'North') or (true" };
+  NSError *error = nil;
+  XCTAssertFalse([_engine syncWithError:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorSyntax, @"%@", error);
+  XCTAssertEqualObjects([self values:@"name" of:@"Asset" in:_device], @[]);
+}
+
+// A model's name that cannot be written (an OData.property that is no
+// OData identifier): the sync's error, before anything is sent.
+- (void)testNamesThatCannotBeWritten
+{
+  NSManagedObjectModel *model = OSTModel();
+  NSEntityDescription *asset = model.entitiesByName[@"Asset"];  // typed: FreeCoreData's dictionaries are not
+  NSAttributeDescription *name = asset.attributesByName[@"name"];
+  name.userInfo = @{ @"OData.property": @"Name eq 0 or true" };
+  [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  NSPersistentStoreCoordinator *device = [self coordinatorWithModel:model];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = _service;
+  [engine addRemote:remote];
+  NSError *error = nil;
+  XCTAssertFalse([engine syncWithError:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorInvalidName, @"%@", error);
+  XCTAssertTrue([error.localizedDescription containsString:@"Name eq 0 or true"], @"%@", error);
+  XCTAssertEqualObjects([self values:@"name" of:@"Asset" in:device], @[]);
+}
+
 - (void)testReconcilingKeys
 {
   [self sync];

@@ -31,9 +31,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 // A set's rows (its to-ones' keys expanded), as the remote's filter for it
 // has them, or only their keys; those of these keys; an object's row.
-- (NSURL *)URLOfSet:(NSEntityDescription *)entity keysOnly:(BOOL)keysOnly;
-- (NSURL *)URLOfSet:(NSEntityDescription *)entity keys:(NSArray<NSDictionary *> *)keys;
-- (NSURL *)URLOfObject:(NSEntityDescription *)entity key:(NSDictionary *)key;
+// Typed queries, written by ODataKit; nil and the error for a remote's
+// filter that does not parse, or a name that cannot be written.
+- (nullable NSURL *)URLOfSet:(NSEntityDescription *)entity keysOnly:(BOOL)keysOnly error:(NSError **)error;
+- (nullable NSURL *)URLOfSet:(NSEntityDescription *)entity keys:(NSArray<NSDictionary *> *)keys error:(NSError **)error;
+- (nullable NSURL *)URLOfObject:(NSEntityDescription *)entity key:(NSDictionary *)key error:(NSError **)error;
 // A GET of JSON, with the headers every request has.
 - (NSMutableURLRequest *)GET:(NSURL *)url prefer:(nullable NSString *)prefer;
 

@@ -539,8 +539,12 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
     }
     values[name] = key[name];
   }
-  NSString *expansion = [self expansionOfBody:body entity:entity];
-  if (expansion.length) self.responseOptions = [ODataQueryOptions optionsWithQuery:@{ @"$expand": expansion } error:NULL];
+  NSArray *expansion = [self expansionOfBody:body entity:entity];
+  if (expansion.count) {
+    ODataMutableQueryOptions *shown = [[ODataMutableQueryOptions alloc] init];
+    shown.expand = expansion;
+    self.responseOptions = shown;
+  }
   [self planInsertOf:entity values:values inputs:inputs];
 }
 
@@ -630,8 +634,12 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
     [self failPlanning:error];
     return;
   }
-  NSString *expansion = [self expansionOfBody:body entity:self.object.entity];
-  if (expansion.length) self.responseOptions = [ODataQueryOptions optionsWithQuery:@{ @"$expand": expansion } error:NULL];
+  NSArray *expansion = [self expansionOfBody:body entity:self.object.entity];
+  if (expansion.count) {
+    ODataMutableQueryOptions *shown = [[ODataMutableQueryOptions alloc] init];
+    shown.expand = expansion;
+    self.responseOptions = shown;
+  }
   OISPlanNode *update = [self updateOf:self.object values:values];
   update.inputs = inputs;
   update.replace = replace;

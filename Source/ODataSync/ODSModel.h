@@ -32,6 +32,11 @@ FOUNDATION_EXPORT NSAttributeDescription *_Nullable ODSModifiedAttributeOf(NSEnt
 - (NSArray<NSEntityDescription *> *)rootEntitiesGoing:(NSSet<NSNumber *> *)directions toward:(nullable ODataSyncRemote *)remote;
 // Every entity that syncs (sub-entities too): what a peer server serves.
 - (NSArray<NSEntityDescription *> *)syncedEntities;
+// The names requests are written of, each an OData identifier: the synced
+// entities' sets, their synced properties and to-ones, their keys. NO,
+// and an ODataIncrementalStoreErrorInvalidName, for one that is not (a
+// model's OData.entitySet or OData.property): nothing is sent then.
+- (BOOL)checkNames:(NSError **)error;
 
 // The synced attributes (served, not computed, no dynamic bag) and to-one
 // relationships to synced entities; the key's attributes (the root's).
