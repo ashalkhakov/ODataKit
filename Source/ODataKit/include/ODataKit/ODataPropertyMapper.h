@@ -174,7 +174,9 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoClosedClosedPeriods;
 // What does not match between a model and the schema, one sentence each:
 // an entity with no entity type or entity set, an attribute or
 // relationship with no property, a type that cannot hold the other, a key
-// that differs. Empty without a schema.
+// that differs. Without a schema, and before those: an OData.entitySet or
+// OData.property override that is no OData identifier (ODataIsIdentifier),
+// which no request can name.
 - (NSArray<NSString *> *)problemsWithModel:(NSManagedObjectModel *)model;
 // The same, of a configuration's entities only (nil: all of them), and of
 // their relationships within it: a store that holds one configuration

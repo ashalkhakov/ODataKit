@@ -44,6 +44,99 @@
 
 // Expressions built, not read: each describes itself as $filter writes it,
 // in parentheses only where the precedence needs them.
+// Names the builders write as they are: those OData allows there, and no
+// other, which raises (it could carry filter text).
+- (void)testNamesBuiltAreChecked
+{
+  ODataExpression *price = [ODataExpression member:@"UnitPrice" of:nil];
+  XCTAssertEqualObjects(([ODataExpression memberPath:@[ @"Category", @"_Name2" ] of:nil].description), @"Category/_Name2");
+  XCTAssertEqualObjects(([ODataExpression cast:@"Edm.Int32" of:price].description), @"UnitPrice/Edm.Int32");
+  XCTAssertEqualObjects(([ODataExpression cast:@"Org.Example.Manager" of:nil].description), @"Org.Example.Manager");
+  for (NSString *name in @[ @"$it", @"$root", @"$these", @"$this", @"x0" ]) {
+    XCTAssertEqualObjects([ODataExpression variable:name].description, name);
+  }
+  XCTAssertEqualObjects([ODataExpression alias:@"@p1"].description, @"@p1");
+  XCTAssertEqualObjects(([ODataExpression call:@"NS.Rating" of:price namedArguments:@{ @"On": [ODataExpression literalWithValue:@1] }].description),
+                        @"UnitPrice/NS.Rating(On=1)");
+
+  NSString *long128 = [@"" stringByPaddingToLength:128 withString:@"a" startingAtIndex:0];
+  XCTAssertNoThrow([ODataExpression member:long128 of:nil]);
+  XCTAssertTrue(ODataIsIdentifier(@"_a1") && ODataIsIdentifier(long128) && ODataIsQualifiedName(@"Edm.String"));
+  XCTAssertFalse(ODataIsIdentifier(@"1a") || ODataIsIdentifier(@"") || ODataIsIdentifier(nil) || ODataIsQualifiedName(@"String") ||
+                 ODataIsQualifiedName(@"NS..T") || ODataIsIdentifier([long128 stringByAppendingString:@"a"]));
+
+  NSArray *refused = @[
+    ^{ [ODataExpression member:@"A eq 1 or true" of:nil]; },
+    ^{ [ODataExpression member:@"Category/Name" of:nil]; },
+    ^{ [ODataExpression member:@"Unit Price" of:nil]; },
+    ^{ [ODataExpression member:@"" of:nil]; },
+    ^{ [ODataExpression member:@"$count" of:nil]; },
+    ^{ [ODataExpression memberPath:@[ @"Category", @"Name) or (1" ] of:nil]; },
+    ^{ [ODataExpression cast:@"NS.T) or (1" of:nil]; },
+    ^{ [ODataExpression cast:@"Manager" of:nil]; },
+    ^{ [ODataExpression variable:@"$x"]; },
+    ^{ [ODataExpression variable:@"x eq 1"]; },
+    ^{ [ODataExpression alias:@"@p or true"]; },
+    ^{ [ODataExpression binary:@"eq 1 or" left:price right:price]; },
+    ^{ [ODataExpression unary:@"not not" operand:price]; },
+    ^{ [ODataExpression call:@"contains(x) or startswith" arguments:@[]]; },
+    ^{ [ODataExpression call:@"NS.F" of:nil namedArguments:@{ @"p) or (q": price }]; },
+    ^{ [ODataExpression lambda:@"some" of:price variable:@"x" body:price]; },
+    ^{ [ODataExpression lambda:@"any" of:price variable:@"x:true) or (y" body:price]; },
+  ];
+  for (void (^build)(void) in refused) {
+    XCTAssertThrowsSpecificNamed(build(), NSException, NSInvalidArgumentException);
+  }
+
+  // What builds from names it does not choose turns a refusal into an error.
+  NSError *error = nil;
+  XCTAssertNil(ODataExpressionBuilding(&error, ^id { return [ODataExpression member:@"A eq 1 or true" of:nil]; }));
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorUnsupportedExpression);
+  XCTAssertTrue([error.localizedDescription containsString:@"A eq 1 or true"], @"%@", error);
+  XCTAssertEqualObjects(ODataExpressionBuilding(NULL, ^id { return price; }), price);
+  XCTAssertThrows(ODataExpressionBuilding(NULL, ^id { return @[][1]; }), @"other exceptions go on");
+}
+
+// Cars/$count($filter=...): the members counted that pass (OData 4.01).
+- (void)testFilteredCount
+{
+  ODataExpression *cars = [ODataExpression member:@"Cars" of:nil];
+  XCTAssertEqualObjects([ODataExpression countOf:cars filter:nil].description, @"Cars/$count");
+  ODataExpression *owned = [ODataExpression lambda:@"any" of:[ODataExpression member:@"IsOwnedByEmployees" of:nil] variable:@"x"
+                                              body:[ODataExpression binary:@"eq" left:[ODataExpression member:@"Nr" of:[ODataExpression variable:@"x"]]
+                                                                     right:[ODataExpression member:@"Nr" of:[ODataExpression variable:@"$it"]]]];
+  ODataExpression *count = [ODataExpression countOf:cars filter:owned];
+  XCTAssertEqualObjects(count.countFilter, owned);
+  XCTAssertNil([ODataExpression countOf:cars].countFilter);
+  XCTAssertNil(owned.countFilter, @"a lambda's body is no count's filter");
+  NSString *text = @"OwnsCars/any() and not (Cars/$count($filter=IsOwnedByEmployees/any(x:x/Nr eq $it/Nr)) gt 1)";
+  ODataExpression *built = [ODataExpression binary:@"and" left:[ODataExpression lambda:@"any" of:[ODataExpression member:@"OwnsCars" of:nil] variable:nil body:nil]
+                                            right:[ODataExpression unary:@"not" operand:[ODataExpression binary:@"gt" left:count right:[ODataExpression literalWithValue:@1]]]];
+  XCTAssertEqualObjects(built.description, text);
+
+  // Read: the same tree; filter without its $, and $this, a variable.
+  NSError *error = nil;
+  ODataExpression *parsed = [ODataExpression expressionWithString:text error:&error];
+  XCTAssertEqualObjects(parsed.description, text, @"%@", error);
+  ODataExpression *readCount = parsed.right.operand.left;
+  XCTAssertEqual(readCount.kind, ODataExpressionCount);
+  XCTAssertEqualObjects(readCount.countFilter.description, owned.description);
+  ODataExpression *bare = [ODataExpression expressionWithString:@"Cars/$count(filter=$this/Color eq 'red') ge 2" error:&error];
+  XCTAssertEqualObjects(bare.description, @"Cars/$count($filter=$this/Color eq 'red') ge 2", @"%@", error);
+  XCTAssertEqual(bare.left.countFilter.left.operand.kind, ODataExpressionVariable);
+  XCTAssertEqualObjects([ODataExpression expressionWithString:@"Cars/$count($filter=Color eq 'red';$filter=Nr eq 1) gt 0" error:NULL], nil);
+  XCTAssertNil([ODataExpression expressionWithString:@"Cars/$count($top=1) gt 0" error:NULL]);
+  XCTAssertNil([ODataExpression expressionWithString:@"Cars/$count($filter=Color eq 'red' gt 0" error:NULL]);
+  error = nil;
+  XCTAssertNil([ODataExpression expressionWithString:@"Cars/$count($search=red) gt 0" error:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorUnsupportedExpression, @"%@", error);
+
+  // Its parts are walked: replaced, found.
+  ODataExpression *red = [ODataExpression expressionWithString:@"Cars/$count($filter=Color eq @c) gt 0" error:NULL];
+  XCTAssertEqualObjects([red expressionReplacing:@{ @"@c": @"red" }].description, @"Cars/$count($filter=Color eq 'red') gt 0");
+  XCTAssertEqual([red partsPassingTest:^BOOL(ODataExpression *part) { return part.kind == ODataExpressionAlias; }].count, 1u);
+}
+
 - (void)testExpressionsBuilt
 {
   ODataExpression *price = [ODataExpression member:@"UnitPrice" of:nil];
@@ -81,6 +174,15 @@
   XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price) gt 0 or (1" ] method:@"sum" alias:@"x"]]));
   XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"sum) or (x" alias:@"x"]]));
   XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:@"Price with sum"]));
+  // A custom method is a qualified name; $count of a path; no empty path,
+  // and no method without a path.
+  XCTAssertEqualObjects(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"Custom.median" alias:@"m"]].description),
+                        @"Sales/aggregate(Price with Custom.median)");
+  XCTAssertEqualObjects(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Lines" ] method:@"$count" alias:@"n"]].description),
+                        @"Sales/aggregate(Lines/$count)");
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[] method:@"$count" alias:@"n"]]));
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:nil method:@"sum" alias:@"n"]]));
+  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfCustom:@"Forecast" alias:@"f"]]));
   XCTAssertEqualObjects(([ODataExpression literalWithText:@"Zoo.Diet'Carnivore'"].description), @"Zoo.Diet'Carnivore'");
   XCTAssertNil(([ODataExpression literalWithText:@"Name"]), @"no literal");
   XCTAssertEqualObjects(([ODataExpression alias:@"p"].description), @"@p");

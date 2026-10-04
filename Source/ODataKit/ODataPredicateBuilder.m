@@ -160,6 +160,9 @@ static NSPredicate *OISCompare(NSExpression *left, NSPredicateOperatorType type,
 @property (nonatomic, strong) NSEntityDescription *root;
 @property (nonatomic, copy) NSDictionary<NSString *, ODataExpression *> *aliases;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, OISTerm *> *scope;
+// Inside a count's $filter: the member counted, which a member path with
+// no variable, and $this, start from ($it is still the root).
+@property (nonatomic, strong, nullable) OISTerm *current;
 @property (nonatomic, copy) NSDictionary<NSString *, NSEntityDescription *> *entitiesByTypeName;
 @property (nonatomic, copy) NSSet * (^restrictedProperties)(NSEntityDescription *entity, BOOL sorting);
 @property (nonatomic, copy) ODataDynamicPropertyPredicate dynamicProperty;
@@ -401,7 +404,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
   }
   NSEntityDescription *type = [self typeNamed:args.lastObject what:@"isof"];
   if (!type) return nil;
-  OISTerm *object = args.count == 2 ? [self term:args[0]] : [self itTerm];
+  OISTerm *object = args.count == 2 ? [self term:args[0]] : (self.current ?: [self itTerm]);
   if (!object) return nil;
   if (object.kind == OISTermCollection) return [self fail:400 message:[NSString stringWithFormat:@"isof: %@ is a collection", args[0]]];
   if (object.kind != OISTermEntity) return [self unsupported:@"isof of a value"];
@@ -515,6 +518,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
     }
     case ODataExpressionVariable: {
       if ([e.name isEqualToString:@"$it"]) return [self itTerm];
+      if ([e.name isEqualToString:@"$this"]) return self.current ?: [self itTerm];
       OISTerm *scoped = self.scope[e.name];
       if (scoped) return scoped;
       if ([e.name hasPrefix:@"$"]) return [self unsupported:e.name];
@@ -532,9 +536,20 @@ static BOOL OISWidens(NSString *from, NSString *to)
       t.kind = OISTermValue;
       t.guard = collection.guard;
       t.wireName = e.description;
-      if (collection.elementType) {
+      if (collection.elementType || e.countFilter) {
+        // The members counted: of a cast collection, those of the type;
+        // with $filter, those it is true of, read from the member ($it
+        // still the root, a key path from it, as in any and all).
         OISTerm *element = [self elementOf:collection];
-        NSPredicate *member = [self member:element of:collection test:nil];
+        NSPredicate *test = nil;
+        if (e.countFilter) {
+          OISTerm *outer = self.current;
+          self.current = element;
+          test = [self predicate:e.countFilter];
+          self.current = outer;
+          if (!test) return nil;
+        }
+        NSPredicate *member = [self member:element of:collection test:test];
         NSExpression *members = [NSExpression expressionForSubquery:[self pathExpression:collection]
                                               usingIteratorVariable:element.variable
                                                           predicate:member];
@@ -556,7 +571,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
     case ODataExpressionCall:
       return e.aggregate ? [self aggregateTerm:e] : [self callTerm:e];
     case ODataExpressionCast: {
-      OISTerm *base = e.operand ? [self term:e.operand] : [self itTerm];
+      OISTerm *base = e.operand ? [self term:e.operand] : (self.current ?: [self itTerm]);
       if (!base) return nil;
       NSEntityDescription *type = [self typeForName:e.name what:@"A cast"];
       return type ? [self cast:base to:type named:e.name] : nil;
@@ -568,7 +583,9 @@ static BOOL OISWidens(NSString *from, NSString *to)
 
 - (OISTerm *)memberTerm:(ODataExpression *)e
 {
-  id named = e.operand ? nil : self.computed[e.name];
+  // $compute's names and a join's aliases are the root's, not a counted
+  // member's.
+  id named = e.operand || self.current ? nil : self.computed[e.name];
   if ([named isKindOfClass:[NSEntityDescription class]]) {
     // A join's alias: a navigation property to the joined member, which may
     // be null (an outerjoin's).
@@ -587,7 +604,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
     self.computeDepth--;
     return t;
   }
-  OISTerm *base = e.operand ? [self term:e.operand] : [self itTerm];
+  OISTerm *base = e.operand ? [self term:e.operand] : (self.current ?: [self itTerm]);
   if (!base) return nil;
   if (base.kind == OISTermCollection) {
     return [self fail:400 message:[NSString stringWithFormat:@"%@ is a collection: its members are reached with any or all", e.operand]];
@@ -797,7 +814,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
       return base ? [self value:base castTo:primitive] : nil;
     }
     NSEntityDescription *type = [self typeNamed:args.lastObject what:@"cast"];
-    OISTerm *base = !type ? nil : args.count == 2 ? [self term:args[0]] : [self itTerm];
+    OISTerm *base = !type ? nil : args.count == 2 ? [self term:args[0]] : (self.current ?: [self itTerm]);
     return base ? [self cast:base to:type named:args.lastObject.description] : nil;
   }
   if ([e.name isEqualToString:@"now"] && args.count == 0) {
@@ -913,6 +930,8 @@ static NSString *OISConstantString(OISTerm *t)
     if (!e.operand) break;
   }
   if (e.kind != ODataExpressionMember && !(e.kind == ODataExpressionVariable && [e.name isEqualToString:@"$it"])) return nil;
+  // Inside a count's $filter, a path with no variable is the member's.
+  if (self.current && e.kind == ODataExpressionMember) return nil;
   if (!path.count || self.computed[path[0]] || [self.mapper propertyForWireName:path[0] entity:self.root]) return nil;
   return path;
 }
@@ -921,7 +940,9 @@ static NSString *OISConstantString(OISTerm *t)
 - (NSPredicate *)dynamic:(NSArray<NSString *> *)path type:(NSPredicateOperatorType)type literal:(ODataExpression *)literal
 {
   NSString *name = [path componentsJoinedByString:@"/"];
-  if (self.scope.count) return [self unsupported:[NSString stringWithFormat:@"The dynamic property %@ inside any or all", name]];
+  if (self.scope.count || self.current) {
+    return [self unsupported:[NSString stringWithFormat:@"The dynamic property %@ inside any, all or $count(...)", name]];
+  }
   literal = [self resolve:literal];
   if (!literal) return nil;
   if (literal.kind != ODataExpressionLiteral) {

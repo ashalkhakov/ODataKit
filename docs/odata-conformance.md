@@ -165,7 +165,7 @@ calling the client conformant.
 | `rel == %@`, `!=`, `IN` with managed objects or object IDs | `Nav/Key eq …`, `not (…)`, `Nav/Key in (…)` | ✅ **live** | Compares keys through the to-one path; a compound key compares each part. An unsaved object is an error. |
 | `self == %@`, `self IN %@` | `Key eq …`, `Key in (…)` | ✅ | Inside a lambda, against the lambda variable. |
 | `ANY` / `ALL` on to-many | `Nav/any(x0:…)`, `Nav/all(x0:…)` | ✅ **live** | Split at the first to-many step; a further to-many step nests another lambda. `ANY` over a to-one path is the plain comparison. |
-| `SUBQUERY(…).@count` | `Nav/any(…)`, `not Nav/any(…)`, `Nav/all(…)` | ✅ | Counted against nought: more than none is `any`, none is `not any` (or `all` of a negated body). Any other count is an error. |
+| `SUBQUERY(…).@count` | `Nav/any(…)`, `not Nav/any(…)`, `Nav/all(…)`; `Nav/$count($filter=…)` | ✅ | Counted against nought: more than none is `any`, none is `not any` (or `all` of a negated body). Any other comparison is `Nav/$count($filter=…) op n` at 4.01 (the variable's paths the member's, `SELF` `$it`; a key path not through the variable is refused), and an error at 4.0. |
 | `rel.@count` | `Nav/$count` | ✅ | |
 | `entity == %@`, `entity IN %@` | `isof(NS.Type)`, `isof(Nav,NS.Type)` | ✅ | An exact type leaves its subentities out (`isof(A) and not isof(B)`); a subentity's property is written through a cast (`NS.Manager/Budget`). |
 | `name.length` | `length(Name)` | ✅ | |

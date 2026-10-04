@@ -27,7 +27,8 @@ static NSManagedObject *OISObjectOfRow(id row)
 
 // Whether an expression names, from $it, a property the entity does not
 // declare (nor $compute): an open type's dynamic property. Not inside a
-// lambda, whose names are its variable's.
+// lambda, whose names are its variable's, nor in a count's $filter, whose
+// names are the counted member's.
 static BOOL OISNamesUndeclared(ODataExpression *e, NSEntityDescription *entity, ODataPropertyMapper *mapper, NSDictionary *computed)
 {
   if (!e) return NO;
@@ -757,7 +758,19 @@ static BOOL OISNestsPerParent(ODataQueryOptions *options)
       return base ? [self readPath:@[ e.name ] from:base aliases:nil into:permissions] : nil;
     }
     case ODataExpressionVariable:
-      return [e.name isEqualToString:@"$it"] || [e.name isEqualToString:@"$this"] ? it : variables[e.name];
+      // In a count's $filter, it is the member counted and $it the root
+      // (variables' "$it", which no lambda variable can be named).
+      if ([e.name isEqualToString:@"$it"]) return variables[@"$it"] ?: it;
+      return [e.name isEqualToString:@"$this"] ? it : variables[e.name];
+    case ODataExpressionCount: {
+      NSEntityDescription *members = [self readExpression:e.operand it:it variables:variables into:permissions];
+      if (e.countFilter && members) {
+        NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:variables ?: @{}];
+        inner[@"$it"] = variables[@"$it"] ?: it;
+        [self readExpression:e.countFilter it:members variables:inner into:permissions];
+      }
+      return nil;
+    }
     case ODataExpressionCast: {
       NSEntityDescription *base = e.operand ? [self readExpression:e.operand it:it variables:variables into:permissions] : it;
       NSEntityDescription *cast = [self entityForTypeName:e.name];

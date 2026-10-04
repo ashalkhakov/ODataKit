@@ -219,6 +219,68 @@
   [self assertPredicate:@"unitPrice + 1 > 20" filter:@"UnitPrice add 1 gt 20"];
 }
 
+// A model's name override that is no OData identifier: a problem of the
+// model, and an error of the fetch that names it, not an exception.
+- (void)testNameOverrideNoIdentifier
+{
+  NSEntityDescription *gadget = [[NSEntityDescription alloc] init];
+  gadget.name = @"Gadget";
+  gadget.managedObjectClassName = @"NSManagedObject";
+  gadget.userInfo = @{ ODataUserInfoEntitySet: @"Gadgets" };
+  NSAttributeDescription *key = [[NSAttributeDescription alloc] init];
+  key.name = @"id";
+  key.attributeType = NSInteger32AttributeType;
+  key.userInfo = @{ @"OData.key": @"YES" };
+  NSAttributeDescription *price = [[NSAttributeDescription alloc] init];
+  price.name = @"price";
+  price.attributeType = NSDoubleAttributeType;
+  price.userInfo = @{ ODataUserInfoProperty: @"Price eq 0 or true" };
+  gadget.properties = @[ key, price ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ gadget ];
+
+  ODataPropertyMapper *mapper = [[ODataPropertyMapper alloc] init];
+  NSArray *problems = [mapper problemsWithModel:model];
+  XCTAssertEqual(problems.count, 1u, @"%@", problems);
+  XCTAssertTrue([problems.firstObject containsString:@"Gadget.price"], @"%@", problems);
+
+  ODataPredicateTranslator *translator = [[ODataPredicateTranslator alloc] initWithMapper:mapper entity:gadget];
+  NSError *error = nil;
+  XCTAssertNil([translator translatePredicate:[NSPredicate predicateWithFormat:@"price > 1"] error:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorUnsupportedExpression);
+  XCTAssertTrue([error.localizedDescription containsString:@"Price eq 0 or true"], @"%@", error);
+  XCTAssertEqualObjects([translator translatePredicate:[NSPredicate predicateWithFormat:@"id == 1"] error:NULL], @"Id eq 1");
+}
+
+// A SUBQUERY's count against anything but nought: at 4.01, the members
+// counted that pass, $count($filter=...); its variable's paths the
+// member's, SELF $it. 4.0 has no such count.
+- (void)testFilteredCount
+{
+  NSError *error = nil;
+  NSPredicate *more = [NSPredicate predicateWithFormat:@"SUBQUERY(suppliers, $s, $s.city == 'London').@count > 1"];
+  XCTAssertNil([_translator translatePredicate:more error:&error]);
+  XCTAssertTrue([error.localizedDescription containsString:@"4.01"], @"%@", error);
+  _translator.version = @"4.01";
+  [self assertPredicate:@"SUBQUERY(suppliers, $s, $s.city == 'London').@count > 1"
+                 filter:@"Suppliers/$count($filter=City eq 'London') gt 1"];
+  [self assertPredicate:@"count:(SUBQUERY(suppliers, $s, $s.city == 'London' AND $s.country != 'UK')) == 2"
+                 filter:@"Suppliers/$count($filter=City eq 'London' and Country ne 'UK') eq 2"];
+  [self assertPredicate:@"2 <= SUBQUERY(suppliers, $s, $s.city == 'London').@count"
+                 filter:@"Suppliers/$count($filter=City eq 'London') ge 2"];
+  [self assertPredicate:@"SUBQUERY(suppliers, $s, $s == SELF).@count < 3"
+                 filter:@"Suppliers/$count($filter=$this eq $it) lt 3"];
+  // Some and none are any and not any still.
+  [self assertPredicate:@"SUBQUERY(suppliers, $s, $s.city == 'London').@count > 0"
+                 filter:@"Suppliers/any(x0:x0/City eq 'London')"];
+  // A key path not through the variable is the outer object's: refused.
+  error = nil;
+  NSPredicate *outer = [NSPredicate predicateWithFormat:@"SUBQUERY(suppliers, $s, city == 'London').@count > 1"];
+  XCTAssertNil([_translator translatePredicate:outer error:&error]);
+  XCTAssertTrue([error.localizedDescription containsString:@"$s.city"], @"%@", error);
+  _translator.version = @"4.0";
+}
+
 // A collection operator after a to-many relationship is Data
 // Aggregation's aggregate(), where the service has it; else refused.
 - (void)testCollectionOperatorsAreAggregates

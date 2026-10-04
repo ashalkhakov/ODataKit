@@ -28,6 +28,14 @@
 // Inside a SUBQUERY written as a lambda: its variable, whose key paths
 // ($s.city) are the lambda variable's.
 @property (nonatomic, copy, nullable) NSString *subqueryVariable;
+// Translating a counted SUBQUERY's condition into $count($filter=...):
+// its variable is the member counted ($this, and its paths bare), SELF is
+// $it. A key path not through the variable is refused: in a SUBQUERY it
+// is the outer object's (as Apple's stores and evaluation read it), which
+// the filter would read as the member's. throughVariable: mapping a path
+// that came through it.
+@property (nonatomic) BOOL countFilter;
+@property (nonatomic) NSInteger throughVariable;
 @end
 
 // An expression that applies a key path to another (the variable of a
@@ -147,7 +155,17 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   return e;
 }
 
+// A name from the model the expression builders refuse (an OData.property
+// that is no OData identifier) is an error of the fetch, not an exception
+// out of it (ODataExpressionBuilding).
 - (ODataExpression *)expressionForPredicate:(NSPredicate *)predicate error:(NSError **)error
+{
+  return ODataExpressionBuilding(error, ^id {
+    return [self uncheckedExpressionForPredicate:predicate error:error];
+  });
+}
+
+- (ODataExpression *)uncheckedExpressionForPredicate:(NSPredicate *)predicate error:(NSError **)error
 {
   if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
     return [self translateCompound:(NSCompoundPredicate *)predicate error:error];
@@ -404,6 +422,13 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
 
 - (ODataExpression *)expressionForValue:(NSExpression *)expression error:(NSError **)error
 {
+  return ODataExpressionBuilding(error, ^id {
+    return [self uncheckedExpressionForValue:expression error:error];
+  });
+}
+
+- (ODataExpression *)uncheckedExpressionForValue:(NSExpression *)expression error:(NSError **)error
+{
   switch (expression.expressionType) {
     case NSConstantValueExpressionType:
       // gnustep-base rewrites BETWEEN into >= AND <= and wraps each bound,
@@ -417,7 +442,9 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     case NSEvaluatedObjectExpressionType:
       return [ODataExpression variable:self.lambdaVariable ?: @"$it"];
     case NSVariableExpressionType:
-      if (self.subqueryVariable && [expression.variable isEqualToString:self.subqueryVariable]) return [ODataExpression variable:self.lambdaVariable];
+      if (self.subqueryVariable && [expression.variable isEqualToString:self.subqueryVariable]) {
+        return [ODataExpression variable:self.lambdaVariable ?: @"$this"];
+      }
       if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedExpression, expression.description);
       return nil;
     case NSFunctionExpressionType: {
@@ -529,6 +556,12 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
 // and an error, not a guess.
 - (ODataExpression *)mapKeyPath:(NSString *)path error:(NSError **)error
 {
+  if (self.countFilter && !self.throughVariable) {
+    if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate,
+                                 [NSString stringWithFormat:@"%@: in a counted SUBQUERY, a key path not through its variable is the outer "
+                                                            @"object's; write it through the variable ($%@.%@)", path, self.subqueryVariable, path]);
+    return nil;
+  }
   ODataExpression *mapped = self.lambdaVariable ? [ODataExpression variable:self.lambdaVariable] : nil;
   if (self.elementType) {
     return OISAlongPath(mapped, [self.mapper memberPath:[path componentsSeparatedByString:@"."] ofType:self.elementType memberType:NULL]);
@@ -644,7 +677,10 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   NSString *keyPath = nil;
   if (!OISKeyPathOn(expression, &base, &keyPath) || base.expressionType != NSVariableExpressionType) return nil;
   if (!self.subqueryVariable || ![base.variable isEqualToString:self.subqueryVariable]) return nil;
-  return [self mapKeyPath:keyPath error:error];
+  self.throughVariable++;
+  ODataExpression *mapped = [self mapKeyPath:keyPath error:error];
+  self.throughVariable--;
+  return mapped;
 }
 
 #pragma mark - Types and counts
@@ -675,7 +711,9 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   }
   ODataExpression *object = nil;
   if ([keyPath hasSuffix:@".entity"]) {
+    if (base) self.throughVariable++;
     object = [self mapKeyPath:[keyPath substringToIndex:keyPath.length - 7] error:error];
+    if (base) self.throughVariable--;
     if (!object) return nil;
   } else if (self.lambdaVariable) {
     object = [ODataExpression variable:self.lambdaVariable];
@@ -753,9 +791,10 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
               (one && type == NSGreaterThanOrEqualToPredicateOperatorType);
   BOOL none = (zero && (type == NSEqualToPredicateOperatorType || type == NSLessThanOrEqualToPredicateOperatorType)) ||
               (one && type == NSLessThanPredicateOperatorType);
-  if (!some && !none) {
+  if (!some && !none && !self.speaks401) {
     if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate,
-                                 [NSString stringWithFormat:@"a SUBQUERY is counted against nought, as any or none: %@", cmp]);
+                                 [NSString stringWithFormat:@"a SUBQUERY is counted against nought, as any or none, at OData 4.0 "
+                                                            @"($count($filter=...) is 4.01's): %@", cmp]);
     return nil;
   }
   NSExpression *collection = counted.collection;
@@ -776,6 +815,7 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
     if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate, [NSString stringWithFormat:@"%@ is not a collection", collection.keyPath]);
     return nil;
   }
+  if (!some && !none) return [self filteredCount:counted path:path element:element type:type value:right error:error];
   // none of NOT q is all of q.
   NSPredicate *body = counted.predicate;
   NSString *function = @"any";
@@ -791,6 +831,30 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path)
   if (!test) return nil;
   ODataExpression *lambda = [ODataExpression lambda:function of:path variable:inner.lambdaVariable body:test];
   return none ? [ODataExpression unary:@"not" operand:lambda] : lambda;
+}
+
+// SUBQUERY(cars, $c, q).@count > 1, at 4.01: Cars/$count($filter=q') gt 1,
+// where q' reads $c's paths as the member's and SELF as $it.
+- (ODataExpression *)filteredCount:(NSExpression *)counted path:(ODataExpression *)path element:(NSEntityDescription *)element
+                              type:(NSPredicateOperatorType)type value:(NSExpression *)value error:(NSError **)error
+{
+  NSDictionary *operators = @{ @(NSEqualToPredicateOperatorType): @"eq", @(NSNotEqualToPredicateOperatorType): @"ne",
+                               @(NSLessThanPredicateOperatorType): @"lt", @(NSLessThanOrEqualToPredicateOperatorType): @"le",
+                               @(NSGreaterThanPredicateOperatorType): @"gt", @(NSGreaterThanOrEqualToPredicateOperatorType): @"ge" };
+  NSString *op = operators[@(type)];
+  if (!op) {
+    if (error) *error = OISError(ODataIncrementalStoreErrorUnsupportedPredicate,
+                                 [NSString stringWithFormat:@"a SUBQUERY's count compared with =, !=, <, <=, > or >=: %@", counted]);
+    return nil;
+  }
+  ODataPredicateTranslator *inner = [self innerFor:element];
+  inner.subqueryVariable = counted.variable;
+  inner.countFilter = YES;
+  ODataExpression *test = [inner expressionForPredicate:counted.predicate error:error];
+  if (!test) return nil;
+  ODataExpression *right = [self expressionForValue:value error:error];
+  if (!right) return nil;
+  return [ODataExpression binary:op left:[ODataExpression countOf:path filter:test] right:right];
 }
 
 // What an expression counts: the SUBQUERY of count:(SUBQUERY(...)) or

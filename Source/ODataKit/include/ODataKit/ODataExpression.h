@@ -23,7 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, ODataExpressionKind) {
   ODataExpressionLiteral,   // value, literalType
   ODataExpressionMember,    // name, of operand (nil: of $it, or of the lambda variable in scope)
-  ODataExpressionVariable,  // name: $it, $root, a lambda's variable
+  ODataExpressionVariable,  // name: $it, $root, $these, $this, a lambda's variable
   ODataExpressionAlias,     // name: @p, a parameter alias
   ODataExpressionUnary,     // name: not, -; operand
   ODataExpressionBinary,    // name: eq ne gt ge lt le has in and or add sub mul div divby mod; left, right
@@ -31,7 +31,7 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
                             // (a service's function); operand, when bound: Category/NS.F(p=1)
   ODataExpressionLambda,    // name: any, all; operand (the collection), variable, body (nil: any())
   ODataExpressionCast,      // name: the qualified type; operand
-  ODataExpressionCount,     // operand/$count
+  ODataExpressionCount,     // operand/$count; body: its $filter, operand/$count($filter=body) (countFilter)
   ODataExpressionList       // arguments: (1,2,3) for in, [1,2,3]
 };
 
@@ -54,6 +54,15 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 @property (nonatomic, readonly, copy, nullable) NSDictionary<NSString *, ODataExpression *> *namedArguments;
 @property (nonatomic, readonly, copy, nullable) NSString *variable;
 @property (nonatomic, readonly, strong, nullable) ODataExpression *body;
+// A count's filter: the members of the collection it counts, those for
+// which it is true (OData 4.01, $count($filter=...)); nil for any other
+// node, and for a count of all the members. In it, a member path with no
+// variable, and $this, are the counted member's; $it is still the object
+// of the resource path (the outer one), and a lambda variable in scope
+// outside is still in scope: Cars/$count($filter=Color eq 'red' and
+// Owner/Nr eq $it/Nr). It is the node's body, so whatever walks a
+// lambda's body walks it too.
+@property (nonatomic, readonly, strong, nullable) ODataExpression *countFilter;
 
 // A collection's aggregate (Data Aggregation section 3.6.1): a call named
 // aggregate, of operand (a collection-valued path, or $these, the current
@@ -77,28 +86,48 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 + (nullable instancetype)literalWithText:(NSString *)text;
 
 // Expressions built, not read; each describes itself as $filter writes it.
-// A member of operand (nil: of $it, or of the lambda variable in scope).
+//
+// Names and operators are written as they are given, so each is checked
+// against what OData's grammar allows in its place, and one that is not
+// allowed raises NSInvalidArgumentException: it could otherwise carry
+// filter text (a member named "Price eq 0 or true"). Names come from
+// models and code, so one refused is a programming or model error, as an
+// index out of range is. An OData identifier (Part 2 section 4.3) is a
+// letter or _, then letters, digits and _, 128 at most; a qualified name
+// is identifiers joined by dots (NS.Type, Edm.String). Values are never
+// refused: a literal is quoted as it is written.
+//
+// A member of operand (nil: of $it, or of the lambda variable in scope);
+// the name an OData identifier.
 + (instancetype)member:(NSString *)name of:(nullable ODataExpression *)operand;
-// Category/CategoryName: members along a path from $it (or a variable).
+// Category/CategoryName: members along a path from $it (or a variable);
+// each name an OData identifier.
 + (instancetype)memberPath:(NSArray<NSString *> *)path of:(nullable ODataExpression *)operand;
-// $it, $root, $these, or a lambda's variable.
+// $it, $root, $these, $this, or a lambda's variable (an OData identifier).
 + (instancetype)variable:(NSString *)name;
-// @p.
+// @p: an OData identifier, with or without the @.
 + (instancetype)alias:(NSString *)name;
 // eq ne gt ge lt le has in and or add sub mul div divby mod.
 + (instancetype)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right;
 // not, or - (negation).
 + (instancetype)unary:(NSString *)op operand:(ODataExpression *)operand;
 // A function: contains(a, b); bound, of operand (Zoo.Age(On=...) of $it).
+// Its name an OData identifier or a qualified name; parameter names OData
+// identifiers.
 + (instancetype)call:(NSString *)name arguments:(NSArray<ODataExpression *> *)arguments;
 + (instancetype)call:(NSString *)name of:(nullable ODataExpression *)operand
       namedArguments:(NSDictionary<NSString *, ODataExpression *> *)namedArguments;
-// any or all over a collection: variable and body nil for any().
+// any or all over a collection: variable (an OData identifier) and body
+// nil for any().
 + (instancetype)lambda:(NSString *)name of:(ODataExpression *)collection
               variable:(nullable NSString *)variable body:(nullable ODataExpression *)body;
 // collection/$count.
 + (instancetype)countOf:(ODataExpression *)collection;
-// A type cast, NS.Manager, of operand (nil: of $it).
+// collection/$count($filter=filter): its members for which filter is true
+// (OData 4.01; see countFilter for what names mean in it); nil filter:
+// all of them, collection/$count.
++ (instancetype)countOf:(ODataExpression *)collection filter:(nullable ODataExpression *)filter;
+// A type cast, NS.Manager, of operand (nil: of $it): a qualified name.
 + (instancetype)cast:(NSString *)type of:(nullable ODataExpression *)operand;
 // (1,2,3), for in.
 + (instancetype)list:(NSArray<ODataExpression *> *)items;
@@ -106,10 +135,11 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 // (Amount with sum, $count); nil for text that is none.
 + (nullable instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text;
 // The same of an aggregate built (ODataApply.h: a path with a method, or
-// $count), its alias not written: nothing is read from text. nil for one
-// whose path is not OData identifiers, whose method is not sum, min, max,
-// average, countdistinct or a qualified name, or that is an expression's
-// or a custom aggregate.
+// $count, of the collection or of a path), its alias not written: nothing
+// is read from text. nil for one whose path is empty or not OData
+// identifiers, whose method is not sum, min, max, average, countdistinct
+// or a qualified name (a custom method, NS.median), that has a method but
+// no path, or that is an expression's or a custom aggregate named alone.
 + (nullable instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate;
 // e in (values...), literals; false for no values.
 + (instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values;
@@ -122,6 +152,20 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 + (nullable instancetype)expressionWithString:(NSString *)text error:(NSError **)error;
 
 @end
+
+// Whether a name is an OData identifier (Part 2 section 4.3: a letter or
+// _, then letters, digits and _, 128 at most), or a qualified name
+// (identifiers joined by dots, two or more: NS.Type, Edm.String).
+FOUNDATION_EXPORT BOOL ODataIsIdentifier(NSString *_Nullable name);
+FOUNDATION_EXPORT BOOL ODataIsQualifiedName(NSString *_Nullable name);
+
+// Runs build, and returns what it returns; a name or operator it gave the
+// builders that they refuse (above) is an error instead, nil returned and
+// *error an ODataIncrementalStoreErrorUnsupportedExpression saying which.
+// For code that builds from names it does not choose (a model's, whose
+// OData.property is the model's text): its fetch fails, and does not
+// raise. Other exceptions go on.
+FOUNDATION_EXPORT id _Nullable ODataExpressionBuilding(NSError *_Nullable *_Nullable error, id _Nullable (^build)(void));
 
 @class ODataQueryOptions;
 

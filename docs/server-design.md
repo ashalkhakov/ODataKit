@@ -1217,13 +1217,19 @@ A comparison is two operands and an operator.
 | `Name` | `name` |
 | `Category/Name` | `category.name` |
 | `Products/$count` | `products.@count` |
+| `Products/$count($filter=Price gt 20)` | `SUBQUERY(products, $v0, $v0.price > 20).@count` (4.01) |
 | `Products/any(p:p/Price gt 20)` | `SUBQUERY(products, $v0, $v0.price > 20).@count > 0` |
 | `Products/all(p:p/Price gt 20)` | `SUBQUERY(products, $v0, NOT $v0.price > 20).@count == 0` |
 | `Products/any()` | `products.@count > 0` |
 | `@p` | The parameter alias's value, followed through aliases of aliases |
 
 A lambda's body is built recursively, from [logical operators](#1-logical-operators)
-down, with its variable in scope as `$v0`, `$v1` and so on.
+down, with its variable in scope as `$v0`, `$v1` and so on. A count's
+`$filter` is built the same way, its member the SUBQUERY's variable: there a
+path with no variable, and `$this`, are the member's, and `$it` is still
+the object filtered, a key path from it (Apple's stores and evaluation both
+read a key path inside a SUBQUERY as the outer object's). `$search` inside
+`$count(…)` is answered 501.
 
 ##### Type casts and `isof`
 

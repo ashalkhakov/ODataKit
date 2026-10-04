@@ -7505,4 +7505,117 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertEqual(([self send:@"POST" path:@"Locations" headers:nil body:@{ @"LocationName": @"Shed" }].status), 405);
 }
 
+// Employees, the cars they own and the cars they drive (ConQuer's Q5).
+- (NSManagedObjectModel *)fleetModel
+{
+  NSEntityDescription *employee = [[NSEntityDescription alloc] init];
+  employee.name = @"Employee";
+  employee.managedObjectClassName = @"NSManagedObject";
+  employee.userInfo = @{ @"OData.entitySet": @"Employees" };
+  NSEntityDescription *car = [[NSEntityDescription alloc] init];
+  car.name = @"Car";
+  car.managedObjectClassName = @"NSManagedObject";
+  car.userInfo = @{ @"OData.entitySet": @"Cars" };
+  NSRelationshipDescription *(^many)(NSString *, NSEntityDescription *) = ^(NSString *name, NSEntityDescription *to) {
+    NSRelationshipDescription *r = [[NSRelationshipDescription alloc] init];
+    r.name = name;
+    r.destinationEntity = to;
+    r.minCount = 0;
+    r.maxCount = 0;
+    r.optional = YES;
+    r.deleteRule = NSNullifyDeleteRule;
+    return r;
+  };
+  NSRelationshipDescription *owns = many(@"ownsCars", car), *owners = many(@"isOwnedByEmployees", employee);
+  NSRelationshipDescription *drives = many(@"cars", car), *drivers = many(@"drivers", employee);
+  owns.inverseRelationship = owners;
+  owners.inverseRelationship = owns;
+  drives.inverseRelationship = drivers;
+  drivers.inverseRelationship = drives;
+  NSAttributeDescription *employeeKey = OISSwatchAttribute(@"nr", NSInteger32AttributeType, nil);
+  employeeKey.optional = NO;
+  employeeKey.userInfo = @{ @"OData.key": @"YES" };
+  NSAttributeDescription *carKey = OISSwatchAttribute(@"nr", NSInteger32AttributeType, nil);
+  carKey.optional = NO;
+  carKey.userInfo = @{ @"OData.key": @"YES" };
+  employee.properties = @[ employeeKey, owns, drives ];
+  car.properties = @[ carKey, OISSwatchAttribute(@"name", NSStringAttributeType, nil), owners, drivers ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ employee, car ];
+  return model;
+}
+
+- (void)serveFleetInStoreOfType:(NSString *)storeType
+{
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self fleetModel]];
+  NSURL *url = nil;
+  if (![storeType isEqualToString:NSInMemoryStoreType]) {
+    url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+    [_storeFiles addObject:url];
+  }
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:storeType configuration:nil URL:url options:nil error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+  context.persistentStoreCoordinator = _coordinator;
+  [context performBlockAndWait:^{
+    NSMutableDictionary *cars = [NSMutableDictionary dictionary];
+    NSArray *names = @[ @"A", @"B", @"C", @"D" ];
+    for (NSUInteger i = 0; i < names.count; i++) {
+      cars[names[i]] = [self insert:@"Car" into:context values:@{ @"nr": @(10 + i), @"name": names[i] }];
+    }
+    // Employee: owns, drives. 1 drives no car it owns; 3 drives both of
+    // its own; 4 drives one of its own.
+    NSDictionary *fleet = @{ @1: @[ @"C", @"D" ], @3: @[ @"AB", @"AB" ], @4: @[ @"A", @"AC" ] };
+    for (NSNumber *nr in fleet) {
+      NSManagedObject *employee = [self insert:@"Employee" into:context values:@{ @"nr": nr }];
+      NSMutableSet *own = [NSMutableSet set], *drive = [NSMutableSet set];
+      for (NSString *n in names) {
+        if ([fleet[nr][0] containsString:n]) [own addObject:cars[n]];
+        if ([fleet[nr][1] containsString:n]) [drive addObject:cars[n]];
+      }
+      [employee setValue:own forKey:@"ownsCars"];
+      [employee setValue:drive forKey:@"cars"];
+    }
+    NSError *saveError = nil;
+    XCTAssertTrue([context save:&saveError], @"%@", saveError);
+  }];
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+}
+
+- (NSArray *)employeesWhere:(NSString *)filter status:(NSInteger *)status
+{
+  OISServiceResponse *response = [self get:[NSString stringWithFormat:@"Employees?$filter=%@&$orderby=Nr", filter]];
+  if (status) *status = response.status;
+  return response.status == 200 ? [response.json[@"value"] valueForKey:@"Nr"] : nil;
+}
+
+// $count($filter=...) in $filter (OData 4.01): the members counted that
+// pass, a path with no variable and $this the member's, $it the employee.
+- (void)testFilteredCount
+{
+  for (NSString *storeType in @[ NSInMemoryStoreType, NSSQLiteStoreType ]) {
+    [self serveFleetInStoreOfType:storeType];
+    NSInteger status = 0;
+    // Q5: employees who own a car and do not drive more than one of the cars they own.
+    NSArray *got = [self employeesWhere:@"OwnsCars/any() and not (Cars/$count($filter=IsOwnedByEmployees/any(x:x/Nr eq $it/Nr)) gt 1)" status:&status];
+    XCTAssertEqualObjects(got, (@[ @1, @4 ]), @"%@: %ld", storeType, (long)status);
+    // How many of the cars each drives are its own.
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=IsOwnedByEmployees/any(x:x/Nr eq $it/Nr)) eq 2" status:NULL], (@[ @3 ]), @"%@", storeType);
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=IsOwnedByEmployees/any(x:x/Nr eq $it/Nr)) eq 0" status:NULL], (@[ @1 ]), @"%@", storeType);
+    // A bare path, and $this, are the car's.
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=Name eq 'A') eq 1" status:NULL], (@[ @3, @4 ]), @"%@", storeType);
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=$this/Name eq 'C' or Name eq 'D') ge 1" status:NULL], (@[ @1, @4 ]), @"%@", storeType);
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=Nr gt 10) lt Cars/$count" status:NULL], (@[ @3, @4 ]), @"%@", storeType);
+    // $it is still the employee (whose Nr is 1, 3 or 4, no car's).
+    XCTAssertEqualObjects([self employeesWhere:@"Cars/$count($filter=Nr eq $it/Nr) eq 0" status:NULL], (@[ @1, @3, @4 ]), @"%@", storeType);
+    // Drives every car it owns: 3 (A and B), 4 (A).
+    XCTAssertEqualObjects([self employeesWhere:@"OwnsCars/$count($filter=Drivers/any(d:d/Nr eq $it/Nr)) eq OwnsCars/$count" status:NULL], (@[ @3, @4 ]), @"%@", storeType);
+    // Not the car's property; $search there.
+    XCTAssertNil([self employeesWhere:@"Cars/$count($filter=OwnsCars/any()) gt 0" status:&status]);
+    XCTAssertEqual(status, 400, @"%@", storeType);
+    XCTAssertNil([self employeesWhere:@"Cars/$count($search=red) gt 0" status:&status]);
+    XCTAssertEqual(status, 501, @"%@", storeType);
+  }
+}
+
 @end
