@@ -176,6 +176,10 @@ FOUNDATION_EXPORT id _Nullable ODataExpressionBuilding(NSError *_Nullable *_Null
 @end
 
 // One $select item: a path of names (with type casts, NS.Type), or *.
+// Built, each name is checked as the expression builders check theirs
+// (identifiers, qualified names, * or NS.* last), and one that is not
+// raises NSInvalidArgumentException; so are $expand's paths, $compute's
+// aliases, and $apply's paths, aliases and methods (ODataApply.h).
 @interface ODataSelectItem : NSObject
 + (instancetype)itemWithPath:(NSArray<NSString *> *)path;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *path;

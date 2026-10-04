@@ -100,6 +100,35 @@ static void OISRequire(BOOL allowed, NSString *what, NSString *name)
   @throw [NSException exceptionWithName:NSInvalidArgumentException reason:reason userInfo:@{ OISRefusedNameKey: name ?: @"" }];
 }
 
+// A segment of a path a query option names ($select, $expand, $apply's
+// paths): a property, or a cast or bound operation (a qualified name).
+static BOOL OISIsPathSegment(NSString *name)
+{
+  return OISIsODataIdentifier(name) || OISIsQualifiedName(name);
+}
+
+// The same check, for ODataApply's builders.
+void OISRequireQueryNames(NSArray<NSString *> *path, NSString *what, BOOL starLast);
+void OISRequireQueryNames(NSArray<NSString *> *path, NSString *what, BOOL starLast)
+{
+  for (NSUInteger i = 0; i < path.count; i++) {
+    NSString *name = path[i];
+    BOOL last = i + 1 == path.count;
+    // * at the end; in $select also NS.*, every operation of a namespace.
+    if (starLast && last && ([name isEqualToString:@"*"]
+                             || ([name hasSuffix:@".*"] && OISIsPathSegment([name substringToIndex:name.length - 2])))) {
+      continue;
+    }
+    OISRequire([name isKindOfClass:[NSString class]] && OISIsPathSegment(name), what, [name description]);
+  }
+}
+
+void OISRequireQueryName(NSString *name, NSString *what);
+void OISRequireQueryName(NSString *name, NSString *what)
+{
+  OISRequire(OISIsODataIdentifier(name), what, name);
+}
+
 id ODataExpressionBuilding(NSError **error, id (^build)(void))
 {
   @try {
@@ -496,6 +525,7 @@ static BOOL OISIsVariableName(NSString *name)
 @implementation ODataSelectItem
 + (instancetype)itemWithPath:(NSArray<NSString *> *)path
 {
+  OISRequireQueryNames(path, @"a $select path's segment", YES);
   return [[self alloc] initWithPath:path star:[path isEqual:@[ @"*" ]]];
 }
 - (instancetype)initWithPath:(NSArray *)path star:(BOOL)star
@@ -545,6 +575,7 @@ static BOOL OISIsVariableName(NSString *name)
 @implementation ODataComputeItem
 + (instancetype)itemWithExpression:(ODataExpression *)expression alias:(NSString *)alias
 {
+  OISRequireQueryName(alias, @"a $compute alias, an OData identifier,");
   ODataComputeItem *item = [[self alloc] init];
   item.expression = expression;
   item.alias = alias;
@@ -605,6 +636,7 @@ static NSArray *OISComputeItems(NSString *text, NSError **error)
 @implementation ODataExpandItem
 + (instancetype)itemWithPath:(NSArray<NSString *> *)path options:(ODataQueryOptions *)options
 {
+  OISRequireQueryNames(path, @"an $expand path's segment", ![path isEqual:@[]] && [path isEqual:@[ @"*" ]]);
   ODataExpandItem *item = [[self alloc] init];
   item.path = path;
   item.isStar = [path isEqual:@[ @"*" ]];

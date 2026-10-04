@@ -171,9 +171,29 @@
                         [total.description stringByAppendingString:@" gt 5"]);
   XCTAssertEqualObjects(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:nil method:nil alias:@"n"]].description),
                         @"Sales/aggregate($count)");
-  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price) gt 0 or (1" ] method:@"sum" alias:@"x"]]));
-  XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"sum) or (x" alias:@"x"]]));
+  // An aggregate whose name is no identifier is refused as it is built.
+  XCTAssertThrowsSpecificNamed(([ODataAggregate aggregateOfPath:@[ @"Price) gt 0 or (1" ] method:@"sum" alias:@"x"]), NSException,
+                               NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"sum) or (x" alias:@"x"]), NSException,
+                               NSInvalidArgumentException);
   XCTAssertNil(([ODataExpression aggregateOf:sales aggregate:@"Price with sum"]));
+
+  // Query options' names are checked as the expressions' are.
+  XCTAssertEqualObjects(([ODataSelectItem itemWithPath:@[ @"Category", @"NS.Special", @"Name" ]].description), @"Category/NS.Special/Name");
+  XCTAssertEqualObjects(([ODataSelectItem itemWithPath:@[ @"NS.*" ]].description), @"NS.*");
+  XCTAssertTrue(([ODataSelectItem itemWithPath:@[ @"*" ]].isStar));
+  XCTAssertThrowsSpecificNamed(([ODataSelectItem itemWithPath:@[ @"Nr eq 0 or true" ]]), NSException, NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataSelectItem itemWithPath:@[ @"*", @"Name" ]]), NSException, NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataExpandItem itemWithPath:@[ @"Orders($filter=true)" ] options:nil]), NSException, NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataComputeItem itemWithExpression:[ODataExpression member:@"Price" of:nil] alias:@"x,y"]), NSException,
+                               NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"sum" alias:@"x as y"]), NSException,
+                               NSInvalidArgumentException);
+  XCTAssertThrowsSpecificNamed(([ODataApplyTransformation groupByPaths:@[ @[ @"A)/aggregate(" ] ] aggregates:@[]]), NSException,
+                               NSInvalidArgumentException);
+  NSError *refused = nil;
+  XCTAssertNil(ODataExpressionBuilding(&refused, ^id { return [ODataSelectItem itemWithPath:@[ @"a b" ]]; }));
+  XCTAssertNotNil(refused);
   // A custom method is a qualified name; $count of a path; no empty path,
   // and no method without a path.
   XCTAssertEqualObjects(([ODataExpression aggregateOf:sales aggregate:[ODataAggregate aggregateOfPath:@[ @"Price" ] method:@"Custom.median" alias:@"m"]].description),

@@ -4,10 +4,19 @@
 #import "ODataApply.h"
 #import "ODataError.h"
 
+// The builders' name checks (ODataExpression.m): one not allowed raises.
+void OISRequireQueryNames(NSArray<NSString *> *path, NSString *what, BOOL starLast);
+void OISRequireQueryName(NSString *name, NSString *what);
+
+
 @implementation ODataAggregate
 
 + (instancetype)aggregateOfPath:(NSArray *)path method:(NSString *)method alias:(NSString *)alias
 {
+  OISRequireQueryNames(path ?: @[], @"an aggregate's path segment", NO);
+  OISRequireQueryName(alias, @"an aggregate's alias, an OData identifier,");
+  NSSet *methods = [NSSet setWithObjects:@"sum", @"min", @"max", @"average", @"countdistinct", @"$count", nil];
+  if (method && ![methods containsObject:method]) OISRequireQueryNames(@[ method ], @"an aggregation method", NO);
   ODataAggregate *a = [[self alloc] init];
   a->_path = [path copy];
   a->_method = [method copy];
@@ -68,6 +77,7 @@
 
 + (instancetype)groupByPaths:(NSArray *)paths aggregates:(NSArray *)aggregates
 {
+  for (NSArray *path in paths) OISRequireQueryNames(path, @"a groupby path's segment", NO);
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyGroupBy;
   t->_groupPaths = [paths copy];
@@ -77,6 +87,7 @@
 
 + (instancetype)groupByPaths:(NSArray *)paths sequence:(NSArray *)sequence
 {
+  for (NSArray *path in paths) OISRequireQueryNames(path, @"a groupby path's segment", NO);
   ODataApplyTransformation *t = [[self alloc] init];
   t->_kind = ODataApplyGroupBy;
   t->_groupPaths = [paths copy];

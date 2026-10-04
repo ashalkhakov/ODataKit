@@ -734,14 +734,18 @@ static NSString *OISGroupedLiteral(id value)
                       error:(NSError **)error
 {
   NSString *path = [NSString stringWithFormat:@"%@/%@", [identifier pathWithKeyAsSegment:self.keyAsSegment], [self.mapper propertyForRelationship:relationship]];
-  return [self URLForPath:path options:relationship.destinationEntity ? [self readingOptionsForEntity:relationship.destinationEntity] : nil error:error];
+  ODataQueryOptions *options = relationship.destinationEntity
+    ? ODataExpressionBuilding(error, ^id { return [self readingOptionsForEntity:relationship.destinationEntity]; }) : nil;
+  if (relationship.destinationEntity && !options) return nil;
+  return [self URLForPath:path options:options error:error];
 }
 
 - (NSURL *)URLForReadingIdentifier:(ODataResourceIdentifier *)identifier
                             entity:(NSEntityDescription *)entity
                              error:(NSError **)error
 {
-  return [self URLForPath:[identifier pathWithKeyAsSegment:self.keyAsSegment] options:[self readingOptionsForEntity:entity] error:error];
+  ODataQueryOptions *options = ODataExpressionBuilding(error, ^id { return [self readingOptionsForEntity:entity]; });
+  return options ? [self URLForPath:[identifier pathWithKeyAsSegment:self.keyAsSegment] options:options error:error] : nil;
 }
 
 @end
