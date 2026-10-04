@@ -59,7 +59,11 @@ NS_ASSUME_NONNULL_BEGIN
 // Every query the store sends is typed first (ODataKit's
 // ODataQueryOptions: an ODataExpression filter, order items, expand items
 // with options of their own, $apply's transformations) and written by
-// this, the one place a URL's query is written.
+// this, the one place a URL's query is written. Its names are checked as
+// they are built and as they are written (ODataExpression.h), and so are a
+// resource path's this class writes (an entity set's, a cast's, a key's, a
+// navigation property's): nil, and an ODataIncrementalStoreErrorInvalidName,
+// for one OData does not allow there.
 - (nullable NSURL *)URLForPath:(NSString *)path options:(nullable ODataQueryOptions *)options error:(NSError **)error;
 // A fetch request's query, typed: what -URLForFetch:entity:error: sends
 // (for a count, the options /$count takes).
@@ -71,8 +75,9 @@ NS_ASSUME_NONNULL_BEGIN
                                                            after:(nullable NSArray<ODataApplyTransformation *> *)after
                                                            error:(NSError **)error;
 // An object's, or a relationship's members': its properties, and its
-// to-one relationships' keys.
-- (ODataMutableQueryOptions *)readingOptionsForEntity:(NSEntityDescription *)entity;
+// to-one relationships' keys; nil, and an ODataIncrementalStoreError-
+// InvalidName, for a model's name that cannot be written.
+- (nullable ODataMutableQueryOptions *)readingOptionsForEntity:(NSEntityDescription *)entity error:(NSError **)error;
 - (nullable NSURL *)URLForIdentifier:(ODataResourceIdentifier *)identifier error:(NSError **)error;
 // For reading one entity: the entity URL with its to-one keys expanded.
 - (nullable NSURL *)URLForReadingIdentifier:(ODataResourceIdentifier *)identifier

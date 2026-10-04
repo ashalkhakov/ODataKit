@@ -50,10 +50,20 @@ typedef NS_ENUM(NSInteger, ODataApplyKind) {
 // (Custom.concat).
 // A path may go through collection-valued navigation properties
 // (Sales/Amount): the values of all of them.
+//
+// Built, its names are checked, as ODataExpression.h's builders check
+// theirs: nil and an ODataIncrementalStoreErrorInvalidName for an alias
+// or a custom aggregate's name that is no OData identifier, a path that
+// is empty or not identifiers and qualified names, a method that is not
+// sum, min, max, average, countdistinct or a qualified name ($count
+// with a path, or none without), or no expression (nil: what built it
+// failed, and has said why).
 @interface ODataAggregate : NSObject
-+ (instancetype)aggregateOfPath:(nullable NSArray<NSString *> *)path method:(nullable NSString *)method alias:(NSString *)alias;
-+ (instancetype)aggregateOfExpression:(ODataExpression *)expression method:(NSString *)method alias:(NSString *)alias;
-+ (instancetype)aggregateOfCustom:(NSString *)name alias:(NSString *)alias;
++ (nullable instancetype)aggregateOfPath:(nullable NSArray<NSString *> *)path method:(nullable NSString *)method alias:(NSString *)alias
+                                   error:(NSError **)error;
++ (nullable instancetype)aggregateOfExpression:(ODataExpression *)expression method:(NSString *)method alias:(NSString *)alias
+                                         error:(NSError **)error;
++ (nullable instancetype)aggregateOfCustom:(NSString *)name alias:(NSString *)alias error:(NSError **)error;
 @property (nonatomic, readonly, copy, nullable) NSString *custom;
 // A custom aggregate, or a custom aggregation method.
 @property (nonatomic, readonly) BOOL isCustom;
@@ -70,23 +80,31 @@ typedef NS_ENUM(NSInteger, ODataApplyKind) {
 // The transformations as $apply writes them.
 + (NSString *)stringForTransformations:(NSArray<ODataApplyTransformation *> *)transformations;
 
-+ (instancetype)filterWithExpression:(ODataExpression *)expression;
-+ (instancetype)groupByPaths:(NSArray<NSArray<NSString *> *> *)paths aggregates:(NSArray<ODataAggregate *> *)aggregates;
-+ (instancetype)groupByPaths:(NSArray<NSArray<NSString *> *> *)paths sequence:(NSArray<ODataApplyTransformation *> *)sequence;
+// Built: nil for a nil expression (what built it failed, and has said why).
++ (nullable instancetype)filterWithExpression:(ODataExpression *)expression;
+// Each path's names checked (identifiers and qualified names): nil and an
+// ODataIncrementalStoreErrorInvalidName for one that is not.
++ (nullable instancetype)groupByPaths:(NSArray<NSArray<NSString *> *> *)paths aggregates:(NSArray<ODataAggregate *> *)aggregates
+                                error:(NSError **)error;
++ (nullable instancetype)groupByPaths:(NSArray<NSArray<NSString *> *> *)paths sequence:(NSArray<ODataApplyTransformation *> *)sequence
+                                error:(NSError **)error;
 + (instancetype)aggregateWith:(NSArray<ODataAggregate *> *)aggregates;
 + (instancetype)orderByItems:(NSArray<ODataOrderItem *> *)items;
 + (instancetype)computeItems:(NSArray<ODataComputeItem *> *)items;
-+ (instancetype)searchWith:(ODataSearchExpression *)search;
++ (nullable instancetype)searchWith:(ODataSearchExpression *)search;
 + (instancetype)top:(NSUInteger)count;
 + (instancetype)skip:(NSUInteger)count;
 // ancestors or descendants (method) of the nodes of $root/hierarchy, by
 // the qualifier, each input's node at nodePath; sequence picks the start.
-+ (instancetype)hierarchical:(NSString *)method hierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
-                    nodePath:(NSArray<NSString *> *)nodePath sequence:(NSArray<ODataApplyTransformation *> *)sequence
-                 maxDistance:(NSUInteger)maxDistance keepStart:(BOOL)keepStart;
-+ (instancetype)traverseHierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
-                         nodePath:(NSArray<NSString *> *)nodePath postorder:(BOOL)postorder
-                          orderBy:(nullable NSArray<ODataOrderItem *> *)orderBy;
+// nil and an ODataIncrementalStoreErrorInvalidName for another method, a
+// qualifier that is no OData identifier, or a path (the hierarchy's, the
+// node's) that is empty or not identifiers and qualified names.
++ (nullable instancetype)hierarchical:(NSString *)method hierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
+                             nodePath:(NSArray<NSString *> *)nodePath sequence:(NSArray<ODataApplyTransformation *> *)sequence
+                          maxDistance:(NSUInteger)maxDistance keepStart:(BOOL)keepStart error:(NSError **)error;
++ (nullable instancetype)traverseHierarchy:(NSArray<NSString *> *)hierarchy qualifier:(NSString *)qualifier
+                                  nodePath:(NSArray<NSString *> *)nodePath postorder:(BOOL)postorder
+                                   orderBy:(nullable NSArray<ODataOrderItem *> *)orderBy error:(NSError **)error;
 
 @property (nonatomic, readonly) ODataApplyKind kind;
 @property (nonatomic, readonly, strong, nullable) ODataExpression *filter;

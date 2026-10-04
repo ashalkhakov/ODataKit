@@ -88,61 +88,74 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 // Expressions built, not read; each describes itself as $filter writes it.
 //
 // Names and operators are written as they are given, so each is checked
-// against what OData's grammar allows in its place, and one that is not
-// allowed raises NSInvalidArgumentException: it could otherwise carry
-// filter text (a member named "Price eq 0 or true"). Names come from
-// models and code, so one refused is a programming or model error, as an
-// index out of range is. An OData identifier (Part 2 section 4.3) is a
-// letter or _, then letters, digits and _, 128 at most; a qualified name
-// is identifiers joined by dots (NS.Type, Edm.String). Values are never
-// refused: a literal is quoted as it is written.
+// against what OData's grammar allows in its place: one that is not
+// allowed could otherwise carry filter text (a member named "Price eq 0
+// or true"). Such a builder returns nil and sets *error to an
+// ODataIncrementalStoreErrorInvalidName saying what the name should have
+// been. An OData identifier (Part 2 section 4.3) is a letter or _, then
+// letters, digits and _, 128 at most; a qualified name is identifiers
+// joined by dots (NS.Type, Edm.String). Values are never refused: a
+// literal is quoted as it is written.
+//
+// A builder given nil for an expression it needs (an operand, a side, a
+// collection) returns nil and leaves *error alone: what built that part
+// failed, and has said why. So a tree is built as it is written, and
+// checked once, at its root:
+//
+//   NSError *error = nil;
+//   ODataExpression *filter = [ODataExpression binary:@"gt"
+//                                                left:[ODataExpression member:name of:nil error:&error]
+//                                               right:[ODataExpression literalWithValue:@20] error:&error];
+//   if (!filter) ... error says which name ...
 //
 // A member of operand (nil: of $it, or of the lambda variable in scope);
 // the name an OData identifier.
-+ (instancetype)member:(NSString *)name of:(nullable ODataExpression *)operand;
++ (nullable instancetype)member:(NSString *)name of:(nullable ODataExpression *)operand error:(NSError **)error;
 // Category/CategoryName: members along a path from $it (or a variable);
-// each name an OData identifier.
-+ (instancetype)memberPath:(NSArray<NSString *> *)path of:(nullable ODataExpression *)operand;
+// one name or more, each an OData identifier.
++ (nullable instancetype)memberPath:(NSArray<NSString *> *)path of:(nullable ODataExpression *)operand error:(NSError **)error;
 // $it, $root, $these, $this, or a lambda's variable (an OData identifier).
-+ (instancetype)variable:(NSString *)name;
++ (nullable instancetype)variable:(NSString *)name error:(NSError **)error;
 // @p: an OData identifier, with or without the @.
-+ (instancetype)alias:(NSString *)name;
++ (nullable instancetype)alias:(NSString *)name error:(NSError **)error;
 // eq ne gt ge lt le has in and or add sub mul div divby mod.
-+ (instancetype)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right;
++ (nullable instancetype)binary:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right error:(NSError **)error;
 // not, or - (negation).
-+ (instancetype)unary:(NSString *)op operand:(ODataExpression *)operand;
++ (nullable instancetype)unary:(NSString *)op operand:(ODataExpression *)operand error:(NSError **)error;
 // A function: contains(a, b); bound, of operand (Zoo.Age(On=...) of $it).
 // Its name an OData identifier or a qualified name; parameter names OData
 // identifiers.
-+ (instancetype)call:(NSString *)name arguments:(NSArray<ODataExpression *> *)arguments;
-+ (instancetype)call:(NSString *)name of:(nullable ODataExpression *)operand
-      namedArguments:(NSDictionary<NSString *, ODataExpression *> *)namedArguments;
++ (nullable instancetype)call:(NSString *)name arguments:(NSArray<ODataExpression *> *)arguments error:(NSError **)error;
++ (nullable instancetype)call:(NSString *)name of:(nullable ODataExpression *)operand
+               namedArguments:(NSDictionary<NSString *, ODataExpression *> *)namedArguments error:(NSError **)error;
 // any or all over a collection: variable (an OData identifier) and body
 // nil for any().
-+ (instancetype)lambda:(NSString *)name of:(ODataExpression *)collection
-              variable:(nullable NSString *)variable body:(nullable ODataExpression *)body;
-// collection/$count.
-+ (instancetype)countOf:(ODataExpression *)collection;
++ (nullable instancetype)lambda:(NSString *)name of:(ODataExpression *)collection
+                       variable:(nullable NSString *)variable body:(nullable ODataExpression *)body error:(NSError **)error;
+// collection/$count (nil for a nil collection).
++ (nullable instancetype)countOf:(ODataExpression *)collection;
 // collection/$count($filter=filter): its members for which filter is true
 // (OData 4.01; see countFilter for what names mean in it); nil filter:
 // all of them, collection/$count.
-+ (instancetype)countOf:(ODataExpression *)collection filter:(nullable ODataExpression *)filter;
++ (nullable instancetype)countOf:(ODataExpression *)collection filter:(nullable ODataExpression *)filter;
 // A type cast, NS.Manager, of operand (nil: of $it): a qualified name.
-+ (instancetype)cast:(NSString *)type of:(nullable ODataExpression *)operand;
++ (nullable instancetype)cast:(NSString *)type of:(nullable ODataExpression *)operand error:(NSError **)error;
 // (1,2,3), for in.
 + (instancetype)list:(NSArray<ODataExpression *> *)items;
-// collection/aggregate(...): an aggregate expression as $apply writes it
-// (Amount with sum, $count); nil for text that is none.
-+ (nullable instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text;
-// The same of an aggregate built (ODataApply.h: a path with a method, or
-// $count, of the collection or of a path), its alias not written: nothing
-// is read from text. nil for one whose path is empty or not OData
-// identifiers, whose method is not sum, min, max, average, countdistinct
-// or a qualified name (a custom method, NS.median), that has a method but
-// no path, or that is an expression's or a custom aggregate named alone.
-+ (nullable instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate;
-// e in (values...), literals; false for no values.
-+ (instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values;
+// collection/aggregate(...) of an aggregate expression as $apply writes it
+// (Amount with sum, $count), read and then written from what was read:
+// nil and the error for text that is none.
++ (nullable instancetype)aggregateOf:(ODataExpression *)collection text:(NSString *)text error:(NSError **)error;
+// The same of an aggregate built (ODataApply.h: a path or an expression
+// with a method, or $count, of the collection or of a path), its alias
+// not written. nil and an ODataIncrementalStoreErrorInvalidName for one
+// whose path is empty or not identifiers and qualified names, whose
+// method is not sum, min, max, average, countdistinct or a qualified name
+// (a custom method, NS.median), that has a method but no path, or that is
+// a custom aggregate named alone.
++ (nullable instancetype)aggregateOf:(ODataExpression *)collection aggregate:(id)aggregate error:(NSError **)error;
+// e in (values...), literals; false for no values (nil for a nil e).
++ (nullable instancetype)expression:(ODataExpression *)e inValues:(NSArray *)values;
 
 // The member names along a path of members from $it (Category/Name is
 // Category, Name); nil when this is not such a path.
@@ -159,29 +172,23 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 FOUNDATION_EXPORT BOOL ODataIsIdentifier(NSString *_Nullable name);
 FOUNDATION_EXPORT BOOL ODataIsQualifiedName(NSString *_Nullable name);
 
-// Runs build, and returns what it returns; a name or operator it gave the
-// builders that they refuse (above) is an error instead, nil returned and
-// *error an ODataIncrementalStoreErrorUnsupportedExpression saying which.
-// For code that builds from names it does not choose (a model's, whose
-// OData.property is the model's text): its fetch fails, and does not
-// raise. Other exceptions go on.
-FOUNDATION_EXPORT id _Nullable ODataExpressionBuilding(NSError *_Nullable *_Nullable error, id _Nullable (^build)(void));
-
 @class ODataQueryOptions;
 
 @interface ODataOrderItem : NSObject
-+ (instancetype)itemWithExpression:(ODataExpression *)expression descending:(BOOL)descending;
+// nil for a nil expression (what built it failed, and has said why).
++ (nullable instancetype)itemWithExpression:(ODataExpression *)expression descending:(BOOL)descending;
 @property (nonatomic, readonly, strong) ODataExpression *expression;
 @property (nonatomic, readonly) BOOL descending;
 @end
 
 // One $select item: a path of names (with type casts, NS.Type), or *.
-// Built, each name is checked as the expression builders check theirs
-// (identifiers, qualified names, * or NS.* last), and one that is not
-// raises NSInvalidArgumentException; so are $expand's paths, $compute's
-// aliases, and $apply's paths, aliases and methods (ODataApply.h).
+// Built, its names are checked as the expression builders check theirs:
+// nil and an ODataIncrementalStoreErrorInvalidName for a path that is
+// empty, or whose names are not identifiers and qualified names (* alone,
+// or NS.* last, aside). So are $expand's paths (* alone aside), $compute's
+// aliases, and $apply's names (ODataApply.h).
 @interface ODataSelectItem : NSObject
-+ (instancetype)itemWithPath:(NSArray<NSString *> *)path;
++ (nullable instancetype)itemWithPath:(NSArray<NSString *> *)path error:(NSError **)error;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *path;
 @property (nonatomic, readonly) BOOL isStar;
 @end
@@ -190,14 +197,15 @@ FOUNDATION_EXPORT id _Nullable ODataExpressionBuilding(NSError *_Nullable *_Null
 // $compute's items (Part 2 section 5.1.3): an expression, and the name
 // it is known by in $select, $filter and $orderby.
 @interface ODataComputeItem : NSObject
-+ (instancetype)itemWithExpression:(ODataExpression *)expression alias:(NSString *)alias;
+// The alias an OData identifier; nil for a nil expression.
++ (nullable instancetype)itemWithExpression:(ODataExpression *)expression alias:(NSString *)alias error:(NSError **)error;
 @property (nonatomic, readonly, strong) ODataExpression *expression;
 @property (nonatomic, readonly, copy) NSString *alias;
 @end
 
 @interface ODataExpandItem : NSObject
 // A navigation path expanded, with options of its own (nil: none).
-+ (instancetype)itemWithPath:(NSArray<NSString *> *)path options:(nullable ODataQueryOptions *)options;
++ (nullable instancetype)itemWithPath:(NSArray<NSString *> *)path options:(nullable ODataQueryOptions *)options error:(NSError **)error;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *path;
 @property (nonatomic, readonly) BOOL isStar;
 @property (nonatomic, readonly) BOOL isRef;
@@ -218,8 +226,13 @@ typedef NS_ENUM(NSInteger, ODataSearchKind) {
 
 @interface ODataSearchExpression : NSObject
 + (nullable instancetype)searchWithString:(NSString *)text error:(NSError **)error;
-+ (instancetype)searchWithKind:(ODataSearchKind)kind text:(nullable NSString *)text
-                          left:(nullable ODataSearchExpression *)left right:(nullable ODataSearchExpression *)right;
+// Built: a word is a search word (no space, parenthesis or ", not ' first,
+// not AND, OR or NOT) and a phrase has text, else nil and an
+// ODataIncrementalStoreErrorInvalidName; AND and OR need left and right,
+// NOT left (its operand), else nil, what built them having said why.
++ (nullable instancetype)searchWithKind:(ODataSearchKind)kind text:(nullable NSString *)text
+                                   left:(nullable ODataSearchExpression *)left right:(nullable ODataSearchExpression *)right
+                                  error:(NSError **)error;
 @property (nonatomic, readonly) ODataSearchKind kind;
 @property (nonatomic, readonly, copy, nullable) NSString *text;
 @property (nonatomic, readonly, strong, nullable) ODataSearchExpression *left;
@@ -273,8 +286,11 @@ typedef NS_ENUM(NSInteger, ODataSearchKind) {
 // percent-encoded: $at, $from, $to, $toInclusive, $filter, $search,
 // $apply, $orderby, $top, $skip, $count, $compute, $select, $expand,
 // $levels, $format, $skiptoken, then aliases and custom options by name.
+// A name is written as it is, so nil and an ODataIncrementalStoreError-
+// InvalidName for an alias that is no OData identifier, or a custom
+// option's name that starts with $ or @ or holds &, =, %, # or a space.
 // -description is the same inside an $expand: name=value, with ;.
-- (NSArray<NSArray<NSString *> *> *)queryItems;
+- (nullable NSArray<NSArray<NSString *> *> *)queryItemsWithError:(NSError **)error;
 
 @end
 

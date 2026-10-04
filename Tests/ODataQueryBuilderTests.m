@@ -49,6 +49,32 @@
   return product;
 }
 
+// What the builder writes as it is (a resource path's names, query option
+// names) is checked: a name OData does not allow there is the error, not
+// part of a URL.
+- (void)testNamesWrittenAreChecked
+{
+  NSError *error = nil;
+  ODataResourceIdentifier *bad = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Products?$filter=true" keys:@{ @"ProductID": @1 }];
+  XCTAssertNil([_builder URLForIdentifier:bad error:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorInvalidName, @"%@", error);
+  error = nil;
+  XCTAssertNil([_builder URLForReadingIdentifier:bad entity:[self productEntity] error:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorInvalidName, @"%@", error);
+  ODataResourceIdentifier *keys = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Orders" keys:@{ @"A": @1, @"B) or (x": @2 }];
+  error = nil;
+  XCTAssertNil([_builder URLForIdentifier:keys error:&error]);
+  XCTAssertTrue([error.localizedDescription containsString:@"B) or (x"], @"%@", error);
+  ODataResourceIdentifier *good = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Products" keys:@{ @"ProductID": @1 }];
+  XCTAssertNotNil([_builder URLForIdentifier:good error:NULL]);
+
+  ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+  options.customOptions = @{ @"a=1&$filter": @"true" };
+  error = nil;
+  XCTAssertNil([_builder URLForPath:@"Products" options:options error:&error]);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorInvalidName, @"%@", error);
+}
+
 - (void)testFilterOrderbyTop
 {
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Product"];

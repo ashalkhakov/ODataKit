@@ -2718,7 +2718,9 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
       if (!value) return nil;
       NSString *hidden = [@"__ois_aggregate_" stringByAppendingString:aggregate.alias];
       expressions[hidden] = value;
-      [aggregates addObject:[ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias]];
+      ODataAggregate *valued = [ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias error:error];
+      if (!valued) return nil;
+      [aggregates addObject:valued];
       continue;
     }
     if (aggregate.custom || !aggregate.path || (aggregate.path.count == 1 && OISIsComputed(computed, aggregate.path[0]))) {
@@ -2740,7 +2742,10 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
     } else if (!aggregate.isCustom) {
       aggregateAttributes[aggregate.alias] = property;
     }
-    [aggregates addObject:[ODataAggregate aggregateOfPath:[keyPath componentsSeparatedByString:@"."] method:aggregate.method alias:aggregate.alias]];
+    ODataAggregate *stored = [ODataAggregate aggregateOfPath:[keyPath componentsSeparatedByString:@"."] method:aggregate.method alias:aggregate.alias
+                                                       error:error];
+    if (!stored) return nil;
+    [aggregates addObject:stored];
   }
   if (expressions.count) {
     NSMutableArray *valued = [NSMutableArray array];
@@ -2937,7 +2942,9 @@ static BOOL OISPathListed(NSArray<NSString *> *path, id listed)
       row[hidden] = value;
       valued[i] = row;
     }
-    [aggregates addObject:[ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias]];
+    ODataAggregate *hiddenAggregate = [ODataAggregate aggregateOfPath:@[ hidden ] method:aggregate.method alias:aggregate.alias error:error];
+    if (!hiddenAggregate) return nil;
+    [aggregates addObject:hiddenAggregate];
   }
   for (ODataAggregate *aggregate in aggregates) {
     if (aggregate.custom) {
@@ -3182,10 +3189,17 @@ static NSMutableDictionary *OISMutableRow(NSDictionary *row)
   for (NSUInteger i = 0; i < asked.count; i++) {
     NSString *alias = [NSString stringWithFormat:@"__ois_these_%lu", (unsigned long)i];
     ODataAggregate *a = asked[i].aggregate;
-    [aggregates addObject:!a ? [ODataAggregate aggregateOfPath:nil method:nil alias:alias]
-                          : a.isCustom ? [ODataAggregate aggregateOfCustom:a.custom alias:alias]
-                          : a.expression ? [ODataAggregate aggregateOfExpression:a.expression method:a.method alias:alias]
-                          : [ODataAggregate aggregateOfPath:a.path method:a.method alias:alias]];
+    NSError *aggregateError = nil;
+    // (custom: a custom aggregate named alone; a custom method is a path's.)
+    ODataAggregate *again = !a ? [ODataAggregate aggregateOfPath:nil method:nil alias:alias error:&aggregateError]
+                          : a.custom ? [ODataAggregate aggregateOfCustom:a.custom alias:alias error:&aggregateError]
+                          : a.expression ? [ODataAggregate aggregateOfExpression:a.expression method:a.method alias:alias error:&aggregateError]
+                          : [ODataAggregate aggregateOfPath:a.path method:a.method alias:alias error:&aggregateError];
+    if (!again) {
+      [self respondError:ODataServiceError(400, aggregateError.localizedDescription)];
+      return nil;
+    }
+    [aggregates addObject:again];
   }
   ODataApplyTransformation *t = [ODataApplyTransformation aggregateWith:aggregates];
   NSError *error = nil;
@@ -3261,7 +3275,8 @@ ODataQueryOptions *OISOptionsReplacing(ODataQueryOptions *options, NSDictionary 
     copy.filter = [options.filter expressionReplacing:filterValues];
     NSMutableArray *compute = [NSMutableArray array];
     for (ODataComputeItem *item in options.compute) {
-      [compute addObject:[ODataComputeItem itemWithExpression:[item.expression expressionReplacing:filterValues] alias:item.alias]];
+      // (The alias was checked as the item was made.)
+      [compute addObject:[ODataComputeItem itemWithExpression:[item.expression expressionReplacing:filterValues] alias:item.alias error:NULL]];
     }
     copy.compute = compute;
   }

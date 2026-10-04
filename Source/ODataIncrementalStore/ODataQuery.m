@@ -60,7 +60,7 @@
 {
   if (!_queryOptions) return nil;
   NSMutableDictionary *options = [NSMutableDictionary dictionary];
-  for (NSArray *item in _queryOptions.queryItems) options[item[0]] = item[1];
+  for (NSArray *item in [_queryOptions queryItemsWithError:NULL]) options[item[0]] = item[1];
   return options;
 }
 
@@ -105,15 +105,8 @@
 }
 
 // A step, typed; nil and the error for one that cannot be (a name from
-// the model the expression builders refuse among them).
+// the model the builders refuse among them).
 - (ODataApplyTransformation *)applyStep:(NSDictionary *)step error:(NSError **)error
-{
-  return ODataExpressionBuilding(error, ^id {
-    return [self uncheckedApplyStep:step error:error];
-  });
-}
-
-- (ODataApplyTransformation *)uncheckedApplyStep:(NSDictionary *)step error:(NSError **)error
 {
   ODataPropertyMapper *mapper = _store.mapper;
   ODataPredicateTranslator *translator = [[ODataPredicateTranslator alloc] initWithMapper:mapper entity:_entity];
@@ -145,14 +138,17 @@
     NSMutableArray *order = [NSMutableArray array];
     for (NSSortDescriptor *sort in step[@"sort"]) {
       NSArray *path = [[mapper propertyPathForKeyPath:sort.key ?: @"" entity:nodes] componentsSeparatedByString:@"/"];
-      [order addObject:[ODataOrderItem itemWithExpression:[ODataExpression memberPath:path of:nil] descending:!sort.ascending]];
+      ODataOrderItem *item = [ODataOrderItem itemWithExpression:[ODataExpression memberPath:path of:nil error:error] descending:!sort.ascending];
+      if (!item) return nil;
+      [order addObject:item];
     }
     return [ODataApplyTransformation traverseHierarchy:hierarchy qualifier:qualifier nodePath:nodePath
-                                             postorder:[step[@"postorder"] boolValue] orderBy:order];
+                                             postorder:[step[@"postorder"] boolValue] orderBy:order error:error];
   }
+  ODataApplyTransformation *start = [ODataApplyTransformation filterWithExpression:filter];
   return [ODataApplyTransformation hierarchical:kind hierarchy:hierarchy qualifier:qualifier nodePath:nodePath
-                                       sequence:@[ [ODataApplyTransformation filterWithExpression:filter] ]
-                                    maxDistance:[step[@"distance"] unsignedIntegerValue] keepStart:[step[@"keep"] boolValue]];
+                                       sequence:start ? @[ start ] : @[]
+                                    maxDistance:[step[@"distance"] unsignedIntegerValue] keepStart:[step[@"keep"] boolValue] error:error];
 }
 
 - (NSArray *)result
