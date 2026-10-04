@@ -266,6 +266,27 @@
   XCTAssertNil([ODataExpression expressionWithString:@"Sales/aggregate(Amount.. with sum) gt 1" error:&error]);
   XCTAssertEqual(error.code, ODataIncrementalStoreErrorSyntax, @"%@", error);
 
+  // expand(): its filter read as an expression and written from it, in
+  // $apply's own syntax, which reads back the same.
+  NSArray *expanded = [ODataApplyTransformation transformationsWithString:@"expand(Products,filter(UnitPrice  gt 18))" error:&error];
+  ODataApplyTransformation *expand = expanded.firstObject;
+  XCTAssertEqualObjects(expand.expandItem.options.filter.description, @"UnitPrice gt 18", @"%@", error);
+  XCTAssertEqualObjects([ODataApplyTransformation stringForTransformations:expanded], @"expand(Products,filter(UnitPrice gt 18))");
+  XCTAssertEqualObjects(expand.expansion, @"Products($filter=UnitPrice gt 18)");
+  XCTAssertEqualObjects([ODataApplyTransformation stringForTransformations:
+                          [ODataApplyTransformation transformationsWithString:@"expand(Category)" error:NULL]], @"expand(Category)");
+  for (NSString *apply in @[ @"expand(Products,filter(UnitPrice gt))", @"expand(Products,filter(true) or (1))", @"expand(Products/x y)" ]) {
+    error = nil;
+    XCTAssertNil([ODataApplyTransformation transformationsWithString:apply error:&error], @"%@", apply);
+    XCTAssertEqual(error.code, ODataIncrementalStoreErrorSyntax, @"%@: %@", apply, error);
+  }
+  ODataMutableQueryOptions *tooMuch = [[ODataMutableQueryOptions alloc] init];
+  tooMuch.top = @1;
+  ODataExpandItem *topped = [ODataExpandItem itemWithPath:@[ @"Products" ] options:tooMuch error:NULL];
+  [self assertRefused:^id(NSError **e) { return [ODataApplyTransformation expandWithItem:topped error:e]; } name:@"Products($top=1)"];
+  ODataExpandItem *star = [ODataExpandItem itemWithPath:@[ @"*" ] options:nil error:NULL];
+  [self assertRefused:^id(NSError **e) { return [ODataApplyTransformation expandWithItem:star error:e]; } name:@"*"];
+
   // Names written as they are, into the query string: aliases' and custom
   // options', checked as they are written.
   ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];

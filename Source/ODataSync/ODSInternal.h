@@ -7,6 +7,8 @@
 #import "ODataSyncEngine.h"
 #import <ODataKit/ODataPropertyMapper.h>
 #import <ODataKit/ODataValue.h>
+#import <ODataKit/ODataExpression.h>
+#import <ODataKit/ODataError.h>
 #import <ODataIncrementalStore/ODataClient.h>
 #import <ODataIncrementalStore/ODataConfiguration.h>
 #import <OTelKit/OTTrace.h>

@@ -4079,9 +4079,10 @@ static id OISSparseAtPath(NSArray<NSString *> *path, NSArray<NSNumber *> *collec
       return nil;
     }
   }
-  NSString *text = at ? [timeline filterFrom:q[@"$at"] to:q[@"$at"] inclusive:YES]
-                      : [timeline filterFrom:q[@"$from"] to:q[@"$to"] ?: q[@"$toInclusive"] inclusive:!to];
-  ODataExpression *expression = [ODataExpression expressionWithString:text error:error];
+  // Built of the literals as they were read, not of their text.
+  ODataExpression *expression = at ? [timeline filterFrom:options.temporalAt to:options.temporalAt inclusive:YES error:error]
+                                   : [timeline filterFrom:options.temporalFrom to:options.temporalTo ?: options.temporalToInclusive inclusive:!to
+                                                    error:error];
   if (!expression) return nil;
   return [self.predicates predicateForExpression:expression entity:entity aliases:nil computed:nil
                                                  spans:self.planSpans error:error];
@@ -4926,8 +4927,10 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   return key;
 }
 
-// What a deep insert's body nested, as $expand: the response shows it.
-- (NSString *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity
+// What a deep insert's body nested, as $expand items: the response shows
+// it. (Each name is a property's wire name; one the builders refuse, which
+// no model should have, is not expanded.)
+- (NSArray<ODataExpandItem *> *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity
 {
   NSMutableArray *items = [NSMutableArray array];
   for (NSString *key in [body.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
@@ -4940,10 +4943,13 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     if (![self holds:[self.service handlerForEntity:relationship.destinationEntity].readScopes]) continue;
     id value = body[key];
     NSDictionary *first = [value isKindOfClass:[NSArray class]] ? [value firstObject] : value;
-    NSString *inner = [first isKindOfClass:[NSDictionary class]] ? [self expansionOfBody:first entity:relationship.destinationEntity] : nil;
-    [items addObject:inner.length ? [NSString stringWithFormat:@"%@($expand=%@)", key, inner] : key];
+    NSArray *inner = [first isKindOfClass:[NSDictionary class]] ? [self expansionOfBody:first entity:relationship.destinationEntity] : nil;
+    ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+    if (inner.count) options.expand = inner;
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ key ] options:options error:NULL];
+    if (item) [items addObject:item];
   }
-  return [items componentsJoinedByString:@","];
+  return items;
 }
 
 - (BOOL)save

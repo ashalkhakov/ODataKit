@@ -155,8 +155,13 @@ static BOOL OISCheckGroupPaths(NSArray *paths, NSError **error)
       for (NSArray *branch in self.branches) [branches addObject:[ODataApplyTransformation stringForTransformations:branch]];
       return [NSString stringWithFormat:@"concat(%@)", [branches componentsJoinedByString:@","]];
     }
-    case ODataApplyExpand:
-      return [NSString stringWithFormat:@"expand(%@)", self.expansion];
+    case ODataApplyExpand: {
+      // $apply's own syntax, which its reader reads back: the filter a
+      // transformation, not a query option.
+      NSString *path = [self.expandItem.path componentsJoinedByString:@"/"];
+      ODataExpression *filter = self.expandItem.options.filter;
+      return filter ? [NSString stringWithFormat:@"expand(%@,filter(%@))", path, filter] : [NSString stringWithFormat:@"expand(%@)", path];
+    }
     case ODataApplyJoin: {
       NSString *joined = [NSString stringWithFormat:@"%@ as %@", [self.joinPath componentsJoinedByString:@"/"], self.alias];
       if (self.sequence.count) joined = [joined stringByAppendingFormat:@",%@", [ODataApplyTransformation stringForTransformations:self.sequence]];
@@ -430,6 +435,28 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
   return t;
 }
 
++ (instancetype)expandWithItem:(ODataExpandItem *)item error:(NSError **)error
+{
+  if (!item) return nil;
+  NSArray *written = [item.options queryItemsWithError:NULL];
+  BOOL filterAtMost = written && (written.count == 0 || (written.count == 1 && [written[0][0] isEqualToString:@"$filter"]));
+  if (!OISCheckName(item.path.count == 1 && !item.isStar && !item.isRef && !item.isCount && filterAtMost,
+                    @"what expand() takes (one navigation property, with a filter at most)", item.description, error)) {
+    return nil;
+  }
+  ODataApplyTransformation *t = [[self alloc] init];
+  t->_kind = ODataApplyExpand;
+  t->_groupPaths = @[];
+  t->_aggregates = @[];
+  t->_expandItem = item;
+  return t;
+}
+
+- (NSString *)expansion
+{
+  return self.expandItem.description;
+}
+
 + (instancetype)searchWith:(ODataSearchExpression *)search
 {
   if (!search) return nil;
@@ -659,11 +686,16 @@ static NSUInteger OISLastTopWord(NSString *text, NSString *word)
                                           @"expand takes a navigation property and a filter", text);
         return nil;
       }
-      ODataApplyTransformation *t = [[self alloc] init];
-      t->_kind = ODataApplyExpand;
-      t->_groupPaths = @[];
-      t->_aggregates = @[];
-      t->_expansion = filter ? [NSString stringWithFormat:@"%@($filter=%@)", path[0], filter] : path[0];
+      // The filter read as an expression, and the expansion built of it:
+      // nothing of the text goes out as it came.
+      ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+      if (filter) {
+        options.filter = [ODataExpression expressionWithString:filter error:error];
+        if (!options.filter) return nil;
+      }
+      ODataExpandItem *item = [ODataExpandItem itemWithPath:path options:options error:error];
+      ODataApplyTransformation *t = item ? [self expandWithItem:item error:error] : nil;
+      if (!t) return OISSyntax(error, text);
       [transformations addObject:t];
     } else if ([name isEqualToString:@"join"] || [name isEqualToString:@"outerjoin"]) {
       // join(p as alias) or join(p as alias,transformations).

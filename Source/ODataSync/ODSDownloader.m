@@ -255,7 +255,8 @@ static const NSInteger ODSGone = 410;
 - (BOOL)readWhole:(NSEntityDescription *)entity context:(NSManagedObjectContext *)context deltaLink:(NSString **)deltaLink
             error:(NSError **)error
 {
-  NSURL *url = [_requests URLOfSet:entity keysOnly:NO];
+  NSURL *url = [_requests URLOfSet:entity keysOnly:NO error:error];
+  if (!url) return NO;
   NSArray *rows = [self rowsAt:url prefer:@"odata.track-changes" deltaLink:deltaLink status:NULL error:error];
   if (!rows) return NO;
   NSMutableSet *seen = [NSMutableSet set];
@@ -352,7 +353,8 @@ static const NSInteger ODSGone = 410;
 
 - (BOOL)reconcileEntity:(NSEntityDescription *)entity context:(NSManagedObjectContext *)context error:(NSError **)error
 {
-  NSArray *rows = [self rowsAt:[_requests URLOfSet:entity keysOnly:YES] prefer:nil deltaLink:NULL status:NULL error:error];
+  NSURL *url = [_requests URLOfSet:entity keysOnly:YES error:error];
+  NSArray *rows = url ? [self rowsAt:url prefer:nil deltaLink:NULL status:NULL error:error] : nil;
   if (!rows) return NO;
   NSMutableDictionary<NSString *, NSDictionary *> *remote = [NSMutableDictionary dictionary];
   for (NSDictionary *row in rows) {
@@ -367,7 +369,8 @@ static const NSInteger ODSGone = 410;
   }
   for (NSUInteger at = 0; at < missing.count; at += 40) {
     NSArray *keys = [missing subarrayWithRange:NSMakeRange(at, MIN(40u, missing.count - at))];
-    NSArray *found = [self rowsAt:[_requests URLOfSet:entity keys:keys] prefer:nil deltaLink:NULL status:NULL error:error];
+    NSURL *url = [_requests URLOfSet:entity keys:keys error:error];
+    NSArray *found = url ? [self rowsAt:url prefer:nil deltaLink:NULL status:NULL error:error] : nil;
     if (!found) return NO;
     [self applyRows:found entity:entity context:context seen:[NSMutableSet set]];
   }
@@ -398,7 +401,8 @@ static const NSInteger ODSGone = 410;
 
 - (NSDictionary *)rowOfEntity:(NSEntityDescription *)entity key:(NSDictionary *)key status:(NSInteger *)status error:(NSError **)error
 {
-  return [self JSONAt:[_requests URLOfObject:entity key:key] prefer:nil status:status error:error];
+  NSURL *url = [_requests URLOfObject:entity key:key error:error];
+  return url ? [self JSONAt:url prefer:nil status:status error:error] : nil;
 }
 
 - (BOOL)refreshObjectOfEntity:(NSEntityDescription *)entity key:(NSDictionary *)key context:(NSManagedObjectContext *)context

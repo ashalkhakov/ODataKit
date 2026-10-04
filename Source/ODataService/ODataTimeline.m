@@ -155,16 +155,20 @@ static BOOL OISBefore(NSDate *a, NSDate *b)
             @"SupportedActions": actions };
 }
 
-- (NSString *)filterFrom:(NSString *)from to:(NSString *)to inclusive:(BOOL)inclusive
+- (ODataExpression *)filterFrom:(ODataExpression *)from to:(ODataExpression *)to inclusive:(BOOL)inclusive error:(NSError **)error
 {
-  NSString *start = [self.mapper propertyForAttribute:self.startAttribute];
-  NSString *end = [self.mapper propertyForAttribute:self.endAttribute];
+  ODataExpression *start = [ODataExpression member:[self.mapper propertyForAttribute:self.startAttribute] of:nil error:error];
+  ODataExpression *end = [ODataExpression member:[self.mapper propertyForAttribute:self.endAttribute] of:nil error:error];
   // The slice ends after the interval begins (or has no end) ...
-  NSString *after = [NSString stringWithFormat:@"%@ %@ %@", end, self.closedClosed ? @"ge" : @"gt", from];
-  if (self.endAttribute.isOptional) after = [NSString stringWithFormat:@"(%@ or %@ eq null)", after, end];
+  ODataExpression *after = [ODataExpression binary:self.closedClosed ? @"ge" : @"gt" left:end right:from error:error];
+  if (self.endAttribute.isOptional) {
+    ODataExpression *open = [ODataExpression binary:@"eq" left:end right:[ODataExpression literalWithValue:[NSNull null]] error:error];
+    after = [ODataExpression binary:@"or" left:after right:open error:error];
+  }
   if (!to) return after;
   // ... and begins before it ends.
-  return [NSString stringWithFormat:@"%@ %@ %@ and %@", start, inclusive ? @"le" : @"lt", to, after];
+  ODataExpression *before = [ODataExpression binary:inclusive ? @"le" : @"lt" left:start right:to error:error];
+  return [ODataExpression binary:@"and" left:before right:after error:error];
 }
 
 #pragma mark Periods

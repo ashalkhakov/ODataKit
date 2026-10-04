@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODSModel.h"
+#import <ODataKit/ODataExpression.h>
+#import <ODataKit/ODataError.h>
 
 // The mapper's version attribute key (ODataService's ODataUserInfoETag):
 // named here, so that ODataSync's client needs no ODataService (iOS).
@@ -96,6 +98,26 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
   };
   for (NSEntityDescription *entity in roots) visit(entity);
   return ordered;
+}
+
+- (BOOL)checkNames:(NSError **)error
+{
+  for (NSEntityDescription *entity in [self syncedEntities]) {
+    NSMutableArray *names = [NSMutableArray arrayWithObject:@[ [self.mapper entitySetForEntity:[self rootOf:entity]], @"entity set" ]];
+    for (NSAttributeDescription *attribute in [[self attributesOf:entity] arrayByAddingObjectsFromArray:[self keyAttributesOf:entity]]) {
+      [names addObject:@[ [self.mapper propertyForAttribute:attribute], [@"property of " stringByAppendingString:entity.name] ]];
+    }
+    for (NSRelationshipDescription *toOne in [self toOnesOf:entity]) {
+      [names addObject:@[ [self.mapper propertyForRelationship:toOne], [@"navigation property of " stringByAppendingString:entity.name] ]];
+    }
+    for (NSArray *named in names) {
+      if (ODataIsIdentifier(named[0])) continue;
+      if (error) *error = OISError(ODataIncrementalStoreErrorInvalidName,
+                                   [NSString stringWithFormat:@"\"%@\" is not an OData identifier (an %@'s name)", named[0], named[1]]);
+      return NO;
+    }
+  }
+  return YES;
 }
 
 - (NSArray<NSEntityDescription *> *)syncedEntities

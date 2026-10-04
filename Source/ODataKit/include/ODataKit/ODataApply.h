@@ -34,7 +34,7 @@ typedef NS_ENUM(NSInteger, ODataApplyKind) {
   ODataApplySkip,       // number
   ODataApplyTopBottom,  // method (topcount, bottomsum, ...), number, expression
   ODataApplyConcat,     // branches
-  ODataApplyExpand,     // expansion: as $expand writes it, Category($filter=...)
+  ODataApplyExpand,     // expandItem: expand(Category) or expand(Category,filter(...))
   ODataApplyJoin,       // join or outerjoin (method): path as alias, sequence (may be nil)
   ODataApplyHierarchy   // ancestors, descendants or traverse (method): hierarchy, qualifier, nodePath, and the rest
 };
@@ -92,6 +92,11 @@ typedef NS_ENUM(NSInteger, ODataApplyKind) {
 + (instancetype)orderByItems:(NSArray<ODataOrderItem *> *)items;
 + (instancetype)computeItems:(NSArray<ODataComputeItem *> *)items;
 + (nullable instancetype)searchWith:(ODataSearchExpression *)search;
+// expand(Nav) or expand(Nav,filter(...)) (section 3.2.4): an item of one
+// navigation property, with a filter at most; nil and an
+// ODataIncrementalStoreErrorInvalidName for another (a path of more, *,
+// $ref or $count, other options), nil for a nil item.
++ (nullable instancetype)expandWithItem:(ODataExpandItem *)item error:(NSError **)error;
 + (instancetype)top:(NSUInteger)count;
 + (instancetype)skip:(NSUInteger)count;
 // ancestors or descendants (method) of the nodes of $root/hierarchy, by
@@ -129,6 +134,10 @@ typedef NS_ENUM(NSInteger, ODataApplyKind) {
 @property (nonatomic, readonly, strong, nullable) ODataExpression *numberExpression;
 @property (nonatomic, readonly, strong, nullable) ODataExpression *expression;
 @property (nonatomic, readonly, copy, nullable) NSArray<NSArray<ODataApplyTransformation *> *> *branches;
+// expand's: the navigation property expanded (path, one name), and its
+// filter (options.filter, nil for none); expansion, the same as $expand
+// writes it (Category($filter=...)), from it.
+@property (nonatomic, readonly, strong, nullable) ODataExpandItem *expandItem;
 @property (nonatomic, readonly, copy, nullable) NSString *expansion;
 // The hierarchical transformations (section 6), each over a recursive
 // hierarchy: its nodes, $root/SalesOrganizations (hierarchy, the path after
