@@ -42,3 +42,8 @@ NSString *DDSystemDeviceName(void)
 {
   return [NSHost currentHost].localizedName ?: [NSProcessInfo processInfo].hostName;
 }
+
+BOOL DDSystemMayHideBonjour(void)
+{
+  return YES;
+}

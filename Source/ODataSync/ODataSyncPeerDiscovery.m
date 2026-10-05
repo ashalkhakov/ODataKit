@@ -126,6 +126,7 @@ static dispatch_queue_t ODSQueueOf(id owner, const char *label)
 #pragma mark - Advertising
 
 @interface ODataSyncPeerAdvertiser ()
+@property (atomic, readwrite, copy, nullable) NSString *registeredName;
 - (void)failed:(DNSServiceErrorType)error;
 @end
 
@@ -155,7 +156,9 @@ static dispatch_queue_t ODSQueueOf(id owner, const char *label)
 static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServiceErrorType error, const char *name, const char *type,
                           const char *domain, void *context)
 {
-  if (error != kDNSServiceErr_NoError) [(__bridge ODataSyncPeerAdvertiser *)context failed:error];
+  ODataSyncPeerAdvertiser *advertiser = (__bridge ODataSyncPeerAdvertiser *)context;
+  if (error != kDNSServiceErr_NoError) [advertiser failed:error];
+  else if (name) advertiser.registeredName = @(name);
 }
 
 - (BOOL)start:(NSError **)error
@@ -210,6 +213,7 @@ static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServi
   }
   if (!registration) return;
   [registration cancel];
+  self.registeredName = nil;
   NSError *error = ODSDiscoveryError(failure, failure == -65570 ? @"Not advertised: the app may not use the local network (macOS, iOS: the user allows it)"
                                                                 : @"No longer advertised");
   _error = error;
@@ -230,6 +234,7 @@ static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServi
   ODSOnQueue(_queue, self, ^{
     [registration cancel];
   });
+  self.registeredName = nil;
 }
 
 - (BOOL)isAdvertising

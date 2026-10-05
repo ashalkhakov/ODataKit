@@ -55,3 +55,8 @@ NSString *DDSystemDeviceName(void)
 {
   return [NSProcessInfo processInfo].hostName;
 }
+
+BOOL DDSystemMayHideBonjour(void)
+{
+  return NO;
+}

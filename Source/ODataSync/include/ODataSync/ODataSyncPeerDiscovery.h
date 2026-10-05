@@ -56,6 +56,9 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
 // connection broke: no longer advertising; error says why.
 @property (nonatomic, copy, nullable) void (^didFail)(NSError *error);
 @property (atomic, readonly, nullable) NSError *error;
+// The name the daemon registered it under (another, on a conflict), once
+// it has: nil until then, and once stopped.
+@property (atomic, readonly, copy, nullable) NSString *registeredName;
 @end
 
 @class ODataSyncPeerBrowser;

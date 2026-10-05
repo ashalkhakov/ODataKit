@@ -58,6 +58,8 @@ FOUNDATION_EXPORT const NSUInteger DVPeersPort;
 // Looking for devices nearby (asks, the first time, for the local network).
 - (void)startBrowsing;
 @property (nonatomic, readonly, copy) NSArray<ODataSyncPeerAnnouncement *> *found;
+// The name serving is advertised under, once the daemon registered it.
+@property (nonatomic, readonly, nullable) NSString *advertisedName;
 // Why advertising or looking stopped, last (nil: it did not).
 @property (nonatomic, readonly, nullable) NSError *discoveryError;
 // A sync with a device found: its download, then its upload. NO while

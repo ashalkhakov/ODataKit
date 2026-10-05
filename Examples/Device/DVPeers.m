@@ -183,6 +183,11 @@ static NSString *DVLocalAddress(void)
 
 #pragma mark Serving
 
+- (NSString *)advertisedName
+{
+  return _advertiser.registeredName;
+}
+
 - (BOOL)isServing
 {
   return _server.running;

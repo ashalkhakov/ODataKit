@@ -17,6 +17,10 @@ FOUNDATION_EXPORT NSString *_Nullable DDSystemPastedText(void);
 FOUNDATION_EXPORT void DDSystemCopyText(NSString *text);
 // A push button's rounded bezel, as the system names it.
 FOUNDATION_EXPORT NSBezelStyle DDSystemRoundedBezel(void);
+// Whether the system may hide Bonjour's answers from an app no one has
+// allowed the local network, without an error (macOS: a CI runner, where
+// no one can answer the question).
+FOUNDATION_EXPORT BOOL DDSystemMayHideBonjour(void);
 // The device's name, as people know it.
 FOUNDATION_EXPORT NSString *DDSystemDeviceName(void);
 
