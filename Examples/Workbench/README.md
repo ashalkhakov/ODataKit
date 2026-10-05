@@ -180,12 +180,21 @@ A release carries both packages, attached when a `v*` tag is pushed:
   Gatekeeper checks a download. Run by hand with a tag, it signs that
   release's app again (the first release's included). Without the signing
   secrets (a fork) it still builds, and names the zip `-unsigned`.
-- **Linux**: `ODataWorkbench-Linux-<version>-x86_64.AppImage`, the app with
-  the library, FreeCoreData and the GNUstep runtime inside
-  (`Scripts/prepare-appdir.sh`, `Scripts/package-appimage.sh`). It needs
-  what any Linux desktop has: X11, fontconfig, freetype, OpenGL. Make it
-  executable and run it; where FUSE is missing, `APPIMAGE_EXTRACT_AND_RUN=1`
-  runs it without.
+- **Linux**: `ODataWorkbench-Linux-<version>-x86_64.AppImage`. It contains
+  the Workbench, the desktop Device app
+  ([its README](../DeviceDesktop/README.md)) and a launcher that chooses
+  between them (`Examples/Launcher`), with the libraries, FreeCoreData and
+  the GNUstep runtime (`Scripts/prepare-appdir.sh`,
+  `Scripts/package-appimage.sh`). It needs what any Linux desktop has: X11,
+  fontconfig, freetype, OpenGL. Make it executable and run it:
+  - with no arguments, the launcher asks which app to open;
+  - `<image> workbench` and `<image> device` open one directly (and pass on
+    what follows, `<image> device --self-test <root>` say);
+  - any other arguments go to the Workbench, as before (`--self-test`,
+    `--serve`);
+  - a symlink to the image whose name says `device` opens the Device app.
+
+  Where FUSE is missing, `APPIMAGE_EXTRACT_AND_RUN=1` runs it without.
 
 Before either is uploaded, it is started and runs its offline self-test:
 the Mac app before signing and again after, the AppImage in a plain Ubuntu

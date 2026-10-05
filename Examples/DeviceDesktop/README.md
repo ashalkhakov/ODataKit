@@ -52,6 +52,10 @@ Most of it comes from elsewhere:
      openapp Examples/DeviceDesktop/DeviceDesktop.app
      ```
 
+     Or, without building anything: the Workbench's AppImage carries this
+     app too (`ODataWorkbench-Linux-*.AppImage device`, or its launcher's
+     Device button).
+
      Discovery takes avahi-daemon running. A desktop has it; in a
      container, start D-Bus and avahi-daemon first. Set
      `AVAHI_COMPAT_NOWARN=1` to quiet Avahi's warning.

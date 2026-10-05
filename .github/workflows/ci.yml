@@ -363,6 +363,7 @@ jobs:
           make -C Examples/Catalog
           make -C Examples/Workbench
           make -C Examples/DeviceDesktop
+          make -C Examples/Launcher
 
       - name: Unit tests
         run: |

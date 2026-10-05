@@ -1,7 +1,8 @@
 #!/bin/bash
-# Assemble the Workbench's AppDir: the app, the library, FreeCoreData and the
-# GNUstep runtime it runs on. From GSXFormsKit's Scripts/prepare-appdir.sh
-# (after RDLKit's and UDQuakeTools'), for one app.
+# Assemble the AppDir: the Workbench, the desktop Device app and the launcher
+# that chooses between them, the libraries, FreeCoreData and the GNUstep
+# runtime they run on. From GSXFormsKit's Scripts/prepare-appdir.sh (after
+# RDLKit's and UDQuakeTools').
 #
 #   GNUSTEP_PREFIX=/path/to/gnustep ./Scripts/prepare-appdir.sh
 #
@@ -20,8 +21,10 @@ set -u
 
 make
 make install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
-make -C Examples/Workbench
-make -C Examples/Workbench install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
+for app in Workbench DeviceDesktop Launcher; do
+  make -C "Examples/$app"
+  make -C "Examples/$app" install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
+done
 
 # The prefix's GNUstep hierarchies: the app, the libraries, the backend
 # bundle, the tools GNUstep starts (gdnc, gpbs, make_services).
@@ -70,12 +73,14 @@ for dir in /usr/share/fonts/truetype/dejavu /usr/share/fonts/truetype/liberation
 done
 
 du -sh AppDir
-app=$(find AppDir/usr -maxdepth 5 -name "Workbench.app" -type d | head -n 1)
-if [ -z "$app" ]; then
-  echo "MISSING: Workbench.app" >&2
-  exit 1
-fi
-echo "  $app"
+for name in Workbench DeviceDesktop ODataLauncher; do
+  app=$(find AppDir/usr -maxdepth 5 -name "$name.app" -type d | head -n 1)
+  if [ -z "$app" ]; then
+    echo "MISSING: $name.app" >&2
+    exit 1
+  fi
+  echo "  $app"
+done
 # The theme AppRun selects: without it GNUstep falls back to its own look.
 theme=$(find AppDir/usr -maxdepth 5 -name "Eau.theme" -type d | head -n 1)
 if [ -z "$theme" ]; then

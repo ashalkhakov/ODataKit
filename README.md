@@ -131,7 +131,8 @@ xcodebuild -workspace ODataKit.xcworkspace -scheme Workbench build   # macOS
 make -C Examples/Workbench && openapp Examples/Workbench/Workbench.app   # GNUstep
 ```
 
-CI packages it on every push (a universal macOS app, a Linux AppImage), and
+CI packages it on every push (a universal macOS app, a Linux AppImage that
+carries the desktop Device app and a launcher too), and
 attaches both to each release — [its README](Examples/Workbench/README.md).
 
 Its Sync window's device also runs on an iPhone ([the Device app](Examples/Device/README.md))

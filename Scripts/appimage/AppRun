@@ -1,6 +1,8 @@
 #!/bin/sh
-# The Workbench's AppImage entry point. From GSXFormsKit's
-# Scripts/appimage/AppRun (after RDLKit's and UDQuakeTools'), for one app.
+# The AppImage's entry point. From GSXFormsKit's Scripts/appimage/AppRun
+# (after RDLKit's and UDQuakeTools'): this image carries two apps, the
+# Workbench and the desktop Device app, and a launcher that chooses between
+# them; the dispatch at the end decides which starts.
 #
 # GNUstep finds its libraries, backend and the app through paths that are
 # not known until the image is mounted, so its configuration is written
@@ -53,7 +55,9 @@ trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
 # stays a Control for the text bindings.
 DEFAULTS_TOOL=$(find "$HERE" -name defaults -type f -perm -111 | head -n 1)
 if [ -n "$DEFAULTS_TOOL" ]; then
-  for domain in Workbench io.github.ashalkhakov.ODataIncrementalStore.Workbench; do
+  for domain in Workbench io.github.ashalkhakov.ODataIncrementalStore.Workbench \
+                DeviceDesktop io.github.ashalkhakov.ODataIncrementalStore.DeviceDesktop \
+                ODataLauncher; do
     "$DEFAULTS_TOOL" write "$domain" GSTheme Eau
     "$DEFAULTS_TOOL" write "$domain" NSFont LiberationSans
     "$DEFAULTS_TOOL" write "$domain" NSBoldFont LiberationSans-Bold
@@ -67,6 +71,24 @@ if [ -n "$DEFAULTS_TOOL" ]; then
   done
 fi
 
-BIN=$(find "$HERE" -type f -name Workbench -perm -111 -exec file {} \; 2>/dev/null | awk -F: '/ELF/{print $1; exit}')
-[ -n "$BIN" ] || BIN="$HERE/usr/System/Applications/Workbench.app/Workbench"
+# Which app starts. The symlink the image was run through wins (so
+# `ln -s ODataWorkbench-*.AppImage odata-device` starts the Device app), then
+# a first argument naming one (workbench, device: the rest is the app's).
+# Other arguments are the Workbench's, as before there were two apps
+# (--self-test, --serve). None at all: the launcher, which asks.
+APP=ODataLauncher
+case "$(basename "${ARGV0:-$0}")" in
+  *[Dd]evice*) APP=DeviceDesktop ;;
+  *[Ww]orkbench*) [ $# -gt 0 ] && APP=Workbench ;;
+esac
+case "${1:-}" in
+  device|Device|DeviceDesktop) APP=DeviceDesktop; shift ;;
+  workbench|Workbench) APP=Workbench; shift ;;
+  launcher) APP=ODataLauncher; shift ;;
+  "") ;;
+  *) [ "$APP" = ODataLauncher ] && APP=Workbench ;;
+esac
+
+BIN=$(find "$HERE" -type f -name "$APP" -perm -111 -exec file {} \; 2>/dev/null | awk -F: '/ELF/{print $1; exit}')
+[ -n "$BIN" ] || BIN="$HERE/usr/System/Applications/$APP.app/$APP"
 exec "$BIN" "$@"
