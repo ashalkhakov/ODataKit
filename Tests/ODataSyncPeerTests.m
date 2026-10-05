@@ -73,7 +73,8 @@ static NSAttributeDescription *OSPAttribute(NSString *name, NSAttributeType type
   return attribute;
 }
 
-// Assets the service's (down), tasks everyone's (both).
+// Assets the service's (down), tasks everyone's (both), sites the
+// service's with no version.
 static NSManagedObjectModel *OSPModel(void)
 {
   NSEntityDescription *asset = [[NSEntityDescription alloc] init];
@@ -89,8 +90,15 @@ static NSManagedObjectModel *OSPModel(void)
   task.userInfo = @{ @"OData.entitySet": @"Tasks", ODataSyncDirectionKey: @"both", ODataSyncModifiedKey: @"modified" };
   task.properties = @[ OSPAttribute(@"id", NSStringAttributeType, YES), OSPAttribute(@"title", NSStringAttributeType, NO),
                        OSPAttribute(@"modified", NSStringAttributeType, NO) ];
+  // Sites the service's too, with no version counter: a peer adds what is
+  // missing, and cannot say its copy is newer.
+  NSEntityDescription *site = [[NSEntityDescription alloc] init];
+  site.name = @"Site";
+  site.managedObjectClassName = @"NSManagedObject";
+  site.userInfo = @{ @"OData.entitySet": @"Sites", ODataSyncDirectionKey: @"down" };
+  site.properties = @[ OSPAttribute(@"id", NSInteger32AttributeType, YES), OSPAttribute(@"name", NSStringAttributeType, NO) ];
   NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
-  model.entities = @[ asset, task ];
+  model.entities = @[ asset, task, site ];
   return model;
 }
 
@@ -257,6 +265,9 @@ static NSManagedObjectModel *OSPModel(void)
       [asset setValue:a[1] forKey:@"name"];
       [asset setValue:@1 forKey:@"version"];
     }
+    NSManagedObject *site = [NSEntityDescription insertNewObjectForEntityForName:@"Site" inManagedObjectContext:context];
+    [site setValue:@1 forKey:@"id"];
+    [site setValue:@"Plant" forKey:@"name"];
   }];
   ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:serverStore serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
   service.authenticator = [[OSPSignedIn alloc] init];
@@ -299,12 +310,17 @@ static NSManagedObjectModel *OSPModel(void)
   XCTAssertTrue([server start:&error], @"%@", error);
   XCTAssertEqualObjects(server.serviceRoot.scheme, @"https");
 
-  // B, with its token: A's data, and its edit taken as B's.
+  // B, with its token: A's data, and its edit taken as B's. (B read the
+  // service first: what A has of the service's, B has too, a site with no
+  // version counter among it.)
+  XCTAssertTrue([engines[@"B"] syncWithError:&error], @"%@", error);
+  XCTAssertEqualObjects([self values:@"name" of:@"Site" in:engines[@"B"].coordinator], @[ @"Plant" ]);
   for (ODataSyncRemote *remote in [engines[@"B"].remotes copy]) [engines[@"B"] removeRemote:remote];
   ODataSyncRemote *peerA = [self peerOf:server for:engines[@"B"] trust:trusts[@"B"]];
   XCTAssertTrue([engines[@"B"] syncWithError:&error], @"%@", error);
   XCTAssertEqualObjects([self values:@"name" of:@"Asset" in:engines[@"B"].coordinator], (@[ @"Pump", @"Valve" ]));
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:engines[@"B"].coordinator], (@[ @"Check the pump" ]));
+  XCTAssertEqualObjects([self values:@"name" of:@"Site" in:engines[@"B"].coordinator], @[ @"Plant" ]);
   ODataSyncPeerTransport *transport = (ODataSyncPeerTransport *)peerA.transport;
   XCTAssertEqualObjects(transport.peerThumbprint, trusts[@"A"].identity.thumbprint);
   XCTAssertEqualObjects(transport.peerPrincipal.claims[ODataSyncPeerReplicaClaim], engines[@"A"].replicaID);

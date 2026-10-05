@@ -16,10 +16,24 @@ NS_ASSUME_NONNULL_BEGIN
 // (so its exchanges are in the wire log, and its syncs in Traces), unless
 // offline.
 @interface WBSyncWindow : NSObject <NSTableViewDataSource, NSTableViewDelegate>
-- (nullable instancetype)initWithEngine:(WorkbenchEngine *)engine NS_DESIGNATED_INITIALIZER;
+// The Workbench's: a device of its own, over the built-in engine.
+- (nullable instancetype)initWithEngine:(WorkbenchEngine *)engine;
+// Another app's device (the Device apps'): its owner tells the window what
+// changed (-changed:) and what was logged (-logged:). Without an engine,
+// no Change at the Service.
+- (instancetype)initWithDevice:(WorkbenchDevice *)device engine:(nullable WorkbenchEngine *)engine NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
-@property (nonatomic, readonly) WorkbenchEngine *engine;
-@property (nonatomic, readonly) WorkbenchDevice *device;
+@property (nonatomic, readonly, nullable) WorkbenchEngine *engine;
+// A new one shown (its owner reset it).
+@property (nonatomic, strong) WorkbenchDevice *device;
+// What Reset Device does instead of resetting the device in place: the
+// owner makes a new one (and sets device).
+@property (nonatomic, copy, nullable) void (^resetsDevice)(void);
+// Told when the conflict rule, Offline or Sync each change was changed
+// here (the owner keeps them).
+@property (nonatomic, copy, nullable) void (^didChangeSetting)(void);
+- (void)changed:(NSString *)status;
+- (void)logged:(WorkbenchLogEntry *)entry;
 @property (nonatomic, readonly) ODataSyncEngine *sync;
 @property (nonatomic, readonly) NSPersistentStoreCoordinator *deviceStore;
 // The device's objects, as the table shows them (the main queue's).

@@ -15,19 +15,48 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
 
 - (instancetype)init
 {
+  return [self initWithInstance:nil];
+}
+
+- (instancetype)initWithInstance:(NSString *)instance
+{
   self = [super init];
   if (!self) return nil;
+  _instance = instance.length ? [instance copy] : nil;
+  _deviceName = [NSProcessInfo processInfo].hostName;
+  _peerPort = DVPeersPort;
   _status = @"Set the Workbench's address in Settings.";
-  NSString *root = [[NSUserDefaults standardUserDefaults] stringForKey:DVRootKey];
+  NSString *root = [[NSUserDefaults standardUserDefaults] stringForKey:[self key:DVRootKey]];
   if (root.length) [self openDeviceAt:[NSURL URLWithString:root] emptied:NO];
   return self;
 }
 
-// In Application Support: the device's data stays across launches.
+- (void)setDeviceName:(NSString *)deviceName
+{
+  _deviceName = [deviceName copy];
+  _peers.deviceName = _deviceName;
+}
+
+- (void)setPeerPort:(NSUInteger)peerPort
+{
+  _peerPort = peerPort;
+  _peers.port = peerPort;
+}
+
+// A setting's key: an instance's own.
+- (NSString *)key:(NSString *)key
+{
+  return _instance ? [NSString stringWithFormat:@"%@-%@", key, _instance] : key;
+}
+
+// In Application Support, the app's (an instance's) own: the device's data
+// stays across launches.
 - (NSURL *)storeURL
 {
   NSURL *support = [[NSFileManager defaultManager] URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
-  NSURL *directory = [support URLByAppendingPathComponent:@"Device" isDirectory:YES];
+  NSString *name = [NSProcessInfo processInfo].processName;
+  if (_instance) name = [NSString stringWithFormat:@"%@-%@", name, _instance];
+  NSURL *directory = [support URLByAppendingPathComponent:name isDirectory:YES];
   [[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:NULL];
   return [directory URLByAppendingPathComponent:@"Device.sqlite"];
 }
@@ -64,9 +93,9 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
     return;
   }
   NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-  _device.rule = (WBSyncRule)[defaults integerForKey:DVRuleKey];
-  _device.offline = [defaults boolForKey:DVOfflineKey];
-  _device.syncsEachChange = [defaults boolForKey:DVSyncsEachChangeKey];
+  _device.rule = (WBSyncRule)[defaults integerForKey:[self key:DVRuleKey]];
+  _device.offline = [defaults boolForKey:[self key:DVOfflineKey]];
+  _device.syncsEachChange = [defaults boolForKey:[self key:DVSyncsEachChangeKey]];
   __weak DVSession *weak = self;
   _device.didChange = ^(NSString *status) {
     [weak say:status];
@@ -77,6 +106,8 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
   NSError *error = nil;
   NSURL *directory = [[self storeURL].URLByDeletingLastPathComponent URLByAppendingPathComponent:@"Peers" isDirectory:YES];
   _peers = [[DVPeers alloc] initWithDevice:_device directory:directory error:&error];
+  _peers.deviceName = _deviceName;
+  _peers.port = _peerPort;
   _peers.say = ^(NSString *status) {
     [weak say:status];
   };
@@ -104,45 +135,60 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
   if ([root isEqual:_serviceRoot]) return nil;
   if (_device.busy) return @"Still syncing.";
   if (_peers.busy) return @"Still pairing, or getting a peer token.";
-  [[NSUserDefaults standardUserDefaults] setObject:root.absoluteString forKey:DVRootKey];
+  [[NSUserDefaults standardUserDefaults] setObject:root.absoluteString forKey:[self key:DVRootKey]];
   [self openDeviceAt:root emptied:YES];
   return _device ? nil : _status;
 }
 
 - (WBSyncRule)rule
 {
-  return (WBSyncRule)[[NSUserDefaults standardUserDefaults] integerForKey:DVRuleKey];
+  return (WBSyncRule)[[NSUserDefaults standardUserDefaults] integerForKey:[self key:DVRuleKey]];
 }
 
 - (void)setRule:(WBSyncRule)rule
 {
-  [[NSUserDefaults standardUserDefaults] setInteger:rule forKey:DVRuleKey];
+  [[NSUserDefaults standardUserDefaults] setInteger:rule forKey:[self key:DVRuleKey]];
   _device.rule = rule;
   [self say:[NSString stringWithFormat:@"Conflicts: %@.", WBSyncRuleTitles()[(NSUInteger)rule].lowercaseString]];
 }
 
 - (BOOL)isOffline
 {
-  return [[NSUserDefaults standardUserDefaults] boolForKey:DVOfflineKey];
+  return [[NSUserDefaults standardUserDefaults] boolForKey:[self key:DVOfflineKey]];
 }
 
 - (void)setOffline:(BOOL)offline
 {
-  [[NSUserDefaults standardUserDefaults] setBool:offline forKey:DVOfflineKey];
+  [[NSUserDefaults standardUserDefaults] setBool:offline forKey:[self key:DVOfflineKey]];
   _device.offline = offline;
   [self say:offline ? @"Offline: change things on the device; they wait, and go when it is back." : @"Back online: Sync sends what waits."];
 }
 
 - (BOOL)syncsEachChange
 {
-  return [[NSUserDefaults standardUserDefaults] boolForKey:DVSyncsEachChangeKey];
+  return [[NSUserDefaults standardUserDefaults] boolForKey:[self key:DVSyncsEachChangeKey]];
 }
 
 - (void)setSyncsEachChange:(BOOL)syncsEachChange
 {
-  [[NSUserDefaults standardUserDefaults] setBool:syncsEachChange forKey:DVSyncsEachChangeKey];
+  [[NSUserDefaults standardUserDefaults] setBool:syncsEachChange forKey:[self key:DVSyncsEachChangeKey]];
   _device.syncsEachChange = syncsEachChange;
   [self say:syncsEachChange ? @"Each change is synced at once." : @"Changes wait for Sync (or Upload)."];
+}
+
+- (void)discardDevice
+{
+  [_peers discard];
+  _peers = nil;
+  _device.didChange = nil;
+  _device.didLog = nil;
+  _device = nil;
+  _serviceRoot = nil;
+  NSURL *directory = [self storeURL].URLByDeletingLastPathComponent;
+  [[NSFileManager defaultManager] removeItemAtURL:directory error:NULL];
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  for (NSString *key in @[ DVRootKey, DVRuleKey, DVOfflineKey, DVSyncsEachChangeKey ]) [defaults removeObjectForKey:[self key:key]];
+  [self say:@"No device: set the Workbench's address."];
 }
 
 - (void)resetDevice

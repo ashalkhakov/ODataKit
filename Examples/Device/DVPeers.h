@@ -25,6 +25,10 @@ FOUNDATION_EXPORT const NSUInteger DVPeersPort;
 - (instancetype)init NS_UNAVAILABLE;
 @property (nonatomic, readonly) WorkbenchDevice *device;
 @property (nonatomic, readonly) ODataSyncPeerTrust *trust;
+// What peers are told it is called (a pairing's name), and the port it
+// serves them on (default DVPeersPort). Set before serving.
+@property (nonatomic, copy) NSString *deviceName;
+@property (nonatomic) NSUInteger port;
 // What happened, in words (the session's status line).
 @property (nonatomic, copy, nullable) void (^say)(NSString *status);
 
@@ -38,7 +42,7 @@ FOUNDATION_EXPORT const NSUInteger DVPeersPort;
 // Asking for a token, or pairing: the device is not to be reset meanwhile.
 @property (nonatomic, readonly, getter=isBusy) BOOL busy;
 
-// The device's store served at https://<its address>:8642/sync/<replica>/,
+// The device's store served at https://<its address>:<port>/sync/<replica>/,
 // and advertised; NO and why not.
 - (BOOL)startServing:(NSError **)error;
 - (void)stopServing;

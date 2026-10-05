@@ -66,7 +66,7 @@ jobs:
 
       - name: Build the example apps
         run: |
-          for scheme in Catalog Workbench; do
+          for scheme in Catalog Workbench DeviceDesktop; do
             xcodebuild -workspace ODataKit.xcworkspace -scheme "$scheme" \
               -destination 'platform=macOS' -configuration Debug \
               -derivedDataPath "$RUNNER_TEMP/DerivedData" build
@@ -113,6 +113,17 @@ jobs:
         continue-on-error: true
         run: |
           "$RUNNER_TEMP/DerivedData/Build/Products/Debug/Workbench.app/Contents/MacOS/Workbench" --self-test
+
+      # Peer sync end to end (Examples/DeviceDesktop): three devices of the
+      # desktop Device app's, against the Workbench serving its built-in
+      # service on loopback; tokens, TLS, Bonjour, pairing. No network beyond
+      # this machine: fatal.
+      - name: Device self-test (peer sync)
+        run: |
+          products="$RUNNER_TEMP/DerivedData/Build/Products/Debug"
+          "$products/Workbench.app/Contents/MacOS/Workbench" --serve > "$RUNNER_TEMP/workbench-serve.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8640/odata/ && break; sleep 1; done
+          "$products/DeviceDesktop.app/Contents/MacOS/DeviceDesktop" --self-test http://127.0.0.1:8640/odata/
 
       # The Workbench as an app, for each push: Release, universal (arm64 and
       # x86_64), the frameworks embedded, signed ad hoc and named -unsigned.
@@ -257,10 +268,11 @@ jobs:
             libpthread-workqueue-dev libsqlite3-dev \
             libfreetype-dev libfontconfig1-dev libxrender-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
-            xvfb libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev avahi-daemon
+            xvfb libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev avahi-daemon libqrencode-dev
           # xvfb is a display for the Workbench's self-test.
           # libavahi-compat-libdnssd-dev is ODataSync's Bonjour (its peers);
           # avahi-daemon answers it, for the peer discovery test.
+          # libqrencode-dev draws the desktop Device app's pairing codes.
           # libpq-dev and libmariadb-dev are FreeCoreData's SQL backends'.
           # libsqlite3-dev is FreeCoreData's: NSSQLitePersistentStore links it.
           # libxml2-dev is what gives gnustep-base the NSXML momc reads models
@@ -348,6 +360,7 @@ jobs:
           . $PREFIX/System/Library/Makefiles/GNUstep.sh
           make -C Examples/Catalog
           make -C Examples/Workbench
+          make -C Examples/DeviceDesktop
 
       - name: Unit tests
         run: |
@@ -386,6 +399,17 @@ jobs:
           cd Examples/Workbench
           LD_LIBRARY_PATH="$PWD/../../obj${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             xvfb-run -a ./Workbench.app/Workbench --self-test
+
+      # Peer sync end to end on GNUstep (Examples/DeviceDesktop): GnuTLS,
+      # libcurl, Avahi (avahi-daemon started for the unit tests), against
+      # the Workbench serving on loopback. Fatal.
+      - name: Device self-test (peer sync)
+        run: |
+          . $PREFIX/System/Library/Makefiles/GNUstep.sh
+          export LD_LIBRARY_PATH="$PWD/obj${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" AVAHI_COMPAT_NOWARN=1
+          (cd Examples/Workbench && xvfb-run -a ./Workbench.app/Workbench --serve > "$RUNNER_TEMP/workbench-serve.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8640/odata/ && break; sleep 1; done
+          Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop --self-test http://127.0.0.1:8640/odata/
 
       # The Workbench as an AppImage: the app, the library, FreeCoreData and
       # the GNUstep runtime in one file (Scripts/prepare-appdir.sh,

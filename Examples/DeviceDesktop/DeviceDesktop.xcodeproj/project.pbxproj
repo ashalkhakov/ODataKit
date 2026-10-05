@@ -1,0 +1,597 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		055CF662F6BC29657C1BC4D5 /* WorkbenchDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = B0C6D0EA41AEADE4CF359018 /* WorkbenchDevice.m */; };
+		0813313093324842215A0502 /* DVSession.m in Sources */ = {isa = PBXBuildFile; fileRef = 297C0AC8DC0C4C7B34DF91B3 /* DVSession.m */; };
+		0BE99DD0300509B22BC6FC89 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 58E3E55666356FDBB165C379 /* main.m */; };
+		24C879566515772623B05A5D /* Catalog.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 7A792D1C96BAF98738EEF094 /* Catalog.xcdatamodeld */; };
+		2A211C23A80BE200E3E350D4 /* DDPeersWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = 6D84E92E5A26E29EFDC5384E /* DDPeersWindow.m */; };
+		4A842AFE418879666C4A6C5E /* OTelKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3690C75867398B128FB2539D /* OTelKit.framework */; };
+		63E7A3B744A675B724F2647A /* ODataIncrementalStore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D9116902367A631A408BFDA1 /* ODataIncrementalStore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		772E581FBE950767E818D010 /* ODataKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7BB4D8C36EBA708025AB1A23 /* ODataKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		79DF09F895CFF49293DC2D96 /* DDSelfTest.m in Sources */ = {isa = PBXBuildFile; fileRef = 6A5225AB22C4F3D50C5C5B9D /* DDSelfTest.m */; };
+		7FE9C816A8C9D6E8154D6F45 /* ODataSync.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43A93787183376412BDEB883 /* ODataSync.framework */; };
+		80B16454421F80C53E3C7674 /* DDAppController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9C743CF6F8546CF1F28DA3AC /* DDAppController.m */; };
+		86799758321A8D8B0615D60E /* WorkbenchModel.m in Sources */ = {isa = PBXBuildFile; fileRef = E1FA17DD5917628AC61E9EB4 /* WorkbenchModel.m */; };
+		86B05DB9B1E5472B9D6BF4CF /* ODataIncrementalStore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D9116902367A631A408BFDA1 /* ODataIncrementalStore.framework */; };
+		9116E5E8BE0F2F2EB1501F78 /* HTTPServerKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FD52DFDDA51D5127425B4CC6 /* HTTPServerKit.framework */; };
+		9BE4BACD0E210962639628F4 /* ODataService.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F029CD85114C9F229FA38CEE /* ODataService.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A137B692B462DD56FACB1D5A /* WorkbenchSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = D52704F200510C5FF56A6206 /* WorkbenchSupport.m */; };
+		CA2BE6D8E2657617AB962A66 /* ODataSync.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 43A93787183376412BDEB883 /* ODataSync.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CC144FE6CA78AFA800A5B98D /* OTelKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 3690C75867398B128FB2539D /* OTelKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CC93065387CB65F52E248399 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 37F00106635F7E1203CF0FCF /* Cocoa.framework */; };
+		D0E13FE230DF765CBA6CDD4D /* ODataKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7BB4D8C36EBA708025AB1A23 /* ODataKit.framework */; };
+		D873E181C4769C98024B63C2 /* WBSync.m in Sources */ = {isa = PBXBuildFile; fileRef = FD874FE499EB6DE165A888CE /* WBSync.m */; };
+		DA432D4E151F21D7B95ECF09 /* HTTPServerKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FD52DFDDA51D5127425B4CC6 /* HTTPServerKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		E5BEA3F5ECE1328AC4787ECC /* DVPeers.m in Sources */ = {isa = PBXBuildFile; fileRef = 7B1379E3DBB4D716BD7FC2F9 /* DVPeers.m */; };
+		EB1EFEDE049460312CBFB57C /* DDSystem.m in Sources */ = {isa = PBXBuildFile; fileRef = 954AC30E6E245F6F00EDE749 /* DDSystem.m */; };
+		ECA1C25C67958352836D6CE2 /* ODataService.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F029CD85114C9F229FA38CEE /* ODataService.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2C983F5139AA6686D734382C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000000000000000000006;
+			remoteInfo = ODataKit;
+		};
+		4693EB0BA4EC798AEEE9971B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = D7BA1954D987FDFF19FEE609;
+			remoteInfo = Subproject;
+		};
+		493E4DB7F2ADF45712E62BE9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = AA000000000000000000000B;
+			remoteInfo = Subproject;
+		};
+		6AF01D000F25B45D81C243E9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = 5C30F5597E6C2517354354B7;
+			remoteInfo = Subproject;
+		};
+		8FF10CC173116AFE9F03C8A7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = AA0000000000000000000007;
+			remoteInfo = Subproject;
+		};
+		A17DA2B142180EA8A55C3C58 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = 7F1CE30E03D845ACEF6B15CD;
+			remoteInfo = ODataSync;
+		};
+		A6ADF336553703159AE5616A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = AA000000000000000000000A;
+			remoteInfo = ODataService;
+		};
+		B7C28D5C81B00D401E1CB911 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000000000000000000002;
+			remoteInfo = ODataIncrementalStore;
+		};
+		C78B65B633EC67AF2891E258 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = 9828CC078A88AE7706B232C7;
+			remoteInfo = HTTPServerKit;
+		};
+		C8DE90E850CD3E00A8985BA3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = A21CEFC6F685318B7798AD60;
+			remoteInfo = Subproject;
+		};
+		CBF9794FAAB456403A146068 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = AA0000000000000000000003;
+			remoteInfo = Subproject;
+		};
+		ED63E7769E4CFD55E373613E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = 4CBB61F9CEEAF8A9C5A1F7CF;
+			remoteInfo = OTelKit;
+		};
+		EFD390997741288A77E005F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = AA0000000000000000000005;
+			remoteInfo = Subproject;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		860429183AB8354BA85152A8 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				772E581FBE950767E818D010 /* ODataKit.framework in Embed Frameworks */,
+				CC144FE6CA78AFA800A5B98D /* OTelKit.framework in Embed Frameworks */,
+				63E7A3B744A675B724F2647A /* ODataIncrementalStore.framework in Embed Frameworks */,
+				DA432D4E151F21D7B95ECF09 /* HTTPServerKit.framework in Embed Frameworks */,
+				9BE4BACD0E210962639628F4 /* ODataService.framework in Embed Frameworks */,
+				CA2BE6D8E2657617AB962A66 /* ODataSync.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = ODataKit.xcodeproj; path = ../../ODataKit.xcodeproj; sourceTree = "<group>"; };
+		0BC2487DEE138B74E1CA211D /* GNUmakefile */ = {isa = PBXFileReference; includeInIndex = 1; path = GNUmakefile; sourceTree = "<group>"; };
+		197B01A776A48B7011FE0897 /* DDSystem.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DDSystem.h; sourceTree = "<group>"; };
+		1B3F4D7AD569DDB113B5FF7E /* WorkbenchDevice.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchDevice.h; path = ../Workbench/WorkbenchDevice.h; sourceTree = "<group>"; };
+		297C0AC8DC0C4C7B34DF91B3 /* DVSession.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = DVSession.m; path = ../Device/DVSession.m; sourceTree = "<group>"; };
+		2A64836636A2F43236AC0A99 /* WorkbenchModel.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchModel.h; path = ../Workbench/WorkbenchModel.h; sourceTree = "<group>"; };
+		36083F8AF899513C6260DC17 /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = ../../Xcode/Configs/Release.xcconfig; sourceTree = "<group>"; };
+		37F00106635F7E1203CF0FCF /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		3A44B7ECB3299347C52F60C6 /* DVSession.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = DVSession.h; path = ../Device/DVSession.h; sourceTree = "<group>"; };
+		49D36F24FDD0D15E1CC83498 /* DDSelfTest.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DDSelfTest.h; sourceTree = "<group>"; };
+		58E3E55666356FDBB165C379 /* main.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		6A5225AB22C4F3D50C5C5B9D /* DDSelfTest.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DDSelfTest.m; sourceTree = "<group>"; };
+		6C8465B8E8BE18E593D85855 /* DDAppController.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DDAppController.h; sourceTree = "<group>"; };
+		6D84E92E5A26E29EFDC5384E /* DDPeersWindow.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DDPeersWindow.m; sourceTree = "<group>"; };
+		7B1379E3DBB4D716BD7FC2F9 /* DVPeers.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = DVPeers.m; path = ../Device/DVPeers.m; sourceTree = "<group>"; };
+		88DFD3CD759DBE08668FFBD5 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = ../../Xcode/Configs/Debug.xcconfig; sourceTree = "<group>"; };
+		8DE79E6E7922172931E9B7C3 /* Catalog.xcdatamodel */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcdatamodel; path = Catalog.xcdatamodel; sourceTree = "<group>"; };
+		954AC30E6E245F6F00EDE749 /* DDSystem.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DDSystem.m; sourceTree = "<group>"; };
+		9C743CF6F8546CF1F28DA3AC /* DDAppController.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DDAppController.m; sourceTree = "<group>"; };
+		B0C6D0EA41AEADE4CF359018 /* WorkbenchDevice.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WorkbenchDevice.m; path = ../Workbench/WorkbenchDevice.m; sourceTree = "<group>"; };
+		B30C48BA8A0F3F3AE87CC27D /* WorkbenchSupport.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchSupport.h; path = ../Workbench/WorkbenchSupport.h; sourceTree = "<group>"; };
+		B7C37A395093EC0F268FF9DB /* DVPeers.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = DVPeers.h; path = ../Device/DVPeers.h; sourceTree = "<group>"; };
+		C9C4C30450ECD4001F442D3A /* DeviceDesktop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeviceDesktop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D52704F200510C5FF56A6206 /* WorkbenchSupport.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WorkbenchSupport.m; path = ../Workbench/WorkbenchSupport.m; sourceTree = "<group>"; };
+		D598DE9F175FDF13484AFA37 /* WBSync.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WBSync.h; path = ../Workbench/WBSync.h; sourceTree = "<group>"; };
+		E1FA17DD5917628AC61E9EB4 /* WorkbenchModel.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WorkbenchModel.m; path = ../Workbench/WorkbenchModel.m; sourceTree = "<group>"; };
+		F7F46ABDD3E0C63F30E91897 /* README.md */ = {isa = PBXFileReference; includeInIndex = 1; path = README.md; sourceTree = "<group>"; };
+		FD874FE499EB6DE165A888CE /* WBSync.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WBSync.m; path = ../Workbench/WBSync.m; sourceTree = "<group>"; };
+		FE74FAC91EDAEFA968AAA9BA /* DDPeersWindow.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DDPeersWindow.h; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7AB5CF67CDDD7184830EB21D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC93065387CB65F52E248399 /* Cocoa.framework in Frameworks */,
+				D0E13FE230DF765CBA6CDD4D /* ODataKit.framework in Frameworks */,
+				4A842AFE418879666C4A6C5E /* OTelKit.framework in Frameworks */,
+				86B05DB9B1E5472B9D6BF4CF /* ODataIncrementalStore.framework in Frameworks */,
+				9116E5E8BE0F2F2EB1501F78 /* HTTPServerKit.framework in Frameworks */,
+				ECA1C25C67958352836D6CE2 /* ODataService.framework in Frameworks */,
+				7FE9C816A8C9D6E8154D6F45 /* ODataSync.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0E63B6FC48F8A831495DD1D8 /* Device (shared) */ = {
+			isa = PBXGroup;
+			children = (
+				3A44B7ECB3299347C52F60C6 /* DVSession.h */,
+				297C0AC8DC0C4C7B34DF91B3 /* DVSession.m */,
+				B7C37A395093EC0F268FF9DB /* DVPeers.h */,
+				7B1379E3DBB4D716BD7FC2F9 /* DVPeers.m */,
+			);
+			name = "Device (shared)";
+			sourceTree = "<group>";
+		};
+		24182EE2FBC3076F789BD64F /* Libraries */ = {
+			isa = PBXGroup;
+			children = (
+				094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */,
+			);
+			name = Libraries;
+			sourceTree = "<group>";
+		};
+		2F9872501CD1EAA069977943 = {
+			isa = PBXGroup;
+			children = (
+				C442C83D0420419C5C1D8301 /* Products */,
+				9DE01C36C8EE72FA514049A7 /* Frameworks */,
+				DDB483C7BAEDE3C00F12AB7D /* Configs */,
+				851E626A10F29B3EC35135F3 /* DeviceDesktop */,
+				0E63B6FC48F8A831495DD1D8 /* Device (shared) */,
+				B5C3F646E0CEA37BF066C57F /* Workbench (shared) */,
+				951751B512A987D7F04C532B /* Model */,
+				24182EE2FBC3076F789BD64F /* Libraries */,
+			);
+			sourceTree = "<group>";
+		};
+		5F191D4EC766C8E3EC5AD185 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				37F00106635F7E1203CF0FCF /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		851E626A10F29B3EC35135F3 /* DeviceDesktop */ = {
+			isa = PBXGroup;
+			children = (
+				58E3E55666356FDBB165C379 /* main.m */,
+				9C743CF6F8546CF1F28DA3AC /* DDAppController.m */,
+				6D84E92E5A26E29EFDC5384E /* DDPeersWindow.m */,
+				6C8465B8E8BE18E593D85855 /* DDAppController.h */,
+				FE74FAC91EDAEFA968AAA9BA /* DDPeersWindow.h */,
+				197B01A776A48B7011FE0897 /* DDSystem.h */,
+				0BC2487DEE138B74E1CA211D /* GNUmakefile */,
+				F7F46ABDD3E0C63F30E91897 /* README.md */,
+				95592A3667C36AB0553C6071 /* apple */,
+				49D36F24FDD0D15E1CC83498 /* DDSelfTest.h */,
+				6A5225AB22C4F3D50C5C5B9D /* DDSelfTest.m */,
+			);
+			name = DeviceDesktop;
+			sourceTree = "<group>";
+		};
+		951751B512A987D7F04C532B /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				7A792D1C96BAF98738EEF094 /* Catalog.xcdatamodeld */,
+			);
+			name = Model;
+			sourceTree = "<group>";
+		};
+		95592A3667C36AB0553C6071 /* apple */ = {
+			isa = PBXGroup;
+			children = (
+				954AC30E6E245F6F00EDE749 /* DDSystem.m */,
+			);
+			name = apple;
+			path = apple;
+			sourceTree = "<group>";
+		};
+		9DE01C36C8EE72FA514049A7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				5F191D4EC766C8E3EC5AD185 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B5C3F646E0CEA37BF066C57F /* Workbench (shared) */ = {
+			isa = PBXGroup;
+			children = (
+				2A64836636A2F43236AC0A99 /* WorkbenchModel.h */,
+				E1FA17DD5917628AC61E9EB4 /* WorkbenchModel.m */,
+				1B3F4D7AD569DDB113B5FF7E /* WorkbenchDevice.h */,
+				B0C6D0EA41AEADE4CF359018 /* WorkbenchDevice.m */,
+				B30C48BA8A0F3F3AE87CC27D /* WorkbenchSupport.h */,
+				D52704F200510C5FF56A6206 /* WorkbenchSupport.m */,
+				D598DE9F175FDF13484AFA37 /* WBSync.h */,
+				FD874FE499EB6DE165A888CE /* WBSync.m */,
+			);
+			name = "Workbench (shared)";
+			sourceTree = "<group>";
+		};
+		C442C83D0420419C5C1D8301 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C9C4C30450ECD4001F442D3A /* DeviceDesktop.app */,
+				7BB4D8C36EBA708025AB1A23 /* ODataKit.framework */,
+				D9116902367A631A408BFDA1 /* ODataIncrementalStore.framework */,
+				F029CD85114C9F229FA38CEE /* ODataService.framework */,
+				938B459D116AA843FAA4E9FB /* ODataKitTests.xctest */,
+				FD52DFDDA51D5127425B4CC6 /* HTTPServerKit.framework */,
+				3690C75867398B128FB2539D /* OTelKit.framework */,
+				43A93787183376412BDEB883 /* ODataSync.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DDB483C7BAEDE3C00F12AB7D /* Configs */ = {
+			isa = PBXGroup;
+			children = (
+				88DFD3CD759DBE08668FFBD5 /* Debug.xcconfig */,
+				36083F8AF899513C6260DC17 /* Release.xcconfig */,
+			);
+			name = Configs;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9A13EE00ECE33267D7ADF729 /* DeviceDesktop */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 726A2750C6E3CEE25667CBC3 /* Build configuration list for PBXNativeTarget "DeviceDesktop" */;
+			buildPhases = (
+				B7709563E49C0AC55F3AE0DB /* Sources */,
+				7AB5CF67CDDD7184830EB21D /* Frameworks */,
+				3EDEB7B45790BC72562C702B /* Resources */,
+				860429183AB8354BA85152A8 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6E0E8A122E754768C0265FE0 /* PBXTargetDependency */,
+				32379A71F3EF550CCFA8910C /* PBXTargetDependency */,
+				3E24E776C63FA84A2B63A339 /* PBXTargetDependency */,
+				0F4F2E0A90BDA87258188444 /* PBXTargetDependency */,
+				DE9D314B64FD8991D13E0F52 /* PBXTargetDependency */,
+				6130A4D677492190E0915281 /* PBXTargetDependency */,
+			);
+			name = DeviceDesktop;
+			productName = DeviceDesktop;
+			productReference = C9C4C30450ECD4001F442D3A /* DeviceDesktop.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		528F5E540EC21B9EBF29CB35 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 3E92E048C33427649BECB84F /* Build configuration list for PBXProject "DeviceDesktop" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 2F9872501CD1EAA069977943;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C442C83D0420419C5C1D8301 /* Products */;
+			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = C442C83D0420419C5C1D8301 /* Products */;
+					ProjectRef = 094F25F47B1E81B5B5E041A8 /* ODataKit.xcodeproj */;
+				},
+			);
+			projectRoot = "";
+			targets = (
+				9A13EE00ECE33267D7ADF729 /* DeviceDesktop */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXReferenceProxy section */
+		3690C75867398B128FB2539D /* OTelKit.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = OTelKit.framework;
+			remoteRef = 4693EB0BA4EC798AEEE9971B /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		43A93787183376412BDEB883 /* ODataSync.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = ODataSync.framework;
+			remoteRef = 6AF01D000F25B45D81C243E9 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		7BB4D8C36EBA708025AB1A23 /* ODataKit.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = ODataKit.framework;
+			remoteRef = 8FF10CC173116AFE9F03C8A7 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		938B459D116AA843FAA4E9FB /* ODataKitTests.xctest */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.cfbundle;
+			path = ODataKitTests.xctest;
+			remoteRef = EFD390997741288A77E005F7 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		D9116902367A631A408BFDA1 /* ODataIncrementalStore.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = ODataIncrementalStore.framework;
+			remoteRef = CBF9794FAAB456403A146068 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		F029CD85114C9F229FA38CEE /* ODataService.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = ODataService.framework;
+			remoteRef = 493E4DB7F2ADF45712E62BE9 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		FD52DFDDA51D5127425B4CC6 /* HTTPServerKit.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = HTTPServerKit.framework;
+			remoteRef = C8DE90E850CD3E00A8985BA3 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+/* End PBXReferenceProxy section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3EDEB7B45790BC72562C702B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B7709563E49C0AC55F3AE0DB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0BE99DD0300509B22BC6FC89 /* main.m in Sources */,
+				80B16454421F80C53E3C7674 /* DDAppController.m in Sources */,
+				2A211C23A80BE200E3E350D4 /* DDPeersWindow.m in Sources */,
+				EB1EFEDE049460312CBFB57C /* DDSystem.m in Sources */,
+				0813313093324842215A0502 /* DVSession.m in Sources */,
+				E5BEA3F5ECE1328AC4787ECC /* DVPeers.m in Sources */,
+				86799758321A8D8B0615D60E /* WorkbenchModel.m in Sources */,
+				055CF662F6BC29657C1BC4D5 /* WorkbenchDevice.m in Sources */,
+				A137B692B462DD56FACB1D5A /* WorkbenchSupport.m in Sources */,
+				D873E181C4769C98024B63C2 /* WBSync.m in Sources */,
+				24C879566515772623B05A5D /* Catalog.xcdatamodeld in Sources */,
+				79DF09F895CFF49293DC2D96 /* DDSelfTest.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0F4F2E0A90BDA87258188444 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = HTTPServerKit;
+			targetProxy = C78B65B633EC67AF2891E258 /* PBXContainerItemProxy */;
+		};
+		32379A71F3EF550CCFA8910C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = OTelKit;
+			targetProxy = ED63E7769E4CFD55E373613E /* PBXContainerItemProxy */;
+		};
+		3E24E776C63FA84A2B63A339 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ODataIncrementalStore;
+			targetProxy = B7C28D5C81B00D401E1CB911 /* PBXContainerItemProxy */;
+		};
+		6130A4D677492190E0915281 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ODataSync;
+			targetProxy = A17DA2B142180EA8A55C3C58 /* PBXContainerItemProxy */;
+		};
+		6E0E8A122E754768C0265FE0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ODataKit;
+			targetProxy = 2C983F5139AA6686D734382C /* PBXContainerItemProxy */;
+		};
+		DE9D314B64FD8991D13E0F52 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ODataService;
+			targetProxy = A6ADF336553703159AE5616A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		05E7AEFE794DB7C0D9E32CF9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "OIS Device";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSBonjourServices = _odatasync._tcp;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (C) 2026 OIS contributors. LGPL-2.1-or-later.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OIS Device syncs with the Workbench, and with devices nearby, over the local network.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ashalkhakov.ODataIncrementalStore.DeviceDesktop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../Workbench $(SRCROOT)/../Device";
+			};
+			name = Debug;
+		};
+		20E10E6A66829C6AAFC0A947 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 36083F8AF899513C6260DC17 /* Release.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		3B1578774AE60C83E4D82EF6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO;
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "OIS Device";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSBonjourServices = _odatasync._tcp;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (C) 2026 OIS contributors. LGPL-2.1-or-later.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OIS Device syncs with the Workbench, and with devices nearby, over the local network.";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ashalkhakov.ODataIncrementalStore.DeviceDesktop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/../Workbench $(SRCROOT)/../Device";
+			};
+			name = Release;
+		};
+		91F7EC4DD1F62007D3349D86 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 88DFD3CD759DBE08668FFBD5 /* Debug.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3E92E048C33427649BECB84F /* Build configuration list for PBXProject "DeviceDesktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91F7EC4DD1F62007D3349D86 /* Debug */,
+				20E10E6A66829C6AAFC0A947 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		726A2750C6E3CEE25667CBC3 /* Build configuration list for PBXNativeTarget "DeviceDesktop" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3B1578774AE60C83E4D82EF6 /* Release */,
+				05E7AEFE794DB7C0D9E32CF9 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		7A792D1C96BAF98738EEF094 /* Catalog.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				8DE79E6E7922172931E9B7C3 /* Catalog.xcdatamodel */,
+			);
+			currentVersion = 8DE79E6E7922172931E9B7C3 /* Catalog.xcdatamodel */;
+			name = Catalog.xcdatamodeld;
+			path = ../Catalog/Catalog.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
+	};
+	rootObject = 528F5E540EC21B9EBF29CB35 /* Project object */;
+}

@@ -20,6 +20,7 @@ static NSString * const DVTabKey = @"DVTab";
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options
 {
   _session = [[DVSession alloc] init];
+  _session.deviceName = UIDevice.currentDevice.name;
   NSArray<UIViewController *> *screens = @[
     [[DVDataController alloc] initWithSession:_session style:UITableViewStylePlain],
     [[DVListController alloc] initWithSession:_session kind:DVListWaiting],

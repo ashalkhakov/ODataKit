@@ -233,14 +233,19 @@ network (`NSLocalNetworkUsageDescription`).
   quiet it. A peer's host is looked up as an IPv4 address through Avahi,
   so no nss-mdns is needed. Packages: `libavahi-compat-libdnssd-dev` to
   build, `libavahi-compat-libdnssd1` and `avahi-daemon` to run.
-- **The Device app** has a Peers tab:
+- **The Device apps**, on iOS (a Peers tab) and on the desktop, macOS and
+  Linux (a Peers window):
   - a token from the Workbench;
   - Serve to Peers, on port 8642;
-  - the devices found nearby (a tap syncs);
-  - a pairing code, shown as a QR code, or scanned or pasted;
+  - the devices found nearby (a tap, or a double-click, syncs);
+  - a pairing code, shown as a QR code, or scanned (iOS) or pasted;
   - the devices paired.
 
-  See [its README](../Examples/Device/README.md).
+  See [the iOS app](../Examples/Device/README.md) and [the desktop
+  app](../Examples/DeviceDesktop/README.md). The desktop app's self-test
+  (`DeviceDesktop --self-test <Workbench root>`) runs peer sync end to end,
+  on macOS and Linux, in CI; its `--serve` and `--sync-with` drive peers
+  from a terminal, between machines.
 
 ## 6. Limits
 

@@ -3,7 +3,8 @@
 The Workbench's Sync window (Sync > Show Device) on an iPhone or iPad: an
 offline device kept in sync by ODataSync ([offline sync](../../docs/offline-sync.md)),
 for trying it on a real device. It syncs over the network with a Workbench
-on a Mac that serves its built-in service.
+on a Mac that serves its built-in service, and with other devices nearby:
+iPhones, and desktops running [its desktop counterpart](../DeviceDesktop/README.md).
 
 The device works the way the Sync window's does, and it is the same code:
 `WorkbenchDevice` (the store, the sync engine, the conflict rules, the

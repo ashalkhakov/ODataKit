@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "DVPeers.h"
-#import <UIKit/UIKit.h>
 #import <ifaddrs.h>
 #import <arpa/inet.h>
 #import <net/if.h>
@@ -13,9 +12,21 @@ const NSUInteger DVPeersPort = 8642;
 // Whom a paired device syncs as here.
 static NSString * const DVPeerSubject = @"peer";
 
-// The device's address on the local network: Wi-Fi's (en0) first, else
-// another local one (en*, bridge*: a Mac's Ethernet, the Simulator's host);
-// never cellular or a VPN's, which peers nearby cannot reach.
+// Whether an interface is a local network's, by its name: Ethernet and
+// Wi-Fi as Apple's systems and Linux name them (en*, eth*, wl*), bridges;
+// not cellular (pdp_ip*), a VPN's (utun*, tun*, ppp*), nor a container's.
+static BOOL DVIsLocalInterface(const char *name)
+{
+  const char *prefixes[] = { "en", "eth", "wl", "bridge", NULL };
+  for (int i = 0; prefixes[i]; i++) {
+    if (strncmp(name, prefixes[i], strlen(prefixes[i])) == 0) return YES;
+  }
+  return NO;
+}
+
+// The device's address on the local network: Wi-Fi's on Apple's systems
+// (en0) first, else another local interface's; never cellular or a VPN's,
+// which peers nearby cannot reach.
 static NSString *DVLocalAddress(void)
 {
   struct ifaddrs *interfaces = NULL;
@@ -31,7 +42,7 @@ static NSString *DVLocalAddress(void)
       found = address;
       break;
     }
-    if (!other && (strncmp(at->ifa_name, "en", 2) == 0 || strncmp(at->ifa_name, "bridge", 6) == 0)) other = address;
+    if (!other && DVIsLocalInterface(at->ifa_name)) other = address;
   }
   freeifaddrs(interfaces);
   return found ?: other;
@@ -56,6 +67,8 @@ static NSString *DVLocalAddress(void)
   if (!self) return nil;
   _device = device;
   _directory = [directory copy];
+  _deviceName = [NSProcessInfo processInfo].hostName;
+  _port = DVPeersPort;
   [[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:nil error:NULL];
   NSString *replica = device.sync.replicaID;
   ODataSyncPeerIdentity *identity = [ODataSyncPeerIdentity identityNamed:replica error:error];
@@ -75,11 +88,14 @@ static NSString *DVLocalAddress(void)
   _expiry = nil;
   NSTimeInterval left = self.tokenExpires.timeIntervalSinceNow;
   if (!_trust.token || left <= 0) return;
-  __weak DVPeers *weak = self;
-  _expiry = [NSTimer scheduledTimerWithTimeInterval:left + 1 repeats:NO block:^(NSTimer *timer) {
-    [weak changed];
-    [weak say:@"The peer token expired: get a new one from the Workbench (Peers)."];
-  }];
+  _expiry = [NSTimer scheduledTimerWithTimeInterval:left + 1 target:self selector:@selector(tokenExpired:) userInfo:nil repeats:NO];
+}
+
+- (void)tokenExpired:(NSTimer *)timer
+{
+  _expiry = nil;
+  [self changed];
+  [self say:@"The peer token expired: get a new one from the Workbench (Peers)."];
 }
 
 - (BOOL)isBusy
@@ -136,14 +152,18 @@ static NSString *DVLocalAddress(void)
   ODataSyncEngine *sync = _device.sync;
   NSString *thumbprint = _trust.identity.thumbprint;
   NSURL *file = [self fileNamed:@"PeerToken"];
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
     NSError *error = nil;
     NSDictionary *answer = [sync peerTokenFromRemote:remote thumbprint:thumbprint error:&error];
     BOOL ok = answer && !self->_discarded && [self.trust takePeerTokenAnswer:answer error:&error];
     if (ok) {
       // Kept: peers are met without the Workbench, until it expires.
       NSData *data = [NSJSONSerialization dataWithJSONObject:answer options:0 error:NULL];
-      [data writeToURL:file options:NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication error:NULL];
+      // The user's alone. (On iOS an app's files are protected until the
+      // first unlock already.)
+      if ([data writeToURL:file options:NSDataWritingAtomic error:NULL]) {
+        [[NSFileManager defaultManager] setAttributes:@{ NSFilePosixPermissions: @0600 } ofItemAtPath:file.path error:NULL];
+      }
     }
     dispatch_async(dispatch_get_main_queue(), ^{
       self->_fetchingToken = NO;
@@ -182,9 +202,9 @@ static NSString *DVLocalAddress(void)
                                         userInfo:@{ NSLocalizedDescriptionKey: @"The device has no address on a local network." }];
     return NO;
   }
-  ODataSyncPeerServer *server = [[ODataSyncPeerServer alloc] initWithEngine:_device.sync trust:_trust host:host port:DVPeersPort];
+  ODataSyncPeerServer *server = [[ODataSyncPeerServer alloc] initWithEngine:_device.sync trust:_trust host:host port:_port];
   if (![server start:error]) return NO;
-  ODataSyncPeerAdvertiser *advertiser = [[ODataSyncPeerAdvertiser alloc] initWithServer:server name:nil];
+  ODataSyncPeerAdvertiser *advertiser = [[ODataSyncPeerAdvertiser alloc] initWithServer:server name:_deviceName];
   if (![advertiser start:error]) {
     [server stop];
     return NO;
@@ -228,8 +248,8 @@ static NSString *DVLocalAddress(void)
   _pairing = YES;
   [self changed];
   ODataSyncPeerTrust *trust = _trust;
-  NSString *replica = _device.sync.replicaID, *name = UIDevice.currentDevice.name;
-  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+  NSString *replica = _device.sync.replicaID, *name = _deviceName;
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
     NSError *error = nil;
     ODataSyncPeerTransport *transport = [ODataSyncPeerTransport transportPairingWithOffer:offer trust:trust replica:replica name:name
                                                                                  subject:DVPeerSubject scopes:[NSSet set] error:&error];

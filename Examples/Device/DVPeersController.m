@@ -121,7 +121,7 @@ static void DVPeersAlert(UIViewController *controller, NSString *title, NSString
           toggle.on = peers.serving;
           [toggle addTarget:self action:@selector(serveChanged:) forControlEvents:UIControlEventValueChanged];
           content.text = @"Serve to Peers";
-          content.secondaryText = peers.serviceRoot.absoluteString ?: [NSString stringWithFormat:@"Port %lu, advertised nearby", (unsigned long)DVPeersPort];
+          content.secondaryText = peers.serviceRoot.absoluteString ?: [NSString stringWithFormat:@"Port %lu, advertised nearby", (unsigned long)peers.port];
           cell.accessoryView = toggle;
           cell.selectionStyle = UITableViewCellSelectionStyleNone;
           break;

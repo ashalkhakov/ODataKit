@@ -38,6 +38,7 @@ need the framework project in the same workspace).
 | `Catalog` | A small AppKit client |
 | `Workbench` | The workbench |
 | `Device` | The Workbench's device on iOS ([iOS](#ios)) |
+| `DeviceDesktop` | The same device on macOS (and Linux, with `make`): its desktop counterpart |
 
 ```
 xcodebuild -workspace ODataKit.xcworkspace -scheme ODataKitTests -destination 'platform=macOS' test
@@ -245,6 +246,10 @@ make -C Tests/Live live      # GNUstep
   line per check; `--self-test builtin` needs no network.
 - `Examples/Device`: the Workbench's device on iOS, which syncs with a
   Workbench serving on the network (`Workbench --serve`) ([its README](../Examples/Device/README.md)).
+- `Examples/DeviceDesktop`: the same device on a desktop, macOS or Linux,
+  for peer sync between desktops and phones (`make -C Examples/DeviceDesktop`
+  on Linux; it needs `libqrencode-dev` too). `DeviceDesktop --self-test
+  <Workbench root>` tests peer sync end to end ([its README](../Examples/DeviceDesktop/README.md)).
 - `Examples/Catalog`: a smaller client: a table, a predicate, an inspector.
 - `Examples/QuickStart`: the README's first path, one file.
 
