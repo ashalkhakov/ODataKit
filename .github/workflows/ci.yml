@@ -257,8 +257,10 @@ jobs:
             libpthread-workqueue-dev libsqlite3-dev \
             libfreetype-dev libfontconfig1-dev libxrender-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
-            xvfb libpq-dev libmariadb-dev
+            xvfb libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev avahi-daemon
           # xvfb is a display for the Workbench's self-test.
+          # libavahi-compat-libdnssd-dev is ODataSync's Bonjour (its peers);
+          # avahi-daemon answers it, for the peer discovery test.
           # libpq-dev and libmariadb-dev are FreeCoreData's SQL backends'.
           # libsqlite3-dev is FreeCoreData's: NSSQLitePersistentStore links it.
           # libxml2-dev is what gives gnustep-base the NSXML momc reads models
@@ -350,7 +352,8 @@ jobs:
       - name: Unit tests
         run: |
           . $PREFIX/System/Library/Makefiles/GNUstep.sh
-          make test
+          sudo systemctl start avahi-daemon || echo "::warning::avahi-daemon did not start: the discovery test is not run"
+          AVAHI_COMPAT_NOWARN=1 make test
 
       # The suite again, with the SQL backends as more stores the predicate
       # pair tests run over: PostgreSQL and MySQL together, then MariaDB

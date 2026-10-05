@@ -15,10 +15,9 @@
 #import <HTTPServerKit/HSRouter.h>
 #import <HTTPServerKit/HSStages.h>
 #import <HTTPServerKit/HSMessage.h>
-#if defined(__APPLE__)
 #import "ODataSyncPeerTrust.h"
 #import "ODataSyncPeerListener.h"
-#endif
+#import "ODSSystem.h"
 
 // A replica ID as a peer names it: letters, digits and dashes (a UUID).
 static BOOL ODSIsReplica(NSString *text)
@@ -71,7 +70,6 @@ static BOOL ODSIsReplica(NSString *text)
 
 @end
 
-#if defined(__APPLE__)
 // Who a TLS peer is: the certificate its connection came with (the
 // listener's), and the token it shows, as the trust says.
 @interface ODSPeerAuthenticator : NSObject <HSAuthenticator>
@@ -107,14 +105,12 @@ static BOOL ODSIsReplica(NSString *text)
 @property (nonatomic, weak) ODataSyncPeerServer *server;
 @property (nonatomic, copy) NSString *what;  // peer, pair
 @end
-#endif
 
 @interface ODataSyncPeerServer ()
 - (void)answerPeer:(HSRequest *)request reply:(HSReply *)reply;
 - (void)answerPair:(HSRequest *)request reply:(HSReply *)reply;
 @end
 
-#if defined(__APPLE__)
 @implementation ODSPeerRoutes
 - (void)handleRequest:(HSRequest *)request reply:(HSReply *)reply
 {
@@ -122,7 +118,6 @@ static BOOL ODSIsReplica(NSString *text)
   else [self.server answerPair:request reply:reply];
 }
 @end
-#endif
 
 @implementation ODataSyncPeerServer {
   HSServer *_server;
@@ -132,23 +127,23 @@ static BOOL ODSIsReplica(NSString *text)
 
 - (instancetype)initWithEngine:(ODataSyncEngine *)engine host:(NSString *)host port:(NSUInteger)port
 {
-  return [self initWithEngine:engine host:host port:port scheme:@"http"];
-}
-
-#if defined(__APPLE__)
-- (instancetype)initWithEngine:(ODataSyncEngine *)engine trust:(ODataSyncPeerTrust *)trust host:(NSString *)host port:(NSUInteger)port
-{
-  self = [self initWithEngine:engine host:host port:port scheme:@"https"];
+  self = [super init];
   if (!self) return nil;
-  _trust = trust;
+  [self setUpWithEngine:engine host:host port:port scheme:@"http"];
   return self;
 }
-#endif
 
-- (instancetype)initWithEngine:(ODataSyncEngine *)engine host:(NSString *)host port:(NSUInteger)port scheme:(NSString *)scheme
+- (instancetype)initWithEngine:(ODataSyncEngine *)engine trust:(ODataSyncPeerTrust *)trust host:(NSString *)host port:(NSUInteger)port
 {
   self = [super init];
   if (!self) return nil;
+  _trust = trust;
+  [self setUpWithEngine:engine host:host port:port scheme:@"https"];
+  return self;
+}
+
+- (void)setUpWithEngine:(ODataSyncEngine *)engine host:(NSString *)host port:(NSUInteger)port scheme:(NSString *)scheme
+{
   _engine = engine;
   _port = port;
   NSString *root = [NSString stringWithFormat:@"%@://%@:%lu/sync/%@/", scheme, host, (unsigned long)port, engine.replicaID];
@@ -157,7 +152,6 @@ static BOOL ODSIsReplica(NSString *text)
   // The synced entities only (the configuration +addBookkeepingToModel:
   // made): not the bookkeeping, nor what is the app's alone.
   _service.configurationName = ODataSyncPeerConfiguration;
-  ODSCodec *codec = engine.codec;
   ODSModel *model = engine.model;
   for (NSEntityDescription *entity in engine.coordinator.managedObjectModel.entities) {
     if (entity.superentity) continue;
@@ -173,20 +167,16 @@ static BOOL ODSIsReplica(NSString *text)
     handler.allowsUpsert = writes;
     [_service setHandler:handler forEntitySet:[_service.mapper entitySetForEntity:entity]];
   }
-  return self;
 }
 
 - (BOOL)start:(NSError **)error
 {
   if (_server.running) return YES;
-#if defined(__APPLE__)
   if (_trust) return [self startBehindListener:error];
-#endif
   _server = [[HSServer alloc] initWithService:_service];
   return [_server startOnPort:_port error:error];
 }
 
-#if defined(__APPLE__)
 // The server on loopback (a port the system picks), $peer and $pair before
 // the service, and TLS in front of it on the port peers reach.
 - (BOOL)startBehindListener:(NSError **)error
@@ -229,7 +219,7 @@ static BOOL ODSIsReplica(NSString *text)
 - (NSDictionary *)pairingOfferForSubject:(NSString *)subject scopes:(NSSet *)scopes
 {
   uint8_t bytes[16];
-  if (SecRandomCopyBytes(kSecRandomDefault, sizeof bytes, bytes) != errSecSuccess) arc4random_buf(bytes, sizeof bytes);
+  ODSSystemRandomBytes(bytes, sizeof bytes);
   NSString *code = [[[[NSData dataWithBytes:bytes length:sizeof bytes] base64EncodedStringWithOptions:0]
                       stringByReplacingOccurrencesOfString:@"+" withString:@"-"] stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
   code = [code stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"="]];
@@ -283,22 +273,11 @@ static BOOL ODSIsReplica(NSString *text)
   }
   [reply finishWithResponse:[HSResponse responseWithJSON:@{ @"Replica": _engine.replicaID, @"Thumbprint": _trust.identity.thumbprint } status:200]];
 }
-#else
-- (void)answerPeer:(HSRequest *)request reply:(HSReply *)reply
-{
-}
-
-- (void)answerPair:(HSRequest *)request reply:(HSReply *)reply
-{
-}
-#endif
 
 - (void)stop
 {
-#if defined(__APPLE__)
   [_listener stop];
   _listener = nil;
-#endif
   [_server stop];
   _server = nil;
 }

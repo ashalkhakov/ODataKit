@@ -14,11 +14,14 @@
 // (NSBonjourServices: _odatasync._tcp) and says why it uses the local
 // network (NSLocalNetworkUsageDescription).
 //
-// Apple only.
+// On Linux, Avahi's dns_sd compatibility library
+// (libavahi-compat-libdnssd), with avahi-daemon running (and D-Bus, which
+// it talks to); a peer's host is looked up as an IPv4 address there, so no
+// nss-mdns is needed. Set AVAHI_COMPAT_NOWARN=1 to quiet the library's
+// warning that a program uses it.
 
 #pragma once
 #import <Foundation/Foundation.h>
-#if defined(__APPLE__)
 #import <ODataSync/ODataSyncPeerServer.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -53,7 +56,7 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
 @class ODataSyncPeerBrowser;
 
 @protocol ODataSyncPeerBrowserDelegate <NSObject>
-// On the delegate queue (default: main).
+// On the delegate queue.
 - (void)peerBrowser:(ODataSyncPeerBrowser *)browser didFindPeer:(ODataSyncPeerAnnouncement *)peer;
 - (void)peerBrowser:(ODataSyncPeerBrowser *)browser didLosePeer:(ODataSyncPeerAnnouncement *)peer;
 @optional
@@ -65,7 +68,9 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
 - (instancetype)initWithReplica:(nullable NSString *)replica NS_DESIGNATED_INITIALIZER;
 - (instancetype)init;
 @property (nonatomic, weak, nullable) id<ODataSyncPeerBrowserDelegate> delegate;
-@property (nonatomic, strong) dispatch_queue_t delegateQueue;
+// Where the delegate is told (default: the main queue); a serial one
+// keeps the order things were found and lost in.
+@property (nonatomic, strong) NSOperationQueue *delegateQueue;
 - (BOOL)start:(NSError **)error;
 - (void)stop;
 // What it has found and not lost, by replica.
@@ -73,4 +78,3 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
 @end
 
 NS_ASSUME_NONNULL_END
-#endif

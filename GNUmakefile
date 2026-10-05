@@ -169,6 +169,7 @@ HTTPServerKit_OBJC_FILES = \
 	Source/HTTPServerKit/HSRouter.m \
 	Source/HTTPServerKit/HSServer.m \
 	Source/HTTPServerKit/HSSignature.m \
+	Source/HTTPServerKit/linux/HSSignatureSystem.m \
 	Source/HTTPServerKit/HSStages.m \
 	$(GCDWebServer_OBJC_FILES)
 
@@ -232,10 +233,18 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODSVersions.m \
 	Source/ODataSync/ODataSyncChange.m \
 	Source/ODataSync/ODataSyncEngine.m \
+	Source/ODataSync/ODataSyncPeerDiscovery.m \
+	Source/ODataSync/ODataSyncPeerIdentity.m \
 	Source/ODataSync/ODataSyncPeerServer.m \
 	Source/ODataSync/ODataSyncPeerTokens.m \
+	Source/ODataSync/ODataSyncPeerTransport.m \
+	Source/ODataSync/ODataSyncPeerTrust.m \
 	Source/ODataSync/ODataSyncRemote.m \
-	Source/ODataSync/ODataSyncService.m
+	Source/ODataSync/ODataSyncService.m \
+	Source/ODataSync/linux/ODSSystem.m \
+	Source/ODataSync/linux/ODSSystemIdentity.m \
+	Source/ODataSync/linux/ODSSystemPeerClient.m \
+	Source/ODataSync/linux/ODataSyncPeerListener.m
 
 ODataSync_HEADER_FILES = \
 	ODataSync.h \
@@ -249,15 +258,19 @@ ODataSync_HEADER_FILES = \
 	ODataSyncPeerTransport.h \
 	ODataSyncPeerDiscovery.h
 
-# The peer identity, listener, trust, transport and discovery (TLS,
-# Bonjour) are Apple only: their headers are installed (the umbrella names
-# them), empty here; the tokens a service issues are everyone's.
 
 ODataSync_HEADER_FILES_DIR = Source/ODataSync/include/ODataSync
 ODataSync_HEADER_FILES_INSTALL_DIR = ODataSync
-ODataSync_INCLUDE_DIRS = $(OIS_INCLUDE_DIRS) -ISource/ODataSync
+# Peers (docs/peer-sync.md): what they need of the system is in
+# Source/ODataSync/linux (ODSSystem.h): TLS by GnuTLS (the listener, the
+# identity) and libcurl (the transport), Bonjour by Avahi's dns_sd compatibility
+# library (libavahi-compat-libdnssd-dev; avahi-daemon running, to use it).
+DNSSD_CFLAGS := $(shell pkg-config --cflags avahi-compat-libdns_sd 2>/dev/null || echo -I/usr/include/avahi-compat-libdns_sd)
+DNSSD_LIBS := $(shell pkg-config --libs avahi-compat-libdns_sd 2>/dev/null || echo -ldns_sd)
+ODataSync_INCLUDE_DIRS = $(OIS_INCLUDE_DIRS) -ISource/ODataSync $(DNSSD_CFLAGS)
 ODataSync_LIB_DIRS = -L./obj
-ODataSync_LIBRARIES_DEPEND_UPON += -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch
+ODataSync_LIBRARIES_DEPEND_UPON += -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch \
+	-lgnutls -lcurl $(DNSSD_LIBS)
 ODataSync_OBJCFLAGS += $(OIS_OBJCFLAGS)
 ODataSync_CFLAGS += -fblocks
 

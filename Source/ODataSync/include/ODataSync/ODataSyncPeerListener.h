@@ -13,11 +13,11 @@
 // comes from (127.0.0.1:port, the request's remoteAddress there), from
 // before its first byte until it closes.
 //
-// Apple only (Network.framework).
+// Network.framework on Apple platforms; on GNUstep, GnuTLS over sockets
+// (a thread for each connection), listening on IPv6 and IPv4 alike.
 
 #pragma once
 #import <Foundation/Foundation.h>
-#if defined(__APPLE__)
 #import <ODataSync/ODataSyncPeerIdentity.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -43,4 +43,3 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
-#endif

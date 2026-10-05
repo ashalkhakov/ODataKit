@@ -37,22 +37,27 @@ for that), or peers that are not ODataSync devices.
 ```
 
 - **Identity** (`ODataSyncPeerIdentity`): each device has a key pair
-  (P-256) and a self-signed certificate of it, made once and kept in the
-  keychain. Its **thumbprint**, the SHA-256 of the certificate
+  (P-256) and a self-signed certificate of it, made once and kept: in the
+  keychain on Apple platforms, in two PEM files on GNUstep (the key's
+  readable by the user alone). Its **thumbprint**, the SHA-256 of the certificate
   (base64url, RFC 8705's `x5t#S256`), is the device's name on the network.
 - **Listener** (`ODataSyncPeerListener`): a TLS listener
-  (Network.framework) that asks every client for its certificate, and
+  (Network.framework on Apple, GnuTLS on GNUstep) that asks every client for its certificate, and
   relays each connection, decrypted, to the peer server on loopback. It
   tells the server which certificate each relayed connection came with.
 - **Server**: `ODataSyncPeerServer` as it is, on HTTPServerKit, listening
   on loopback only, with an authenticator that knows the connection's
   certificate.
 - **Discovery** (`ODataSyncPeerBrowser`, `ODataSyncPeerAdvertiser`):
-  Bonjour (`dns_sd`), service type `_odatasync._tcp`, its TXT record the
+  Bonjour (`dns_sd`: Apple's, or Avahi's compatibility library on Linux),
+  service type `_odatasync._tcp`, its TXT record the
   replica ID, the path, and the thumbprint. What it says is a hint: trust
   comes from TLS and what follows.
 - **Transport** (`ODataSyncPeerTransport`): a remote's way to a peer:
   TLS with this device's certificate, and the peer's checked (below).
+  URLSession on Apple; libcurl on GNUstep, which can pin only a public
+  key, so it sees the peer's certificate first on a request that carries
+  nothing secret (`GET $peer`), then pins that certificate's key.
 
 ## 3. Trust
 
@@ -105,8 +110,9 @@ them once.
 
 1. A shows a QR code (or the same as text): its host, port, replica ID,
    thumbprint, and a one-time code (128 bits, good for two minutes).
-2. B reads it, connects by TLS, and checks that A's certificate has the
-   thumbprint the code gave (so B knows it reached A, not whoever answered).
+2. B reads it, connects by TLS (`GET <root>$peer`, nothing secret sent),
+   and checks that A's certificate has the thumbprint the code gave (so B
+   knows it reached A, not whoever answered).
 3. B posts the one-time code to A (`POST <root>$pair`) over that
    connection. A checks it, and records B's thumbprint (from TLS) and
    replica ID as paired. B records A's.
@@ -149,6 +155,10 @@ NSDictionary *answer = [engine peerTokenFromRemote:serviceRemote thumbprint:iden
 [trust takePeerTokenAnswer:answer error:&error];   // keep answer: it serves offline until it expires
 ```
 
+On GNUstep, `+identityNamed:error:` keeps the identity's files under
+`+defaultDirectory` (Application Support/<the process>/ODataSync Peers);
+`+identityNamed:directory:error:` keeps them where the app says.
+
 It serves its store, and says so nearby:
 
 ```objc
@@ -184,10 +194,27 @@ network (`NSLocalNetworkUsageDescription`).
   framework on Apple and gnutls on GNUstep.
 - **ODataSyncService** issues peer tokens (`peerTokens`, the `PeerToken`
   action) on every platform.
-- **ODataSync**: the identity, listener, trust, transport and discovery are
-  Apple only, because TLS is Network.framework's and Bonjour is `dns_sd`'s.
-  Their headers are empty elsewhere. On GNUstep the peer server stays plain
-  HTTP, for a network the app trusts.
+- **ODataSync**: the identity, listener, trust, transport and discovery
+  run on Apple platforms and on GNUstep (Linux):
+
+  | | Apple | GNUstep |
+  |---|---|---|
+  | identity | keychain (Security) | PEM files (GnuTLS), `+identityNamed:directory:error:` |
+  | listener | Network.framework | GnuTLS over sockets, a thread a connection |
+  | transport | URLSession | libcurl (GnuTLS), the peer's key pinned |
+  | discovery | `dns_sd` | Avahi's `dns_sd` compatibility library |
+
+  Each column is a directory of ODataSync's, `apple/` and `linux/`, behind
+  a private interface (`ODSSystem.h`); the build picks one, and the rest
+  of the code does not ask which system it is on. HTTPServerKit's JWS
+  signatures are split the same way (`HSSignatureSystem.h`).
+
+  On Linux, discovery takes `avahi-daemon` running, and the system D-Bus
+  it talks to (a desktop has both; a container starts them). The library
+  warns, once, that a program uses it: set `AVAHI_COMPAT_NOWARN=1` to
+  quiet it. A peer's host is looked up as an IPv4 address through Avahi,
+  so no nss-mdns is needed. Packages: `libavahi-compat-libdnssd-dev` to
+  build, `libavahi-compat-libdnssd1` and `avahi-daemon` to run.
 - **The Device app** has a Peers tab:
   - a token from the Workbench;
   - Serve to Peers, on port 8642;
@@ -201,6 +228,7 @@ network (`NSLocalNetworkUsageDescription`).
 
 - A peer serves while its app runs. iOS suspends the app's listener in
   the background.
+- On GNUstep, discovery finds peers by IPv4 address only.
 - A 403 from a peer, such as one for scopes, may surface on the client as
   -1206 (see 3.2).
 - The listener relays to a server on loopback. The connection's certificate

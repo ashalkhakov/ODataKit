@@ -14,11 +14,11 @@
 //   peer.transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:peer.serviceRoot trust:trust];
 //   [sync addRemote:peer];
 //
-// Apple only.
+// URLSession on Apple platforms; libcurl (built with GnuTLS) on GNUstep,
+// which pins the peer's public key once its certificate is seen.
 
 #pragma once
 #import <Foundation/Foundation.h>
-#if defined(__APPLE__)
 #import <ODataKit/ODataTransport.h>
 #import <ODataSync/ODataSyncPeerTrust.h>
 
@@ -40,9 +40,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Pairing with the device whose offer this is (the JSON of its QR code:
 // host, port, replica, thumbprint, code; ODataSyncPeerServer
 // -pairingOfferForSubject:scopes:): reached at that host and port, its
-// certificate the offer's, told this device's replica (and name), and kept
-// here as paired, syncing as subject with scopes. YES once both keep it;
-// the transport then knows the peer. Its service root is the offer's.
+// certificate the offer's (seen before the code is sent), told this
+// device's replica (and name), and kept here as paired, syncing as
+// subject with scopes. YES once both keep it; the transport then knows
+// the peer. Its service root is the offer's.
 + (nullable instancetype)transportPairingWithOffer:(NSDictionary<NSString *, id> *)offer trust:(ODataSyncPeerTrust *)trust
                                             replica:(NSString *)replica name:(nullable NSString *)name
                                             subject:(NSString *)subject scopes:(NSSet<NSString *> *)scopes
@@ -50,4 +51,3 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
-#endif

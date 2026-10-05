@@ -1,8 +1,10 @@
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
+//
+// The listener on Network.framework.
 
-#import "ODataSyncPeerListener.h"
-#if defined(__APPLE__)
+#import <ODataSync/ODataSyncPeerListener.h>
+#import "ODSAppleSystem.h"
 #import <Network/Network.h>
 
 static NSError *ODSListenerError(NSString *what, nw_error_t error)
@@ -61,7 +63,7 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
 // and taken as it is: the authenticator decides what it is worth.
 - (nw_parameters_t)parameters
 {
-  sec_identity_t identity = sec_identity_create(_identity.identity);
+  sec_identity_t identity = sec_identity_create(_identity.system.secIdentity);
   dispatch_queue_t queue = _queue;
   return nw_parameters_create_secure_tcp(^(nw_protocol_options_t options) {
     sec_protocol_options_t security = nw_tls_copy_sec_protocol_options(options);
@@ -183,7 +185,7 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
       if (!leaf) leaf = sec_certificate_copy_ref(certificate);
     });
   }
-  relay.thumbprint = leaf ? [ODataSyncPeerIdentity thumbprintOfCertificate:leaf] : nil;
+  relay.thumbprint = ODSAppleThumbprint(leaf);
   if (leaf) CFRelease(leaf);
   if (!relay.thumbprint) {
     [self close:relay];
@@ -263,4 +265,3 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
 }
 
 @end
-#endif

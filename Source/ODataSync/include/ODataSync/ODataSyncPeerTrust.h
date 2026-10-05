@@ -14,11 +14,8 @@
 // (ODataSyncPeerAuthenticator), a client asks who the server is
 // (ODataSyncPeerTransport).
 //
-// Apple only, as the rest of TLS peer sync is.
-
 #pragma once
 #import <Foundation/Foundation.h>
-#if defined(__APPLE__)
 #import <ODataSync/ODataSyncPeerIdentity.h>
 #import <ODataSync/ODataSyncPeerTokens.h>
 #import <HTTPServerKit/HSAuthentication.h>
@@ -71,4 +68,3 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
-#endif

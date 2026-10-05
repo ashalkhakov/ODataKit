@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODataSyncPeerTrust.h"
-#if defined(__APPLE__)
+#import "ODSSystem.h"
 #import <HTTPServerKit/HSMessage.h>
 
 @implementation ODataSyncPeerPairing
@@ -122,11 +122,7 @@
   for (ODataSyncPeerPairing *pairing in _pairings) [records addObject:[pairing record]];
   NSData *data = [NSJSONSerialization dataWithJSONObject:records options:NSJSONWritingPrettyPrinted error:error];
   if (!data) return NO;
-  NSDataWritingOptions options = NSDataWritingAtomic;
-#if TARGET_OS_IPHONE
-  options |= NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication;
-#endif
-  return [data writeToURL:_pairingsURL options:options error:error];
+  return [data writeToURL:_pairingsURL options:ODSSystemPrivateFileWritingOptions() error:error];
 }
 
 - (BOOL)addPairing:(ODataSyncPeerPairing *)pairing error:(NSError **)error
@@ -206,4 +202,3 @@
 }
 
 @end
-#endif

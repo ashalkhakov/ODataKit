@@ -91,7 +91,11 @@ Install [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) first: it
 is the Core Data this store subclasses (`NSIncrementalStore`, the coordinator)
 and the server stores in. Install its model compiler too (`make -C Tools/momc
 install` there): the tests and example apps compile `Catalog.xcdatamodeld` to
-`.momd`, which is what FreeCoreData loads. Then:
+`.momd`, which is what FreeCoreData loads. ODataSync's peers need
+GnuTLS, libcurl (built with GnuTLS) and Avahi's dns_sd compatibility
+library: on Ubuntu, `libgnutls28-dev libcurl4-gnutls-dev
+libavahi-compat-libdnssd-dev`, and `avahi-daemon` running to find peers
+([peer sync](peer-sync.md)). Then:
 
 ```sh
 . /usr/share/GNUstep/Makefiles/GNUstep.sh

@@ -1,10 +1,10 @@
 // Peer sync between devices (docs/peer-sync.md): identity, TLS, trust,
-// discovery. Apple only, as those are.
+// discovery. On GNUstep, discovery takes avahi-daemon running (the test
+// says so and passes without it).
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import <XCTest/XCTest.h>
-#if defined(__APPLE__)
 #import <ODataSync/ODataSync.h>
 #import <ODataSync/ODataSyncPeerIdentity.h>
 #import <ODataSync/ODataSyncPeerListener.h>
@@ -13,40 +13,49 @@
 #import <ODataSync/ODataSyncPeerTransport.h>
 #import <ODataSync/ODataSyncPeerTokens.h>
 #import <ODataSync/ODataSyncPeerDiscovery.h>
+#import "OSPSystem.h"
 
-// What a browser finds and loses, for a test to wait on.
+// What a browser finds and loses, for a test to wait on (on a queue of
+// the browser's own: GNUstep's XCTest has no expectations).
 @interface OSPWatcher : NSObject <ODataSyncPeerBrowserDelegate>
-@property (nonatomic, copy) NSString *replica;
-@property (nonatomic, strong, nullable) XCTestExpectation *found;
-@property (nonatomic, strong, nullable) XCTestExpectation *lost;
-@property (nonatomic, strong, nullable) ODataSyncPeerAnnouncement *peer;
+@property (atomic, copy) NSString *replica;
+@property (atomic, strong, nullable) ODataSyncPeerAnnouncement *peer;
+@property (atomic) BOOL lost;
 @end
 
 @implementation OSPWatcher
 - (void)peerBrowser:(ODataSyncPeerBrowser *)browser didFindPeer:(ODataSyncPeerAnnouncement *)peer
 {
-  if (![peer.replica isEqualToString:self.replica]) return;
-  self.peer = peer;
-  [self.found fulfill];
-  self.found = nil;
+  if ([peer.replica isEqualToString:self.replica]) self.peer = peer;
 }
 
 - (void)peerBrowser:(ODataSyncPeerBrowser *)browser didLosePeer:(ODataSyncPeerAnnouncement *)peer
 {
-  if (![peer.replica isEqualToString:self.replica]) return;
-  [self.lost fulfill];
-  self.lost = nil;
+  if ([peer.replica isEqualToString:self.replica]) self.lost = YES;
 }
 @end
+
+// Until the condition holds, or seconds go by: whether it holds.
+static BOOL OSPWaitFor(NSTimeInterval seconds, BOOL (^condition)(void))
+{
+  NSDate *until = [NSDate dateWithTimeIntervalSinceNow:seconds];
+  while (!condition()) {
+    if (until.timeIntervalSinceNow < 0) return NO;
+    [NSThread sleepForTimeInterval:0.05];
+  }
+  return YES;
+}
+
 #import <ODataService/ODataService.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 // A port no one listens on now.
 static NSUInteger OSPFreePort(void)
 {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in address = { .sin_len = sizeof address, .sin_family = AF_INET, .sin_port = 0, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
+  struct sockaddr_in address = { .sin_family = AF_INET, .sin_port = 0, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
   bind(fd, (struct sockaddr *)&address, sizeof address);
   socklen_t length = sizeof address;
   getsockname(fd, (struct sockaddr *)&address, &length);
@@ -97,62 +106,6 @@ static NSManagedObjectModel *OSPModel(void)
 }
 @end
 
-// A client of a TLS peer: its certificate given, the server's taken as it
-// comes and noted (what the transport checks, later).
-@interface OSPClient : NSObject <NSURLSessionDelegate>
-@property (nonatomic, strong, nullable) ODataSyncPeerIdentity *identity;
-@property (atomic, copy, nullable) NSString *serverThumbprint;
-@property (nonatomic, strong) NSURLSession *session;
-@end
-
-@implementation OSPClient
-- (instancetype)initWithIdentity:(ODataSyncPeerIdentity *)identity
-{
-  self = [super init];
-  _identity = identity;
-  _session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration ephemeralSessionConfiguration] delegate:self delegateQueue:nil];
-  return self;
-}
-
-- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
- completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler
-{
-  NSString *method = challenge.protectionSpace.authenticationMethod;
-  if ([method isEqualToString:NSURLAuthenticationMethodServerTrust]) {
-    SecTrustRef trust = challenge.protectionSpace.serverTrust;
-    CFArrayRef chain = SecTrustCopyCertificateChain(trust);
-    SecCertificateRef leaf = chain && CFArrayGetCount(chain) ? (SecCertificateRef)CFArrayGetValueAtIndex(chain, 0) : NULL;
-    self.serverThumbprint = [ODataSyncPeerIdentity thumbprintOfCertificate:leaf];
-    if (chain) CFRelease(chain);
-    completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:trust]);
-  } else if ([method isEqualToString:NSURLAuthenticationMethodClientCertificate] && self.identity) {
-    completionHandler(NSURLSessionAuthChallengeUseCredential,
-                      [NSURLCredential credentialWithIdentity:self.identity.identity certificates:nil persistence:NSURLCredentialPersistenceNone]);
-  } else {
-    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
-  }
-}
-
-// GET, waited for: the status and the JSON (or the error).
-- (NSInteger)get:(NSURL *)url json:(id *)json error:(NSError **)error
-{
-  __block NSInteger status = 0;
-  __block id body = nil;
-  __block NSError *failure = nil;
-  dispatch_semaphore_t done = dispatch_semaphore_create(0);
-  [[self.session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *taskError) {
-    status = [(NSHTTPURLResponse *)response statusCode];
-    body = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
-    failure = taskError;
-    dispatch_semaphore_signal(done);
-  }] resume];
-  dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC)));
-  if (json) *json = body;
-  if (error) *error = failure;
-  return status;
-}
-@end
-
 // Behind the listener: which certificate the request's connection came with.
 @interface OSPWhoAmI : NSObject <HSHandler>
 @property (nonatomic, weak) ODataSyncPeerListener *listener;
@@ -172,16 +125,26 @@ static NSManagedObjectModel *OSPModel(void)
 
 @implementation ODataSyncPeerTests {
   NSMutableArray<ODataSyncPeerIdentity *> *_identities;
+  NSURL *_directory;
 }
 
 - (void)setUp
 {
   _identities = [NSMutableArray array];
+  NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"peers-" stringByAppendingString:[NSUUID UUID].UUIDString]];
+  _directory = [NSURL fileURLWithPath:directory isDirectory:YES];
 }
 
 - (void)tearDown
 {
   for (ODataSyncPeerIdentity *identity in _identities) [identity removeWithError:NULL];
+  [[NSFileManager defaultManager] removeItemAtURL:_directory error:NULL];
+}
+
+// Under its name, in this test's directory (where identities are files).
+- (ODataSyncPeerIdentity *)identityNamed:(NSString *)name error:(NSError **)error
+{
+  return [ODataSyncPeerIdentity identityNamed:name directory:_directory error:error];
 }
 
 // An identity of this test's own, forgotten when it ends.
@@ -189,7 +152,7 @@ static NSManagedObjectModel *OSPModel(void)
 {
   NSError *error = nil;
   NSString *unique = [NSString stringWithFormat:@"%@ %@", name, [NSUUID UUID].UUIDString];
-  ODataSyncPeerIdentity *identity = [ODataSyncPeerIdentity identityNamed:unique error:&error];
+  ODataSyncPeerIdentity *identity = [self identityNamed:unique error:&error];
   XCTAssertNotNil(identity, @"%@", error);
   if (identity) [_identities addObject:identity];
   return identity;
@@ -202,39 +165,22 @@ static NSManagedObjectModel *OSPModel(void)
 {
   ODataSyncPeerIdentity *identity = [self identity:@"device A"];
   XCTAssertEqual(identity.thumbprint.length, 43u, @"%@", identity.thumbprint);
-  XCTAssertEqualObjects([ODataSyncPeerIdentity thumbprintOfCertificate:identity.certificate], identity.thumbprint);
+  XCTAssertEqualObjects([ODataSyncPeerIdentity thumbprintOfCertificateData:identity.certificateData], identity.thumbprint);
 
   NSError *error = nil;
-  ODataSyncPeerIdentity *again = [ODataSyncPeerIdentity identityNamed:identity.name error:&error];
+  ODataSyncPeerIdentity *again = [self identityNamed:identity.name error:&error];
   XCTAssertEqualObjects(again.thumbprint, identity.thumbprint, @"kept: %@", error);
   ODataSyncPeerIdentity *other = [self identity:@"device B"];
   XCTAssertNotEqualObjects(other.thumbprint, identity.thumbprint);
 
-  // Well formed and signed by its own key: trusted as its own anchor.
-  SecTrustRef trust = NULL;
-  SecPolicyRef policy = SecPolicyCreateBasicX509();
-  XCTAssertEqual(SecTrustCreateWithCertificates(identity.certificate, policy, &trust), errSecSuccess);
-  SecTrustSetAnchorCertificates(trust, (__bridge CFArrayRef)@[ (__bridge id)identity.certificate ]);
-  CFErrorRef trustError = NULL;
-  XCTAssertTrue(SecTrustEvaluateWithError(trust, &trustError), @"%@", (__bridge NSError *)trustError);
-  CFRelease(trust);
-  CFRelease(policy);
-
-  // Its key signs, and the certificate's public key checks it.
-  SecKeyRef key = NULL;
-  XCTAssertEqual(SecIdentityCopyPrivateKey(identity.identity, &key), errSecSuccess);
-  NSData *message = [@"peer" dataUsingEncoding:NSUTF8StringEncoding];
-  NSData *signature = (__bridge_transfer NSData *)SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureMessageX962SHA256,
-                                                                        (__bridge CFDataRef)message, NULL);
-  SecKeyRef publicKey = SecCertificateCopyKey(identity.certificate);
-  XCTAssertTrue(SecKeyVerifySignature(publicKey, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, (__bridge CFDataRef)message,
-                                      (__bridge CFDataRef)signature, NULL));
-  CFRelease(publicKey);
-  CFRelease(key);
+  // Well formed and signed by its own key, the key kept private, as the
+  // system's TLS sees them.
+  NSString *wrong = OSPCheckIdentity(identity);
+  XCTAssertNil(wrong, @"%@", wrong);
 
   // Forgotten: a new one under the name.
   XCTAssertTrue([identity removeWithError:&error], @"%@", error);
-  ODataSyncPeerIdentity *anew = [ODataSyncPeerIdentity identityNamed:identity.name error:&error];
+  ODataSyncPeerIdentity *anew = [self identityNamed:identity.name error:&error];
   XCTAssertNotNil(anew, @"%@", error);
   XCTAssertNotEqualObjects(anew.thumbprint, identity.thumbprint);
   [_identities addObject:anew];
@@ -440,24 +386,30 @@ static NSManagedObjectModel *OSPModel(void)
   ODataSyncPeerServer *server = [[ODataSyncPeerServer alloc] initWithEngine:e trust:trustE host:@"127.0.0.1" port:OSPFreePort()];
   XCTAssertTrue([server start:&error], @"%@", error);
   ODataSyncPeerAdvertiser *advertiser = [[ODataSyncPeerAdvertiser alloc] initWithServer:server name:[@"Test peer " stringByAppendingString:e.replicaID]];
+  // Nothing to advertise with (Linux without avahi-daemon): not run.
+  if (!OSPDiscoveryAvailable()) {
+    NSLog(@"testDiscovery: not run, no Bonjour here (on Linux: avahi-daemon)");
+    [server stop];
+    return;
+  }
   XCTAssertTrue([advertiser start:&error], @"%@", error);
 
   OSPWatcher *watcher = [[OSPWatcher alloc] init];
   watcher.replica = e.replicaID;
-  watcher.found = [self expectationWithDescription:@"found"];
   ODataSyncPeerBrowser *browser = [[ODataSyncPeerBrowser alloc] initWithReplica:f.replicaID];
   browser.delegate = watcher;
+  browser.delegateQueue = [[NSOperationQueue alloc] init];
+  browser.delegateQueue.maxConcurrentOperationCount = 1;
   XCTAssertTrue([browser start:&error], @"%@", error);
-  [self waitForExpectationsWithTimeout:20 handler:nil];
+  XCTAssertTrue(OSPWaitFor(20, ^{ return (BOOL)(watcher.peer != nil); }), @"not found");
   ODataSyncPeerAnnouncement *peer = watcher.peer;
   XCTAssertEqualObjects(peer.thumbprint, trustE.identity.thumbprint);
   XCTAssertEqual(peer.port, server.listener.port);
   XCTAssertEqualObjects(peer.serviceRoot.path, server.serviceRoot.path);
   XCTAssertTrue([[browser.peers valueForKey:@"replica"] containsObject:e.replicaID]);
 
-  watcher.lost = [self expectationWithDescription:@"lost"];
   [advertiser stop];
-  [self waitForExpectationsWithTimeout:20 handler:nil];
+  XCTAssertTrue(OSPWaitFor(20, ^{ return watcher.lost; }), @"not lost");
   [browser stop];
   [server stop];
 }
@@ -494,11 +446,10 @@ static NSManagedObjectModel *OSPModel(void)
   XCTAssertEqual([stranger get:url json:&json error:&error], 0, @"no certificate, no answer");
   XCTAssertNotNil(error);
 
-  [client.session invalidateAndCancel];
+  [client close];
   [listener stop];
   [server stop];
   XCTAssertNil([listener thumbprintOfConnectionFrom:json[@"from"] ?: @""]);
 }
 
 @end
-#endif
