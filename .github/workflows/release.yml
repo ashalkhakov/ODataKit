@@ -55,7 +55,7 @@ jobs:
             MARKETING_VERSION="${APP_VERSION%%-*}" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" build
           app="$RUNNER_TEMP/Release/Build/Products/Release/Workbench.app"
           echo "APP=$app" >> "$GITHUB_ENV"
-          for fw in ODataKit ODataIncrementalStore ODataService ODataSync; do
+          for fw in ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync; do
             test -d "$app/Contents/Frameworks/$fw.framework" \
               || { echo "::error::Workbench.app does not embed $fw.framework"; exit 1; }
           done
@@ -118,13 +118,14 @@ jobs:
           IDENTITY=$(printf '%s\n' "$valid" | grep -F "\"$chosen\"" | head -1 | awk '{print $2}')
 
           # --timestamp and --options runtime are what notarization requires.
-          # Signed inside out: the three embedded frameworks, then the app,
-          # whose signature seals theirs. --deep would do it in one call, but
-          # Apple deprecates it and it is the usual reason notarization
-          # rejects a nested framework.
-          for fw in ODataKit ODataIncrementalStore ODataService ODataSync; do
-            codesign --force --timestamp --options runtime \
-                     --sign "$IDENTITY" "$APP/Contents/Frameworks/$fw.framework"
+          # Signed inside out: every framework embedded (what is there, not a
+          # list: one left out keeps Xcode's ad hoc signature, with no
+          # Developer ID and no timestamp, and notarization refuses the app),
+          # then the app, whose signature seals theirs. --deep would do it in
+          # one call, but Apple deprecates it and it is the usual reason
+          # notarization rejects a nested framework.
+          for fw in "$APP"/Contents/Frameworks/*.framework; do
+            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$fw"
           done
           codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP"
           codesign --verify --strict --verbose=2 "$APP"

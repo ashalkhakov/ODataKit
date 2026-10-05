@@ -139,7 +139,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/Release" \
             MARKETING_VERSION="${version%%-*}" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" build
           app="$RUNNER_TEMP/Release/Build/Products/Release/Workbench.app"
-          for fw in ODataKit ODataIncrementalStore ODataService ODataSync; do
+          for fw in ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync; do
             test -d "$app/Contents/Frameworks/$fw.framework" \
               || { echo "::error::Workbench.app does not embed $fw.framework"; exit 1; }
           done
