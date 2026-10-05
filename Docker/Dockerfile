@@ -49,8 +49,8 @@ COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
 FROM toolchain AS stack
-ARG GNUSTEP_PATCHES_REF=7539fc686a72250574fff6c17e1c92eb024ddc33
-ARG FREECOREDATA_REF=b612b0a90fcae0b0fabcd1ff71442988eb67b518
+ARG GNUSTEP_PATCHES_REF=00a9c890134abe3e752d49545556a228cb8b7122
+ARG FREECOREDATA_REF=1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
 RUN set -e; \
     mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
     git init -q && git remote add origin https://github.com/ashalkhakov/gnustep-patches.git; \

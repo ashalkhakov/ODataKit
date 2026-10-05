@@ -189,14 +189,16 @@ jobs:
       # Both pinned to commits, not branches. The patches ref decides the
       # recipe hash the stack is cached under, so a moving branch would keep
       # serving a prefix built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 7539fc686a72250574fff6c17e1c92eb024ddc33
+      # gnustep-patches #7: NSSortDescriptor sorts nil before every value.
+      GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
       # its momc keeps a model version's Identifier, which models generated
       # from $metadata carry (#40).
       # #51: the SQL backends share one libCDSQLStore, so a process can load
       # both, and evaluate MATCHES in SQL.
-      FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
+      # #61: NULL sorts as Core Data sorts it, on every SQL backend.
+      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
