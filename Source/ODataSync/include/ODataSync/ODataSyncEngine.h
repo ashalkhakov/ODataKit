@@ -291,6 +291,10 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 - (void)syncWithTarget:(id)target action:(SEL)action;
 @property (nonatomic, readonly, strong, nullable) ODataSyncResult *lastResult;
 
+// One remote alone, its download then its upload, as -syncWithError: does
+// each (one at a time with it; lastResult this one's). A remote not added
+// is the engine's while this runs (a peer met now and then).
+- (BOOL)syncWithRemote:(ODataSyncRemote *)remote error:(NSError **)error;
 // The halves, for one remote.
 - (BOOL)downloadFromRemote:(ODataSyncRemote *)remote error:(NSError **)error;
 - (BOOL)uploadToRemote:(ODataSyncRemote *)remote error:(NSError **)error;

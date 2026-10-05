@@ -98,6 +98,20 @@
 // Who calls the built-in service: "workbench", whoever it is. It serves
 // itself, or the local network with no authentication (Sync > Serve on the
 // Network); a device gets a peer token for this subject.
+// The key the built-in service signs peer tokens with: made once and kept
+// (the user's defaults: an example's key, not a secret worth more), so
+// that tokens issued before the Workbench restarted still check with the
+// keys the devices kept.
+static NSDictionary *WBPeerSigningKey(void)
+{
+  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+  NSDictionary *kept = [defaults dictionaryForKey:@"WBPeerSigningKey"];
+  if ([kept[@"d"] isKindOfClass:[NSString class]] && [kept[@"kty"] isEqual:@"EC"]) return kept;
+  NSDictionary *made = HSGenerateSigningKey(NULL);
+  if (made) [defaults setObject:made forKey:@"WBPeerSigningKey"];
+  return made;
+}
+
 @interface WorkbenchSignIn : NSObject <HSAuthenticator>
 @end
 
@@ -112,7 +126,12 @@
 
 - (NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply
 {
-  return [self.sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
+  ODataSyncService *sync = self.sync;
+  if (!sync) {
+    [reply failWithError:ODataServiceError(501, @"The Workbench issues no peer tokens (it has no signing key)")];
+    return nil;
+  }
+  return [sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
 }
 
 + (NSDictionary *)ODataOperationNames
@@ -304,7 +323,7 @@ NSString *WorkbenchServiceStamp(NSString *previous)
   _sync = [[ODataSyncService alloc] initWithService:service];
   // Peer tokens, signed by a key of this run's: devices that sync with the
   // Workbench trust each other by them (the Device app's Peers).
-  NSDictionary *signingKey = HSGenerateSigningKey(NULL);
+  NSDictionary *signingKey = WBPeerSigningKey();
   if (signingKey) {
     _sync.peerTokens = [[ODataSyncPeerTokenIssuer alloc] initWithIssuer:_serviceRoot.absoluteString signingKey:signingKey];
     operations.sync = _sync;

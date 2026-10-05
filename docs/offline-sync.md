@@ -348,8 +348,8 @@ its inspections to one with a signal, which sends them on.
 
 Between phones and tablets, over TLS with each device's certificate,
 found by Bonjour, trusted by a token the service issues or by pairing:
-[peer sync](peer-sync.md). On a network the app trusts (or on GNUstep),
-plain HTTP, the app's own authenticator:
+[peer sync](peer-sync.md). On a network the app trusts, plain HTTP, the
+app's own authenticator:
 
 ```objc
 // The device that offers its store:

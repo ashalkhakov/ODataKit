@@ -103,6 +103,7 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
   }
   if ([root isEqual:_serviceRoot]) return nil;
   if (_device.busy) return @"Still syncing.";
+  if (_peers.busy) return @"Still pairing, or getting a peer token.";
   [[NSUserDefaults standardUserDefaults] setObject:root.absoluteString forKey:DVRootKey];
   [self openDeviceAt:root emptied:YES];
   return _device ? nil : _status;
@@ -147,6 +148,10 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
 - (void)resetDevice
 {
   if (!_serviceRoot || _device.busy) return;
+  if (_peers.busy) {
+    [self say:@"Still pairing, or getting a peer token: reset when it is done."];
+    return;
+  }
   [self openDeviceAt:_serviceRoot emptied:YES];
 }
 

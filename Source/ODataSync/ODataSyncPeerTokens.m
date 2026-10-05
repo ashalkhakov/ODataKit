@@ -19,6 +19,7 @@ static BOOL ODSIsThumbprint(NSString *text)
 
 @implementation ODataSyncPeerTokenIssuer {
   NSDictionary *_signingKey;
+  NSMutableDictionary<NSString *, NSString *> *_owners;  // replica -> subject
 }
 
 - (instancetype)initWithIssuer:(NSString *)issuer signingKey:(NSDictionary *)signingKey
@@ -29,6 +30,7 @@ static BOOL ODSIsThumbprint(NSString *text)
   _signingKey = [signingKey copy];
   _keySet = @{ @"keys": @[ HSPublicKey(signingKey) ] };
   _lifetime = 24 * 3600;
+  _owners = [NSMutableDictionary dictionary];
   return self;
 }
 
@@ -46,6 +48,22 @@ static BOOL ODSIsThumbprint(NSString *text)
   }
   if (!ODSIsThumbprint(thumbprint) || ![replica isKindOfClass:[NSString class]] || !replica.length) {
     if (error) *error = HSError(400, @"PeerToken takes the replica and its certificate's thumbprint (x5t#S256)");
+    return nil;
+  }
+  // Another user's replica is not this one's to name: its writes would be
+  // taken for that device's.
+  BOOL allowed = NO;
+  if (self.allowsReplica) {
+    allowed = self.allowsReplica(principal, replica);
+  } else {
+    @synchronized (_owners) {
+      NSString *owner = _owners[replica];
+      allowed = !owner || [owner isEqualToString:principal.subject];
+      if (allowed) _owners[replica] = principal.subject;
+    }
+  }
+  if (!allowed) {
+    if (error) *error = HSError(409, @"That replica is another user's device");
     return nil;
   }
   NSSet *scopes = self.scopesForPrincipal ? self.scopesForPrincipal(principal) : principal.scopes;

@@ -166,6 +166,9 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
     ODSPeerTokenOperations *operations = [[ODSPeerTokenOperations alloc] init];
     operations.sync = self;
     _service.serviceOperations = operations;
+  } else if (peerTokens && ![_service.serviceOperations conformsToProtocol:@protocol(ODataSyncPeerTokenActions)]) {
+    // The app's own operations, without PeerToken: no device can ask.
+    NSLog(@"ODataSyncService: the service's operations do not adopt ODataSyncPeerTokenActions: no PeerToken action, no peer tokens");
   }
 }
 

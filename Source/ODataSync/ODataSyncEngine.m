@@ -195,6 +195,28 @@ id ODSUnarchive(NSData *data)
   }
 }
 
+- (BOOL)syncWithRemote:(ODataSyncRemote *)remote error:(NSError **)error
+{
+  [_running lock];
+  @try {
+    // A remote while it syncs (its state kept under its identifier), alone.
+    BOOL added = ![self.remotes containsObject:remote];
+    if (added) [self addRemote:remote];
+    @synchronized (_tally) {
+      [_tally removeAllObjects];
+    }
+    [self noticeModelVersion];
+    BOOL ok = [self downloadFromRemote:remote error:error] && [self uploadToRemote:remote error:error];
+    @synchronized (_tally) {
+      _lastResult = [[ODataSyncResult alloc] initWithTally:_tally];
+    }
+    if (added) [self removeRemote:remote];
+    return ok;
+  } @finally {
+    [_running unlock];
+  }
+}
+
 - (BOOL)syncLocked:(NSError **)error
 {
   @synchronized (_tally) {

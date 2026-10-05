@@ -411,13 +411,11 @@ static NSArray<NSString *> *WBSyncBookkeeping(void)
   ODataSyncEngine *sync = _sync;
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     NSError *error = nil;
-    // A remote while it runs: Sync stays the service's.
-    [sync addRemote:remote];
-    BOOL ok = [sync downloadFromRemote:remote error:&error] && [sync uploadToRemote:remote error:&error];
-    [sync removeRemote:remote];
-    // lastResult is a whole sync's: not this one's.
+    // The engine's only while it runs: Sync stays the service's.
+    BOOL ok = [sync syncWithRemote:remote error:&error];
+    ODataSyncResult *result = sync.lastResult;
     dispatch_async(dispatch_get_main_queue(), ^{
-      [self finished:what ok:ok result:nil error:error];
+      [self finished:what ok:ok result:result error:error];
     });
   });
   return YES;

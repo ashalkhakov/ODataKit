@@ -75,7 +75,7 @@ short-lived JWT the service signs (ES256), saying
 | `sub` | the user |
 | `aud` | `odatasync-peer` |
 | `odatasync_replica` | the device's replica ID |
-| `scope` | what it may sync (the service's scopes for the synced sets) |
+| `scope` | the principal's scopes (or what the issuer's `scopesForPrincipal` gives) |
 | `cnf` | `{"x5t#S256": thumbprint}`: the token is bound to the device's certificate (RFC 8705, RFC 7800) |
 | `exp`, `iat` | a day, say |
 
@@ -94,14 +94,30 @@ When device B connects to A:
    certificate of this connection. B is then the token's user and
    replica, with its scopes.
 3. B checks A the same way: before sending anything else, it asks A for
-   A's token (`GET <root>$peer`), checks it with the same keys, and that
-   its thumbprint is the certificate A's TLS presented. From then on, B's
-   connections to A accept only that certificate.
+   A's token (`GET <root>$peer`), checks it with the same keys, that its
+   thumbprint is the certificate A's TLS presented, and that its replica
+   is the one in A's service root (`…/sync/<replica>/`). From then on, B's
+   connections to A accept only that certificate (and only the one A
+   advertised, when B was given it: `expectedThumbprint`).
+4. Before each request after, B checks again that A is still trusted (its
+   token not expired, its pairing not forgotten).
+
+By default a device takes tokens of its own user's devices only (the
+token's `sub` is its own token's): `acceptsOtherSubjects` on the trust
+takes any user's of the same service. Both devices must belong to the same
+service (the same keys).
+
+The replica a token names is the device's to say, and a peer takes what
+that device sends as coming from that replica. The issuer refuses (409) a
+replica another user already asked a token for; an app that records which
+user each replica is gives `allowsReplica` instead.
 
 Revocation is by expiry: a device the service stops vouching for cannot
-get a new token, and its last one runs out. Both devices must belong to
-the same service (the same keys); the scopes decide what each may read and
-write of the other's store, as with the service.
+get a new token, and its last one runs out.
+
+What a peer may read and write is what the peer server serves: the
+synced entities, down ones read only. A token's scopes are enforced only
+where the model declares permissions for them (as on the service).
 
 ### 3.2 Pairing
 
@@ -173,8 +189,10 @@ Another finds it (`ODataSyncPeerBrowser`, its delegate told of each
 
 ```objc
 ODataSyncRemote *peer = [ODataSyncRemote peerWithServiceRoot:announcement.serviceRoot];
-peer.transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:peer.serviceRoot trust:trust];
-[engine addRemote:peer];   // or download and upload with it alone
+ODataSyncPeerTransport *transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:peer.serviceRoot trust:trust];
+transport.expectedThumbprint = announcement.thumbprint;   // the certificate it advertised, no other
+peer.transport = transport;
+[engine syncWithRemote:peer error:&error];   // or addRemote:, to sync with it every time
 ```
 
 Pairing instead: the serving device's `-pairingOfferForSubject:scopes:`
@@ -235,3 +253,8 @@ network (`NSLocalNetworkUsageDescription`).
   is known to the server by the relayed connection's local address, so
   only the peer server's own pipeline (HSAuthenticationStage) sees it.
 - Revocation is by expiry, not by a list.
+- `GET $peer` gives the device's token to any client that connects with a
+  certificate: bound to the device's certificate it is of no use to
+  another, but it tells the user, the replica and the scopes.
+- The Linux listener relays at most 64 connections at once; a connection
+  idle for five minutes is closed.

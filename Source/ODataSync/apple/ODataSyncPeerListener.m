@@ -33,8 +33,11 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
 @implementation ODSRelay
 @end
 
+static char ODSListenerQueueKey;
+
 @implementation ODataSyncPeerListener {
   nw_listener_t _listener;
+  BOOL _failed;  // after it was ready (a network gone): not running
   dispatch_queue_t _queue;
   NSMutableSet<ODSRelay *> *_relays;
   NSMutableDictionary<NSString *, NSString *> *_thumbprints;  // relay address -> thumbprint
@@ -47,6 +50,7 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
   _identity = identity;
   _backendPort = backendPort;
   _queue = dispatch_queue_create("ODataSync peer listener", DISPATCH_QUEUE_SERIAL);
+  dispatch_queue_set_specific(_queue, &ODSListenerQueueKey, (__bridge void *)self, NULL);
   _relays = [NSMutableSet set];
   _thumbprints = [NSMutableDictionary dictionary];
   return self;
@@ -104,6 +108,9 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
     } else if (state == nw_listener_state_failed) {
       failure = stateError;
       if (!ready) dispatch_semaphore_signal(settled);
+      // Failed once ready (iOS took the network, the app came back from
+      // the background): not running, so not advertised as such.
+      else [weak listenerFailed];
     }
   });
   nw_listener_set_new_connection_handler(listener, ^(nw_connection_t connection) {
@@ -120,19 +127,31 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
   return YES;
 }
 
+- (void)listenerFailed
+{
+  @synchronized (self) {
+    _failed = YES;
+  }
+}
+
 - (void)stop
 {
   nw_listener_t listener = _listener;
   _listener = nil;
   if (listener) nw_listener_cancel(listener);
-  dispatch_sync(_queue, ^{
+  dispatch_block_t closeAll = ^{
     for (ODSRelay *relay in [self->_relays copy]) [self close:relay];
-  });
+  };
+  // At once when on the queue already (the last release there, a dealloc).
+  if (dispatch_get_specific(&ODSListenerQueueKey) == (__bridge void *)self) closeAll();
+  else dispatch_sync(_queue, closeAll);
 }
 
 - (BOOL)isRunning
 {
-  return _listener != nil;
+  @synchronized (self) {
+    return _listener != nil && !_failed;
+  }
 }
 
 - (NSString *)thumbprintOfConnectionFrom:(NSString *)remoteAddress
@@ -203,7 +222,9 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
     if (!strongRelay) return;
     if (state == nw_connection_state_ready) {
       [weak serverReady:strongRelay];
-    } else if (state == nw_connection_state_failed || state == nw_connection_state_cancelled) {
+    } else if (state == nw_connection_state_failed || state == nw_connection_state_cancelled ||
+               state == nw_connection_state_waiting) {
+      // (Waiting: the server on loopback refused it; no point waiting.)
       [weak close:strongRelay];
     }
   });
@@ -213,6 +234,7 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
 // Known by its address before a byte goes: then both ways.
 - (void)serverReady:(ODSRelay *)relay
 {
+  if (relay.closed) return;
   nw_path_t path = nw_connection_copy_current_path(relay.server);
   nw_endpoint_t local = path ? nw_path_copy_effective_local_endpoint(path) : nil;
   if (!local) {
@@ -235,18 +257,19 @@ static NSError *ODSListenerError(NSString *what, nw_error_t error)
     ODSRelay *strongRelay = weakRelay;
     if (!strongRelay || strongRelay.closed) return;
     BOOL done = error || complete;
-    if (content) {
-      // The last of it sent before the relay closes.
-      nw_connection_send(to, content, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, false, ^(nw_error_t sendError) {
-        if (sendError || done) [weak close:strongRelay];
-      });
-    } else if (done) {
+    if (!content) {
       // One side is done: so is the relay (HTTP over it has no half-close
-      // worth keeping).
-      [weak close:strongRelay];
+      // worth keeping). Else nothing yet: read again.
+      if (done) [weak close:strongRelay];
+      else [weak pumpFrom:from to:to relay:strongRelay];
+      return;
     }
-    if (done) return;
-    [weak pumpFrom:from to:to relay:strongRelay];
+    // Read again only once this is sent: a slow reader slows the writer,
+    // nothing piles up here. The last of it sent before the relay closes.
+    nw_connection_send(to, content, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, false, ^(nw_error_t sendError) {
+      if (sendError || done) [weak close:strongRelay];
+      else [weak pumpFrom:from to:to relay:strongRelay];
+    });
   });
 }
 

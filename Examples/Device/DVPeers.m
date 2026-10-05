@@ -14,7 +14,8 @@ const NSUInteger DVPeersPort = 8642;
 static NSString * const DVPeerSubject = @"peer";
 
 // The device's address on the local network: Wi-Fi's (en0) first, else
-// the first other interface up with an IPv4 address.
+// another local one (en*, bridge*: a Mac's Ethernet, the Simulator's host);
+// never cellular or a VPN's, which peers nearby cannot reach.
 static NSString *DVLocalAddress(void)
 {
   struct ifaddrs *interfaces = NULL;
@@ -30,7 +31,7 @@ static NSString *DVLocalAddress(void)
       found = address;
       break;
     }
-    if (!other) other = address;
+    if (!other && (strncmp(at->ifa_name, "en", 2) == 0 || strncmp(at->ifa_name, "bridge", 6) == 0)) other = address;
   }
   freeifaddrs(interfaces);
   return found ?: other;
@@ -40,6 +41,9 @@ static NSString *DVLocalAddress(void)
 @end
 
 @implementation DVPeers {
+  BOOL _discarded;  // the device reset: what finishes now is not kept
+  BOOL _pairing;
+  NSTimer *_expiry;
   NSURL *_directory;
   ODataSyncPeerServer *_server;
   ODataSyncPeerAdvertiser *_advertiser;
@@ -60,7 +64,27 @@ static NSString *DVLocalAddress(void)
   NSData *data = [NSData dataWithContentsOfURL:[self fileNamed:@"PeerToken"]];
   NSDictionary *answer = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
   if ([answer isKindOfClass:[NSDictionary class]]) [_trust takePeerTokenAnswer:answer error:NULL];
+  [self watchExpiry];
   return self;
+}
+
+// Told when the token runs out: the views say so.
+- (void)watchExpiry
+{
+  [_expiry invalidate];
+  _expiry = nil;
+  NSTimeInterval left = self.tokenExpires.timeIntervalSinceNow;
+  if (!_trust.token || left <= 0) return;
+  __weak DVPeers *weak = self;
+  _expiry = [NSTimer scheduledTimerWithTimeInterval:left + 1 repeats:NO block:^(NSTimer *timer) {
+    [weak changed];
+    [weak say:@"The peer token expired: get a new one from the Workbench (Peers)."];
+  }];
+}
+
+- (BOOL)isBusy
+{
+  return _fetchingToken || _pairing;
 }
 
 - (void)dealloc
@@ -115,7 +139,7 @@ static NSString *DVLocalAddress(void)
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     NSError *error = nil;
     NSDictionary *answer = [sync peerTokenFromRemote:remote thumbprint:thumbprint error:&error];
-    BOOL ok = answer && [self.trust takePeerTokenAnswer:answer error:&error];
+    BOOL ok = answer && !self->_discarded && [self.trust takePeerTokenAnswer:answer error:&error];
     if (ok) {
       // Kept: peers are met without the Workbench, until it expires.
       NSData *data = [NSJSONSerialization dataWithJSONObject:answer options:0 error:NULL];
@@ -123,6 +147,8 @@ static NSString *DVLocalAddress(void)
     }
     dispatch_async(dispatch_get_main_queue(), ^{
       self->_fetchingToken = NO;
+      if (self->_discarded) return;
+      [self watchExpiry];
       [self changed];
       if (!ok) {
         [self say:[NSString stringWithFormat:@"No peer token: %@", error.localizedDescription ?: @"no answer."]];
@@ -199,6 +225,8 @@ static NSString *DVLocalAddress(void)
     return;
   }
   [self say:@"Pairing…"];
+  _pairing = YES;
+  [self changed];
   ODataSyncPeerTrust *trust = _trust;
   NSString *replica = _device.sync.replicaID, *name = UIDevice.currentDevice.name;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -206,6 +234,8 @@ static NSString *DVLocalAddress(void)
     ODataSyncPeerTransport *transport = [ODataSyncPeerTransport transportPairingWithOffer:offer trust:trust replica:replica name:name
                                                                                  subject:DVPeerSubject scopes:[NSSet set] error:&error];
     dispatch_async(dispatch_get_main_queue(), ^{
+      self->_pairing = NO;
+      if (self->_discarded) return;
       [self changed];
       if (!transport) {
         [self say:[NSString stringWithFormat:@"Not paired: %@", error.localizedDescription]];
@@ -261,8 +291,16 @@ static NSString *DVLocalAddress(void)
 
 - (BOOL)syncWithPeer:(ODataSyncPeerAnnouncement *)peer
 {
+  // Neither side would take the other: said so, not a TLS error.
+  if (!self.hasToken && ![self pairingOfPeer:peer]) {
+    [self say:[NSString stringWithFormat:@"Not synced with %@: get a peer token from the Workbench, or pair with it, first.", peer.name]];
+    return NO;
+  }
   ODataSyncRemote *remote = [ODataSyncRemote peerWithServiceRoot:peer.serviceRoot];
-  remote.transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:peer.serviceRoot trust:_trust];
+  ODataSyncPeerTransport *transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:peer.serviceRoot trust:_trust];
+  // The certificate it advertised, and no other.
+  transport.expectedThumbprint = peer.thumbprint;
+  remote.transport = transport;
   return [_device syncWithRemote:remote named:peer.name];
 }
 
@@ -289,6 +327,8 @@ static NSString *DVLocalAddress(void)
 
 - (void)stop
 {
+  [_expiry invalidate];
+  _expiry = nil;
   [_advertiser stop];
   [_server stop];
   [_browser stop];
@@ -299,6 +339,7 @@ static NSString *DVLocalAddress(void)
 
 - (void)discard
 {
+  _discarded = YES;
   [self stop];
   [_trust.identity removeWithError:NULL];
   [[NSFileManager defaultManager] removeItemAtURL:[self fileNamed:@"Pairings"] error:NULL];

@@ -1,19 +1,27 @@
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 //
-// The listener on GnuTLS, over sockets: a thread for each connection,
-// listening on IPv6 and IPv4 alike.
+// The listener on GnuTLS, over sockets, listening on IPv6 and IPv4 alike.
+// Each relay has two threads, one a direction (GnuTLS lets one thread
+// send while another receives on a session): neither waits on the other,
+// and a socket idle too long ends the relay. At most ODSMostRelays at once.
 
 #import <ODataSync/ODataSyncPeerListener.h>
 #import "ODSLinuxSystem.h"
 #include <gnutls/gnutls.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <poll.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+
+// Relays at once: a connection past them is closed as it comes.
+static const NSUInteger ODSMostRelays = 64;
+// A handshake's time; a socket's idle time (nothing read, nothing sent).
+static const int ODSHandshakeMilliseconds = 10000;
+static const time_t ODSIdleSeconds = 300;
 
 static NSError *ODSListenerError(NSString *what, int code)
 {
@@ -44,19 +52,31 @@ static BOOL ODSRecordSendAll(gnutls_session_t session, const uint8_t *bytes, siz
 {
   while (length) {
     ssize_t n = gnutls_record_send(session, bytes, length);
-    if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) continue;
-    if (n <= 0) return NO;
+    if (n == GNUTLS_E_INTERRUPTED) continue;
+    if (n <= 0) return NO;  // (GNUTLS_E_AGAIN: the send timed out)
     bytes += n;
     length -= (size_t)n;
   }
   return YES;
 }
 
+// Reads and writes on fd give up after the idle time.
+static void ODSIdleTimeouts(int fd)
+{
+  struct timeval idle = { .tv_sec = ODSIdleSeconds, .tv_usec = 0 };
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &idle, sizeof idle);
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &idle, sizeof idle);
+}
+
 // One client's connection, and its relay to the server: each socket open
-// until closed is set (under the listener's lock).
+// until closed is set, the session until its last thread is done (all
+// under the listener's lock).
 @interface ODSRelay : NSObject
 @property (nonatomic) int client;
 @property (nonatomic) int server;
+@property (nonatomic) gnutls_session_t session;
+@property (nonatomic) BOOL handshaken;
+@property (nonatomic) NSUInteger threads;
 @property (nonatomic, copy, nullable) NSString *address;     // the relay's, as the server sees it
 @property (nonatomic, copy, nullable) NSString *thumbprint;  // the client's certificate's
 @property (nonatomic) BOOL closed;
@@ -65,8 +85,9 @@ static BOOL ODSRecordSendAll(gnutls_session_t session, const uint8_t *bytes, siz
 @implementation ODSRelay
 @end
 
+static char ODSListenerQueueKey;
+
 @implementation ODataSyncPeerListener {
-  int _socket;
   dispatch_source_t _accepting;
   dispatch_queue_t _queue;
   gnutls_certificate_credentials_t _credentials;
@@ -81,8 +102,8 @@ static BOOL ODSRecordSendAll(gnutls_session_t session, const uint8_t *bytes, siz
   if (!self) return nil;
   _identity = identity;
   _backendPort = backendPort;
-  _socket = -1;
   _queue = dispatch_queue_create("ODataSync peer listener", DISPATCH_QUEUE_SERIAL);
+  dispatch_queue_set_specific(_queue, &ODSListenerQueueKey, (__bridge void *)self, NULL);
   _relays = [NSMutableSet set];
   _thumbprints = [NSMutableDictionary dictionary];
   return self;
@@ -93,6 +114,7 @@ static BOOL ODSRecordSendAll(gnutls_session_t session, const uint8_t *bytes, siz
   [self stop];
   if (_credentials) gnutls_certificate_free_credentials(_credentials);
   if (_priority) gnutls_priority_deinit(_priority);
+  dispatch_release(_queue);
 }
 
 #pragma mark Listening
@@ -101,7 +123,7 @@ static BOOL ODSRecordSendAll(gnutls_session_t session, const uint8_t *bytes, siz
 static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
 {
   int one = 1, zero = 0;
-  int fd = socket(AF_INET6, SOCK_STREAM, 0);
+  int fd = socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd >= 0) {
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
     setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &zero, sizeof zero);
@@ -112,7 +134,7 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
     }
   }
   if (fd < 0) {
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
       *failure = errno;
       return -1;
@@ -168,12 +190,11 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
     if (error) *error = ODSListenerError(@"The listener did not start", failure);
     return NO;
   }
-  _socket = fd;
   _port = bound;
   dispatch_source_t accepting = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)fd, 0, _queue);
   __weak ODataSyncPeerListener *weak = self;
   dispatch_source_set_event_handler(accepting, ^{
-    [weak acceptOn:fd];
+    [weak acceptOn:fd source:accepting];
   });
   dispatch_source_set_cancel_handler(accepting, ^{
     close(fd);
@@ -187,9 +208,14 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
 {
   dispatch_source_t accepting = _accepting;
   _accepting = nil;
-  _socket = -1;
-  if (accepting) dispatch_source_cancel(accepting);
-  // Each relay's thread finds its sockets shut, and ends.
+  if (accepting) {
+    // Closed before this returns (the port free to listen on again): its
+    // cancel handler run, after any accept under way.
+    dispatch_source_cancel(accepting);
+    if (dispatch_get_specific(&ODSListenerQueueKey) != (__bridge void *)self) dispatch_sync(_queue, ^{});
+    dispatch_release(accepting);
+  }
+  // Each relay's threads find their sockets shut, and end.
   @synchronized (_relays) {
     for (ODSRelay *relay in _relays) {
       if (relay.closed) continue;
@@ -222,25 +248,48 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
 
 #pragma mark Relaying
 
-- (void)acceptOn:(int)listening
+- (void)acceptOn:(int)listening source:(dispatch_source_t)source
 {
   for (;;) {
     int fd = accept(listening, NULL, NULL);
-    if (fd < 0) return;  // EAGAIN: all taken
-    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK);
-    ODSRelay *relay = [[ODSRelay alloc] init];
-    relay.client = fd;
-    relay.server = -1;
-    @synchronized (_relays) {
-      [_relays addObject:relay];
+    if (fd >= 0) {
+      // Blocking (the BSDs pass the listener's O_NONBLOCK on), not inherited.
+      fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK);
+      fcntl(fd, F_SETFD, FD_CLOEXEC);
     }
+    if (fd < 0) {
+      // Out of descriptors: the source would fire again at once, and spin.
+      // Rest a second, then take what waits.
+      if (errno == EMFILE || errno == ENFILE || errno == ENOBUFS || errno == ENOMEM) {
+        dispatch_suspend(source);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), _queue, ^{
+          dispatch_resume(source);
+        });
+      }
+      return;  // else EAGAIN: all taken
+    }
+    ODSRelay *relay = nil;
+    @synchronized (_relays) {
+      if (_relays.count < ODSMostRelays) {
+        relay = [[ODSRelay alloc] init];
+        relay.client = fd;
+        relay.server = -1;
+        relay.threads = 1;
+        [_relays addObject:relay];
+      }
+    }
+    if (!relay) {
+      close(fd);
+      continue;
+    }
+    ODSIdleTimeouts(fd);
     [NSThread detachNewThreadSelector:@selector(relay:) toTarget:self withObject:relay];
   }
 }
 
 // A thread's: the handshake, the client's certificate, the server's
-// connection, known by its address before a byte goes, then both ways
-// until either side is done.
+// connection, known by its address before a byte goes; then this thread
+// carries the client's bytes to the server, another the server's back.
 - (void)relay:(ODSRelay *)relay
 {
   @autoreleasepool {
@@ -256,26 +305,61 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
     // holds its key.
     gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUIRE);
     gnutls_transport_set_int(session, relay.client);
-    gnutls_handshake_set_timeout(session, 10000);
+    gnutls_handshake_set_timeout(session, ODSHandshakeMilliseconds);
+    relay.session = session;
     int status;
     do {
       status = gnutls_handshake(session);
     } while (status < 0 && !gnutls_error_is_fatal(status));
+    relay.handshaken = status >= 0;
     unsigned int count = 0;
     const gnutls_datum_t *chain = status >= 0 ? gnutls_certificate_get_peers(session, &count) : NULL;
     if (chain && count) {
       relay.thumbprint = [ODataSyncPeerIdentity thumbprintOfCertificateData:[NSData dataWithBytes:chain[0].data length:chain[0].size]];
     }
-    if (relay.thumbprint && [self connectServerFor:relay]) [self pump:relay session:session];
-    if (status >= 0) gnutls_bye(session, GNUTLS_SHUT_WR);
-    gnutls_deinit(session);
-    [self close:relay];
+    if (relay.thumbprint && [self connectServerFor:relay]) {
+      @synchronized (_relays) {
+        relay.threads++;
+      }
+      [NSThread detachNewThreadSelector:@selector(relayBack:) toTarget:self withObject:relay];
+      [self pumpFromClient:relay];
+    }
+    [self endThreadOf:relay];
+  }
+}
+
+// The server's bytes to the client.
+- (void)relayBack:(ODSRelay *)relay
+{
+  @autoreleasepool {
+    uint8_t buffer[64 * 1024];
+    for (;;) {
+      ssize_t n = recv(relay.server, buffer, sizeof buffer, 0);
+      if (n < 0 && errno == EINTR) continue;
+      // Done (0), idle too long (EAGAIN), or broken.
+      if (n <= 0 || !ODSRecordSendAll(relay.session, buffer, (size_t)n)) break;
+    }
+    [self endThreadOf:relay];
+  }
+}
+
+// The client's bytes to the server.
+- (void)pumpFromClient:(ODSRelay *)relay
+{
+  uint8_t buffer[64 * 1024];
+  for (;;) {
+    ssize_t n = gnutls_record_recv(relay.session, buffer, sizeof buffer);
+    if (n == GNUTLS_E_INTERRUPTED || n == GNUTLS_E_REHANDSHAKE) continue;
+    // Done (0, or the client gone without a close_notify), idle too long
+    // (GNUTLS_E_AGAIN), or broken: so is the relay (HTTP over it has no
+    // half-close worth keeping).
+    if (n <= 0 || !ODSSendAll(relay.server, buffer, (size_t)n)) return;
   }
 }
 
 - (BOOL)connectServerFor:(ODSRelay *)relay
 {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return NO;
   struct sockaddr_in backend = { .sin_family = AF_INET, .sin_port = htons((uint16_t)_backendPort), .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
   struct sockaddr_in local;
@@ -284,6 +368,7 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
     close(fd);
     return NO;
   }
+  ODSIdleTimeouts(fd);
   @synchronized (_relays) {
     if (relay.closed || !_accepting) {
       close(fd);
@@ -296,45 +381,26 @@ static int ODSListen(NSUInteger port, NSUInteger *bound, int *failure)
   return YES;
 }
 
-- (void)pump:(ODSRelay *)relay session:(gnutls_session_t)session
+// One of the relay's threads done: the relay too (its sockets shut, so the
+// other one ends), and the last one closes it.
+- (void)endThreadOf:(ODSRelay *)relay
 {
-  uint8_t buffer[64 * 1024];
-  for (;;) {
-    // What GnuTLS read already, first: poll does not see it.
-    BOOL fromClient = gnutls_record_check_pending(session) > 0, fromServer = NO;
-    if (!fromClient) {
-      struct pollfd fds[2] = { { .fd = relay.client, .events = POLLIN }, { .fd = relay.server, .events = POLLIN } };
-      int ready = poll(fds, 2, -1);
-      if (ready < 0 && errno == EINTR) continue;
-      if (ready <= 0) return;
-      fromClient = (fds[0].revents & (POLLIN | POLLHUP | POLLERR)) != 0;
-      fromServer = (fds[1].revents & (POLLIN | POLLHUP | POLLERR)) != 0;
-    }
-    if (fromClient) {
-      ssize_t n = gnutls_record_recv(session, buffer, sizeof buffer);
-      if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED || n == GNUTLS_E_REHANDSHAKE) continue;
-      // Done (0, or the client gone without a close_notify), or broken:
-      // so is the relay (HTTP over it has no half-close worth keeping).
-      if (n <= 0 || !ODSSendAll(relay.server, buffer, (size_t)n)) return;
-    }
-    if (fromServer) {
-      ssize_t n = recv(relay.server, buffer, sizeof buffer, 0);
-      if (n < 0 && errno == EINTR) continue;
-      if (n <= 0 || !ODSRecordSendAll(session, buffer, (size_t)n)) return;
-    }
-  }
-}
-
-- (void)close:(ODSRelay *)relay
-{
+  BOOL last = NO;
   @synchronized (_relays) {
-    if (relay.closed) return;
-    relay.closed = YES;
-    if (relay.address) [_thumbprints removeObjectForKey:relay.address];
-    close(relay.client);
-    if (relay.server >= 0) close(relay.server);
-    [_relays removeObject:relay];
+    if (!relay.closed) {
+      relay.closed = YES;
+      if (relay.address) [_thumbprints removeObjectForKey:relay.address];
+      shutdown(relay.client, SHUT_RDWR);
+      if (relay.server >= 0) shutdown(relay.server, SHUT_RDWR);
+    }
+    last = --relay.threads == 0;
+    if (last) [_relays removeObject:relay];
   }
+  if (!last) return;
+  if (relay.handshaken) gnutls_bye(relay.session, GNUTLS_SHUT_WR);
+  gnutls_deinit(relay.session);
+  close(relay.client);
+  if (relay.server >= 0) close(relay.server);
 }
 
 @end

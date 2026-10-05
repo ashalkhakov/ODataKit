@@ -40,10 +40,16 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerThumbprintMember;  // x5t#S256, 
 @property (nonatomic) NSTimeInterval lifetime;
 // The scopes a token gives, from the principal's: default, all of them.
 @property (nonatomic, copy, nullable) NSSet<NSString *> * (^scopesForPrincipal)(HSPrincipal *principal);
+// Whether the principal's device may be named replica in a token (a peer
+// takes what a token's replica sends as coming from that device). Default
+// (nil): the first user to ask for a replica keeps it, for this issuer's
+// life; an app that records which user each replica is (a device
+// registry, say) answers from that instead.
+@property (nonatomic, copy, nullable) BOOL (^allowsReplica)(HSPrincipal *principal, NSString *replica);
 // A token for the principal's device: replica and thumbprint as the device
 // says them (its certificate's, which it proves it holds on every peer
-// connection). nil and the error for no principal, or a thumbprint that
-// is none.
+// connection). nil and the error for no principal (401), a thumbprint
+// that is none (400), or a replica the principal may not name (409).
 - (nullable NSString *)tokenForPrincipal:(nullable HSPrincipal *)principal replica:(NSString *)replica thumbprint:(NSString *)thumbprint
                                    error:(NSError **)error;
 // What PeerToken answers: { "Token": ..., "Keys": keySet, "Issuer": ..., "Expires": seconds since 1970 }.

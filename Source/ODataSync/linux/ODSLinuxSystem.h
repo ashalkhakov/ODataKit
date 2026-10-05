@@ -16,4 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, copy) NSURL *keyURL;
 @end
 
+// errno's error, about path.
+FOUNDATION_EXPORT NSError *ODSSystemPOSIXError(NSString *what, NSString *path);
+
 NS_ASSUME_NONNULL_END

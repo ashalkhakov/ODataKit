@@ -10,6 +10,7 @@
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static NSError *ODSIdentityError(int code, NSString *what)
@@ -18,51 +19,12 @@ static NSError *ODSIdentityError(int code, NSString *what)
   return [NSError errorWithDomain:@"GnuTLS" code:code userInfo:@{ NSLocalizedDescriptionKey: text }];
 }
 
-static NSError *ODSIdentityPOSIXError(NSString *what, NSString *path)
-{
-  int code = errno;
-  return [NSError errorWithDomain:NSPOSIXErrorDomain code:code
-                         userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ %@ (%s)", what, path, strerror(code)] }];
-}
-
 static NSData *ODSDatum(gnutls_datum_t *datum)
 {
   NSData *data = [NSData dataWithBytes:datum->data length:datum->size];
   gnutls_free(datum->data);
   datum->data = NULL;
   return data;
-}
-
-// The file, written whole, readable by the user alone.
-static BOOL ODSWritePrivate(NSData *data, NSString *path, NSError **error)
-{
-  NSString *partial = [path stringByAppendingString:@".partial"];
-  int fd = open(partial.fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (fd < 0) {
-    if (error) *error = ODSIdentityPOSIXError(@"Could not write", partial);
-    return NO;
-  }
-  const uint8_t *bytes = data.bytes;
-  NSUInteger written = 0;
-  while (written < data.length) {
-    ssize_t n = write(fd, bytes + written, data.length - written);
-    if (n < 0 && errno == EINTR) continue;
-    if (n <= 0) {
-      if (error) *error = ODSIdentityPOSIXError(@"Could not write", partial);
-      close(fd);
-      unlink(partial.fileSystemRepresentation);
-      return NO;
-    }
-    written += (NSUInteger)n;
-  }
-  fsync(fd);
-  close(fd);
-  if (rename(partial.fileSystemRepresentation, path.fileSystemRepresentation) != 0) {
-    if (error) *error = ODSIdentityPOSIXError(@"Could not keep", path);
-    unlink(partial.fileSystemRepresentation);
-    return NO;
-  }
-  return YES;
 }
 
 @implementation ODSSystemIdentity
@@ -163,7 +125,7 @@ static ODSSystemIdentity *ODSMakeIdentity(NSString *label, NSURL *certificateURL
   NSData *certificateText = ODSDatum(&certificatePEM);
   NSData *keyText = ODSDatum(&keyPEM);
   // The key first: a certificate alone is no identity.
-  if (!ODSWritePrivate(keyText, keyURL.path, error)) return nil;
+  if (!ODSSystemWritePrivateFile(keyText, keyURL, error)) return nil;
   if (![certificateText writeToURL:certificateURL options:NSDataWritingAtomic error:error]) {
     unlink(keyURL.path.fileSystemRepresentation);
     return nil;
@@ -171,17 +133,41 @@ static ODSSystemIdentity *ODSMakeIdentity(NSString *label, NSURL *certificateURL
   return [[ODSSystemIdentity alloc] initWithCertificate:certificateData certificateURL:certificateURL keyURL:keyURL];
 }
 
+// The directory, made (0700) when missing; one the user owns, that no one
+// else may enter (made so when it is the user's): else no identity is kept
+// there, nor read from it (someone else's could hold a key planted).
+static BOOL ODSPrivateDirectory(NSURL *directory, NSError **error)
+{
+  const char *path = directory.path.fileSystemRepresentation;
+  if (![[NSFileManager defaultManager] createDirectoryAtPath:directory.path withIntermediateDirectories:YES
+                                                  attributes:@{ NSFilePosixPermissions: @0700 } error:error]) return NO;
+  struct stat info;
+  if (lstat(path, &info) != 0) {
+    if (error) *error = ODSSystemPOSIXError(@"Cannot look at", directory.path);
+    return NO;
+  }
+  if (!S_ISDIR(info.st_mode) || info.st_uid != getuid()) {
+    if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EPERM userInfo:@{
+      NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ is not a directory of this user's", directory.path] }];
+    return NO;
+  }
+  if ((info.st_mode & 077) && chmod(path, 0700) != 0) {
+    if (error) *error = ODSSystemPOSIXError(@"Cannot make private", directory.path);
+    return NO;
+  }
+  return YES;
+}
+
 ODSSystemIdentity *ODSSystemKeepIdentity(NSString *label, NSURL *directory, NSError **error)
 {
   NSString *stem = ODSFileStem(label);
   NSURL *certificateURL = [directory URLByAppendingPathComponent:[stem stringByAppendingString:@".crt.pem"]];
   NSURL *keyURL = [directory URLByAppendingPathComponent:[stem stringByAppendingString:@".key.pem"]];
+  if (!ODSPrivateDirectory(directory, error)) return nil;
   NSFileManager *files = [NSFileManager defaultManager];
   if ([files fileExistsAtPath:certificateURL.path] && [files fileExistsAtPath:keyURL.path]) {
     return ODSKeptIdentity(certificateURL, keyURL, error);
   }
-  if (![files createDirectoryAtPath:directory.path withIntermediateDirectories:YES
-                         attributes:@{ NSFilePosixPermissions: @0700 } error:error]) return nil;
   return ODSMakeIdentity(label, certificateURL, keyURL, error);
 }
 
@@ -190,7 +176,7 @@ BOOL ODSSystemForgetIdentity(ODSSystemIdentity *identity, NSError **error)
   BOOL ok = YES;
   for (NSURL *url in @[ identity.keyURL, identity.certificateURL ]) {
     if (unlink(url.path.fileSystemRepresentation) != 0 && errno != ENOENT) {
-      if (error && ok) *error = ODSIdentityPOSIXError(@"Could not remove", url.path);
+      if (error && ok) *error = ODSSystemPOSIXError(@"Could not remove", url.path);
       ok = NO;
     }
   }

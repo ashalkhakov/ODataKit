@@ -35,6 +35,8 @@ FOUNDATION_EXPORT const NSUInteger DVPeersPort;
 // Asked of the Workbench (PeerToken), on a thread of its own.
 - (void)fetchToken;
 @property (nonatomic, readonly, getter=isFetchingToken) BOOL fetchingToken;
+// Asking for a token, or pairing: the device is not to be reset meanwhile.
+@property (nonatomic, readonly, getter=isBusy) BOOL busy;
 
 // The device's store served at https://<its address>:8642/sync/<replica>/,
 // and advertised; NO and why not.
@@ -62,7 +64,8 @@ FOUNDATION_EXPORT const NSUInteger DVPeersPort;
 
 // Not serving, not browsing.
 - (void)stop;
-// Stopped, its identity, pairings and token gone (the device is reset).
+// Stopped, its identity, pairings and token gone (the device is reset);
+// what was under way finishes without keeping anything.
 - (void)discard;
 @end
 

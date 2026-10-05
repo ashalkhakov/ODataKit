@@ -52,6 +52,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (atomic, copy, nullable) NSDate *tokenExpires;
 @property (atomic, copy, nullable) NSString *issuer;
 @property (atomic, copy, nullable) NSDictionary<NSString *, id> *keySet;
+// Whether a peer token of another user (another sub than this device's
+// own token's) is taken. Default: NO, a device syncs with its user's
+// devices; pairings are not affected (a person paired them).
+@property (atomic) BOOL acceptsOtherSubjects;
 
 @property (nonatomic, readonly, copy) NSArray<ODataSyncPeerPairing *> *pairings;
 - (nullable ODataSyncPeerPairing *)pairingWithThumbprint:(NSString *)thumbprint;

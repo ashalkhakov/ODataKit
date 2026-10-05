@@ -38,7 +38,7 @@ static NSString * const DVTabKey = @"DVTab";
   tabBar.viewControllers = tabs;
   tabBar.delegate = self;
   // The tab last shown; with no Workbench yet, its address (Settings). On
-  // an iPhone the last, Requests, is under More.
+  // an iPhone the last two, Settings and Requests, are under More.
   NSInteger tab = [[NSUserDefaults standardUserDefaults] integerForKey:DVTabKey];
   tabBar.selectedIndex = _session.device ? (NSUInteger)MAX(0, MIN(tab, (NSInteger)tabs.count - 1)) : 4;
   _window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
@@ -57,6 +57,9 @@ static NSString * const DVTabKey = @"DVTab";
 {
   WorkbenchDevice *device = _session.device;
   if (device && !device.offline && !device.busy) [device run:WBSyncActionSync];
+  // A peer token run out while away: a new one, the Workbench at hand.
+  DVPeers *peers = _session.peers;
+  if (peers && device && !device.offline && peers.tokenExpires && !peers.hasToken) [peers fetchToken];
 }
 
 @end

@@ -33,8 +33,14 @@ NS_ASSUME_NONNULL_BEGIN
 // took it for (its replica in claims, odatasync_replica).
 @property (atomic, readonly, copy, nullable) NSString *peerThumbprint;
 @property (atomic, readonly, strong, nullable) HSPrincipal *peerPrincipal;
-// Checked now (it is, before the first request, anyway): YES when the peer
-// is one to sync with; NO and why (an HSError 401 for one that is not).
+// The certificate the peer is said to have (an announcement's thumbprint,
+// an offer's): a connection presenting another is refused before anything
+// is sent. Nil: whichever it presents, the trust judging it.
+@property (atomic, copy, nullable) NSString *expectedThumbprint;
+// Checked (before the first request, and again before each after: a
+// pairing forgotten, a token expired, ends it): YES when the peer is the
+// device at the service root (its replica) and one to sync with; NO and
+// why (an HSError 401 for one that is not).
 - (BOOL)checkPeer:(NSError **)error;
 
 // Pairing with the device whose offer this is (the JSON of its QR code:

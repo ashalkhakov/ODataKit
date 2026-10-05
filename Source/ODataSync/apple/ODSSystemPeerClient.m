@@ -7,7 +7,25 @@
 #import "ODSAppleSystem.h"
 #import <ODataSync/ODataSyncPeerIdentity.h>
 
-@interface ODSSystemPeerClient () <NSURLSessionDelegate>
+@interface ODSSystemPeerClient ()
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler;
+@end
+
+// The session's delegate, holding the client weakly: a session keeps its
+// delegate until invalidated, which the client's dealloc does.
+@interface ODSSessionDelegate : NSObject <NSURLSessionTaskDelegate>
+@property (nonatomic, weak) ODSSystemPeerClient *client;
+@end
+
+@implementation ODSSessionDelegate
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler
+{
+  ODSSystemPeerClient *client = self.client;
+  if (client) [client URLSession:session task:task didReceiveChallenge:challenge completionHandler:completionHandler];
+  else completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+}
 @end
 
 @implementation ODSSystemPeerClient {
@@ -27,7 +45,9 @@
   NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
   configuration.URLCache = nil;
   configuration.HTTPCookieStorage = nil;
-  _session = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:nil];
+  ODSSessionDelegate *delegate = [[ODSSessionDelegate alloc] init];
+  delegate.client = self;
+  _session = [NSURLSession sessionWithConfiguration:configuration delegate:delegate delegateQueue:nil];
   return self;
 }
 

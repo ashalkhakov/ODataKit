@@ -89,11 +89,26 @@
     if (error) *error = HSError(502, @"The service's peer token answer is not one");
     return NO;
   }
-  self.token = token;
+  // The keys before the token: a peer checked meanwhile is checked with
+  // the keys the new token goes with.
   self.issuer = issuer;
   self.keySet = keys;
+  self.token = token;
   self.tokenExpires = [answer[@"Expires"] isKindOfClass:[NSNumber class]] ? [NSDate dateWithTimeIntervalSince1970:[answer[@"Expires"] doubleValue]] : nil;
   return YES;
+}
+
+// This device's user: its own token's sub.
+- (NSString *)subject
+{
+  NSArray *parts = [self.token componentsSeparatedByString:@"."];
+  if (parts.count != 3) return nil;
+  NSMutableString *payload = [[[parts[1] stringByReplacingOccurrencesOfString:@"-" withString:@"+"]
+                                stringByReplacingOccurrencesOfString:@"_" withString:@"/"] mutableCopy];
+  while (payload.length % 4) [payload appendString:@"="];
+  NSData *data = [[NSData alloc] initWithBase64EncodedString:payload options:0];
+  NSDictionary *claims = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+  return [claims isKindOfClass:[NSDictionary class]] && [claims[@"sub"] isKindOfClass:[NSString class]] ? claims[@"sub"] : nil;
 }
 
 #pragma mark Pairings
@@ -122,7 +137,7 @@
   for (ODataSyncPeerPairing *pairing in _pairings) [records addObject:[pairing record]];
   NSData *data = [NSJSONSerialization dataWithJSONObject:records options:NSJSONWritingPrettyPrinted error:error];
   if (!data) return NO;
-  return [data writeToURL:_pairingsURL options:ODSSystemPrivateFileWritingOptions() error:error];
+  return ODSSystemWritePrivateFile(data, _pairingsURL, error);
 }
 
 - (BOOL)addPairing:(ODataSyncPeerPairing *)pairing error:(NSError **)error
@@ -131,15 +146,21 @@
     NSUInteger at = [_pairings indexOfObjectPassingTest:^BOOL(ODataSyncPeerPairing *kept, NSUInteger i, BOOL *stop) {
       return [kept.thumbprint isEqualToString:pairing.thumbprint];
     }];
+    ODataSyncPeerPairing *was = at == NSNotFound ? nil : _pairings[at];
     if (at == NSNotFound) [_pairings addObject:pairing];
     else _pairings[at] = pairing;
-    return [self save:error];
+    if ([self save:error]) return YES;
+    // Not kept: not trusted either.
+    if (was) _pairings[at] = was;
+    else [_pairings removeObjectIdenticalTo:pairing];
+    return NO;
   }
 }
 
 - (BOOL)forgetPairingWithThumbprint:(NSString *)thumbprint error:(NSError **)error
 {
   @synchronized (_pairings) {
+    // Forgotten whether or not the file could be written: trusted no longer.
     [_pairings filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(ODataSyncPeerPairing *kept, NSDictionary *bindings) {
       return ![kept.thumbprint isEqualToString:thumbprint];
     }]];
@@ -196,6 +217,11 @@
   }
   if (![principal.claims[ODataSyncPeerReplicaClaim] isKindOfClass:[NSString class]]) {
     if (error) *error = HSError(401, @"The peer token names no replica");
+    return nil;
+  }
+  // The same user's device, unless the app takes other users' too.
+  if (!self.acceptsOtherSubjects && ![principal.subject isEqualToString:[self subject]]) {
+    if (error) *error = HSError(401, @"The peer token is another user's");
     return nil;
   }
   return principal;

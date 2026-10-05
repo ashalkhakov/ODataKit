@@ -19,9 +19,13 @@ NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT NSData *ODSSystemSHA256(NSData *data);
 // Random bytes for keys and codes, from the system's generator.
 FOUNDATION_EXPORT void ODSSystemRandomBytes(void *bytes, size_t length);
-// How a file only this device should read is written: atomically, and
+// A file only this device's user should read, written whole (atomically):
+// readable by the user alone (Linux: 0600, never through a link), and
 // protected where the system protects files (iOS's data protection).
-FOUNDATION_EXPORT NSUInteger ODSSystemPrivateFileWritingOptions(void);
+FOUNDATION_EXPORT BOOL ODSSystemWritePrivateFile(NSData *data, NSURL *url, NSError **error);
+// A dispatch object let go of: ARC does it where dispatch objects are
+// Objective-C objects (Apple); on GNUstep they are not, and are released.
+FOUNDATION_EXPORT void ODSSystemDispatchRelease(dispatch_object_t object);
 // The device's name, as people know it.
 FOUNDATION_EXPORT NSString *ODSSystemDeviceName(void);
 // Whether a .local name Bonjour resolves a peer to is one a URL can name

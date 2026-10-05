@@ -8,8 +8,9 @@
 @interface ODataSyncPeerTransport ()
 @property (atomic, readwrite, copy, nullable) NSString *peerThumbprint;
 @property (atomic, readwrite, strong, nullable) HSPrincipal *peerPrincipal;
-// While no certificate is pinned: the only one a connection may present.
-@property (atomic, copy, nullable) NSString *expectedThumbprint;
+// The token the peer showed (nil: paired), checked again before each
+// exchange.
+@property (atomic, copy, nullable) NSString *peerToken;
 @end
 
 @implementation ODataSyncPeerTransport {
@@ -41,9 +42,20 @@
 - (BOOL)checkPeer:(NSError **)error
 {
   [_checking lock];
-  BOOL ok = self.peerThumbprint != nil || [self checkPeerNow:error];
+  BOOL ok = self.peerThumbprint ? [self checkPeerAgain:error] : [self checkPeerNow:error];
   [_checking unlock];
   return ok;
+}
+
+// The peer known still trusted: its pairing not forgotten, its token not
+// expired. Not: checked anew, from its certificate, next time.
+- (BOOL)checkPeerAgain:(NSError **)error
+{
+  if ([_trust principalForThumbprint:self.peerThumbprint token:self.peerToken error:error]) return YES;
+  self.peerThumbprint = nil;
+  self.peerPrincipal = nil;
+  self.peerToken = nil;
+  return NO;
 }
 
 - (BOOL)checkPeerNow:(NSError **)error
@@ -67,7 +79,15 @@
   NSString *token = [json isKindOfClass:[NSDictionary class]] && [json[@"Token"] isKindOfClass:[NSString class]] ? json[@"Token"] : nil;
   HSPrincipal *principal = [_trust principalForThumbprint:presented token:token error:error];
   if (!principal) return NO;
+  // The device at this root (it ends in its replica), not another one the
+  // trust would take as well.
+  NSString *replica = principal.claims[ODataSyncPeerReplicaClaim];
+  if (![replica isEqual:_serviceRoot.lastPathComponent]) {
+    if (error) *error = HSError(401, [NSString stringWithFormat:@"The device answering is replica %@, not %@", replica, _serviceRoot.lastPathComponent]);
+    return NO;
+  }
   self.peerPrincipal = principal;
+  self.peerToken = token;
   self.peerThumbprint = presented;
   return YES;
 }

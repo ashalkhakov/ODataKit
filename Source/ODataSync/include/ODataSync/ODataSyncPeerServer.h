@@ -16,8 +16,10 @@
 // served); down sets are read only. What a peer sends is written as coming
 // from that peer (ODataSyncReplicaHeader), so it is passed on to the
 // service and the other peers, not back; its ODataSync.modified stamps are
-// kept, and move this side's clock past them. Discovery and trust are the
-// app's.
+// kept, and move this side's clock past them. Over TLS, with a trust (below),
+// the device's peers are known by their certificates; on a network the app
+// trusts, plain HTTP with its own authenticator. Discovery:
+// ODataSyncPeerAdvertiser.
 
 #pragma once
 #import <ODataSync/ODataSyncEngine.h>

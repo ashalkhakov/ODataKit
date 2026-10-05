@@ -89,7 +89,7 @@ static void DVPeersAlert(UIViewController *controller, NSString *title, NSString
   DVPeers *peers = [self peers];
   switch ((DVPeersSection)section) {
     case DVPeersThisDevice:
-      if (!peers) return @"Set the Workbench's address in Settings first.";
+      if (!peers) return self.session.device ? self.session.status : @"Set the Workbench's address in Settings first.";
       return @"Devices sync with each other when each has a peer token from the Workbench (the same one), or once paired: one shows its "
              @"Pairing Code, the other scans it. Either way the connection is TLS, each device's certificate checked.";
     case DVPeersNearby:

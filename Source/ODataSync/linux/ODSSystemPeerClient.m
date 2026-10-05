@@ -131,19 +131,24 @@ static NSData *ODSPresentedCertificate(CURL *curl)
   dispatch_once(&once, ^{
     curl_global_init(CURL_GLOBAL_DEFAULT);
   });
-  // The key of the certificate pinned, once seen; until then a new
-  // connection, its certificate compared.
+  // The key of the certificate pinned, once seen; a new connection (fresh)
+  // shows the certificate, compared with the one pinned. Never a request
+  // to a peer pinned whose key is not known: what it carries (a token, a
+  // write) would go before its certificate is compared.
   NSString *pin = nil;
   if (pinned && !fresh) {
     @synchronized (_keyPins) {
       pin = _keyPins[pinned];
     }
+    if (!pin) {
+      if (error) *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorServerCertificateUntrusted
+                                          userInfo:@{ NSLocalizedDescriptionKey: @"The peer's certificate has not been seen on a new connection" }];
+      return nil;
+    }
   }
   [_sending lock];
   if (!_curl) _curl = curl_easy_init();
   CURL *curl = _curl;
-  // Its connections kept, its settings not.
-  curl_easy_reset(curl);
   NSMutableData *body = [NSMutableData data];
   NSMutableDictionary *fields = [NSMutableDictionary dictionary];
   char detail[CURL_ERROR_SIZE] = "";
@@ -151,7 +156,11 @@ static NSData *ODSPresentedCertificate(CURL *curl)
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, detail);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)(request.timeoutInterval > 0 ? request.timeoutInterval : 60));
+  // As URLSession's timeoutInterval: how long it may go without a byte
+  // (not how long the whole may take, which a large download exceeds).
+  long idle = (long)ceil(request.timeoutInterval > 0 ? request.timeoutInterval : 60);
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+  curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, idle);
   curl_easy_setopt(curl, CURLOPT_SSLCERT, _identity.system.certificateURL.path.fileSystemRepresentation);
   curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, "PEM");
   curl_easy_setopt(curl, CURLOPT_SSLKEY, _identity.system.keyURL.path.fileSystemRepresentation);
@@ -196,6 +205,9 @@ static NSData *ODSPresentedCertificate(CURL *curl)
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   NSData *certificate = code == CURLE_OK && !pin ? ODSPresentedCertificate(curl) : nil;
+  // Nothing of this request's (its buffers, its headers) left in the
+  // handle once they are gone; its connections stay.
+  curl_easy_reset(curl);
   curl_slist_free_all(headers);
   [_sending unlock];
   if (code != CURLE_OK) {

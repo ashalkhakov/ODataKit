@@ -312,6 +312,15 @@ static NSManagedObjectModel *OSPModel(void)
   XCTAssertTrue([engines[@"B"] syncWithError:&error], @"%@", error);
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:engines[@"A"].coordinator], (@[ @"Check the pump", @"Oil the valve" ]));
 
+  // Told to expect another certificate than A's (an announcement spoofed):
+  // nothing goes.
+  ODataSyncPeerTransport *wary = [[ODataSyncPeerTransport alloc] initWithServiceRoot:server.serviceRoot trust:trusts[@"B"]];
+  wary.expectedThumbprint = trusts[@"D"].identity.thumbprint;
+  error = nil;
+  XCTAssertFalse([wary checkPeer:&error], @"took a certificate it was not told of");
+  wary.expectedThumbprint = trusts[@"A"].identity.thumbprint;
+  XCTAssertTrue([wary checkPeer:&error], @"%@", error);
+
   // C: no token, no sync. D: B's token is bound to B's certificate.
   for (NSString *name in @[ @"C", @"D" ]) {
     for (ODataSyncRemote *remote in [engines[name].remotes copy]) [engines[name] removeRemote:remote];
@@ -321,6 +330,35 @@ static NSManagedObjectModel *OSPModel(void)
     XCTAssertEqualObjects([self values:@"title" of:@"Task" in:engines[name].coordinator], @[], @"%@: %@", name, error);
   }
   [server stop];
+}
+
+// Whom tokens are for: a replica is its first user's; a device takes its
+// own user's devices, others' only when told to.
+- (void)testWhomTokensAreFor
+{
+  NSError *error = nil;
+  NSDictionary *signingKey = HSGenerateSigningKey(&error);
+  ODataSyncPeerTokenIssuer *issuer = [[ODataSyncPeerTokenIssuer alloc] initWithIssuer:@"https://service.test/" signingKey:signingKey];
+  HSPrincipal *alice = [[HSPrincipal alloc] initWithSubject:@"alice" claims:@{}];
+  HSPrincipal *bob = [[HSPrincipal alloc] initWithSubject:@"bob" claims:@{}];
+  ODataSyncPeerIdentity *a = [self identity:@"alice's"], *b = [self identity:@"bob's"], *c = [self identity:@"alice's other"];
+  NSString *replica = [NSUUID UUID].UUIDString;
+  NSDictionary *aliceAnswer = [issuer answerForPrincipal:alice replica:replica thumbprint:a.thumbprint error:&error];
+  XCTAssertNotNil(aliceAnswer, @"%@", error);
+  XCTAssertNil([issuer tokenForPrincipal:bob replica:replica thumbprint:b.thumbprint error:&error], @"bob named alice's replica");
+  XCTAssertEqual(error.code, 409, @"%@", error);
+  NSDictionary *bobAnswer = [issuer answerForPrincipal:bob replica:[NSUUID UUID].UUIDString thumbprint:b.thumbprint error:&error];
+  NSDictionary *otherAnswer = [issuer answerForPrincipal:alice replica:[NSUUID UUID].UUIDString thumbprint:c.thumbprint error:&error];
+  XCTAssertNotNil(bobAnswer, @"%@", error);
+
+  ODataSyncPeerTrust *trust = [[ODataSyncPeerTrust alloc] initWithIdentity:a pairingsURL:nil];
+  XCTAssertTrue([trust takePeerTokenAnswer:aliceAnswer error:&error], @"%@", error);
+  XCTAssertNotNil([trust principalForThumbprint:c.thumbprint token:otherAnswer[@"Token"] error:&error], @"alice's other device: %@", error);
+  error = nil;
+  XCTAssertNil([trust principalForThumbprint:b.thumbprint token:bobAnswer[@"Token"] error:&error], @"took bob's device");
+  XCTAssertEqual(error.code, 401);
+  trust.acceptsOtherSubjects = YES;
+  XCTAssertEqualObjects([trust principalForThumbprint:b.thumbprint token:bobAnswer[@"Token"] error:&error].subject, @"bob", @"%@", error);
 }
 
 // Pairing, with no service at all: an offer read, the code posted once,
@@ -343,6 +381,10 @@ static NSManagedObjectModel *OSPModel(void)
 
   NSDictionary *offer = [server pairingOfferForSubject:@"bob" scopes:[NSSet setWithObject:@"tasks"]];
   XCTAssertEqualObjects(offer[@"thumbprint"], trustE.identity.thumbprint);
+  // A request that names E's own replica is refused, and spends no code.
+  XCTAssertNil([ODataSyncPeerTransport transportPairingWithOffer:offer trust:trustF replica:e.replicaID name:nil subject:@"erin"
+                                                          scopes:[NSSet set] error:&error]);
+  XCTAssertEqual(error.code, 400, @"%@", error);
   ODataSyncPeerTransport *transport = [ODataSyncPeerTransport transportPairingWithOffer:offer trust:trustF replica:f.replicaID name:@"F's phone"
                                                                                subject:@"erin" scopes:[NSSet set] error:&error];
   XCTAssertNotNil(transport, @"%@", error);
@@ -372,6 +414,10 @@ static NSManagedObjectModel *OSPModel(void)
   [f removeRemote:peer];
   XCTAssertFalse([f syncWithError:&error], @"synced once forgotten");
   [f removeRemote:forgotten];
+  // Forgotten by F: the transport that knew E checks it again, and stops.
+  XCTAssertTrue([transport checkPeer:&error], @"%@", error);
+  XCTAssertTrue([trustF forgetPairingWithThumbprint:trustE.identity.thumbprint error:&error], @"%@", error);
+  XCTAssertFalse([transport checkPeer:&error], @"still trusted once forgotten");
   [server stop];
   [[NSFileManager defaultManager] removeItemAtURL:pairings error:NULL];
 }

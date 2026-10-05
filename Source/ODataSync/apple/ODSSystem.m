@@ -20,10 +20,16 @@ void ODSSystemRandomBytes(void *bytes, size_t length)
   if (SecRandomCopyBytes(kSecRandomDefault, length, bytes) != errSecSuccess) arc4random_buf(bytes, length);
 }
 
-NSUInteger ODSSystemPrivateFileWritingOptions(void)
+BOOL ODSSystemWritePrivateFile(NSData *data, NSURL *url, NSError **error)
 {
-  // Data protection where there is any (iOS); macOS takes it as atomic.
-  return NSDataWritingAtomic | NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication;
+  // Data protection where there is any (iOS; macOS takes it as atomic).
+  NSDataWritingOptions options = NSDataWritingAtomic;
+  if (@available(macOS 11.0, iOS 4.0, *)) options |= NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication;
+  return [data writeToURL:url options:options error:error];
+}
+
+void ODSSystemDispatchRelease(dispatch_object_t object)
+{
 }
 
 NSString *ODSSystemDeviceName(void)

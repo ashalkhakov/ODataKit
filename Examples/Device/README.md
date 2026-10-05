@@ -56,7 +56,10 @@ means a new device, so its store is emptied.
 3. In the app's Settings, type the address. The first time, iOS asks to
    allow access to the local network: allow it.
 
-Then try it as you would in the Sync window.
+Then try it as you would in the Sync window. For example: change a
+product on the phone and in the Workbench (Change at the Service, or edit
+it in the main window), sync, and see how the rule settles it. Or turn
+Offline on, make changes, and turn it off again.
 
 For peers, run the app on two devices on the same network, each with the
 Workbench's address set. On each, under Peers, choose Get a Peer Token,
@@ -65,15 +68,16 @@ tap it to sync. A change made on one reaches the other with no Workbench in
 between, and the Workbench later gets it from either. Two simulators on
 one Mac share its port 8642, so only one of them can serve.
 
-Pairing doesn't need a token:
-1. On one device, choose Show Pairing Code.
-2. On the other, choose Pair with a Device and scan the code, or paste
-   its text. The simulator has no camera, so it can only paste.
+The Workbench signs everyone in, so **anyone on the network can get a
+peer token** from it, which every device takes: it is an example, for a
+network you trust. Its signing key is kept (the user's defaults), so
+tokens stay good across restarts of the Workbench, for a day each.
 
-On a device, iOS asks for the camera the first time. For example: change a
-product on the phone and in the Workbench (Change at the Service, or edit
-it in the main window), sync, and see how the rule settles it. Or turn
-Offline on, make changes, and turn it off again.
+Pairing doesn't need a token:
+1. On one device, turn on Serve to Peers, then choose Show Pairing Code.
+2. On the other, choose Pair with a Device and scan the code (iOS asks for
+   the camera the first time), or paste its text. The simulator has no
+   camera, so it can only paste.
 
 ```sh
 xcodebuild -workspace ODataKit.xcworkspace -scheme Device \

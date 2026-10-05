@@ -17,6 +17,23 @@ static NSError *ODSDiscoveryError(DNSServiceErrorType code, NSString *what)
                          userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ (dns_sd %d)", what, (int)code] }];
 }
 
+// Work on an object's own queue, from wherever: at once when already on
+// it (a dealloc there, a delegate's call), else waited for.
+static char ODSQueueKey;
+
+static void ODSOnQueue(dispatch_queue_t queue, id owner, dispatch_block_t block)
+{
+  if (dispatch_get_specific(&ODSQueueKey) == (__bridge void *)owner) block();
+  else dispatch_sync(queue, block);
+}
+
+static dispatch_queue_t ODSQueueOf(id owner, const char *label)
+{
+  dispatch_queue_t queue = dispatch_queue_create(label, DISPATCH_QUEUE_SERIAL);
+  dispatch_queue_set_specific(queue, &ODSQueueKey, (__bridge void *)owner, NULL);
+  return queue;
+}
+
 // A DNSServiceRef's answers, read on a queue: its socket, a dispatch
 // source over it. (Not DNSServiceSetDispatchQueue: Apple's alone, and
 // Avahi's dns_sd has none.) Cancelled, the reference is deallocated once
@@ -24,6 +41,9 @@ static NSError *ODSDiscoveryError(DNSServiceErrorType code, NSString *what)
 @interface ODSWatch : NSObject
 + (nullable instancetype)watch:(DNSServiceRef)service queue:(dispatch_queue_t)queue;
 - (void)cancel;
+// On the queue, when the daemon's connection broke (it restarted, the app
+// was suspended): no more answers come; the watch is cancelled.
+@property (nonatomic, copy, nullable) void (^failed)(DNSServiceErrorType error);
 @end
 
 @implementation ODSWatch {
@@ -42,7 +62,12 @@ static NSError *ODSDiscoveryError(DNSServiceErrorType code, NSString *what)
   __weak ODSWatch *weak = watch;
   dispatch_source_set_event_handler(source, ^{
     // The daemon gone: no more answers, not a loop of failures.
-    if (DNSServiceProcessResult(service) != kDNSServiceErr_NoError) [weak cancel];
+    DNSServiceErrorType error = DNSServiceProcessResult(service);
+    if (error == kDNSServiceErr_NoError) return;
+    ODSWatch *strong = weak;
+    void (^failed)(DNSServiceErrorType) = strong.failed;
+    [strong cancel];
+    if (failed) failed(error);
   });
   dispatch_source_set_cancel_handler(source, ^{
     DNSServiceRefDeallocate(service);
@@ -61,7 +86,9 @@ static NSError *ODSDiscoveryError(DNSServiceErrorType code, NSString *what)
 {
   dispatch_source_t source = _source;
   _source = nil;
-  if (source) dispatch_source_cancel(source);
+  if (!source) return;
+  dispatch_source_cancel(source);
+  ODSSystemDispatchRelease(source);
 }
 
 @end
@@ -110,13 +137,14 @@ static NSError *ODSDiscoveryError(DNSServiceErrorType code, NSString *what)
   if (!self) return nil;
   _server = server;
   _name = [name copy];
-  _queue = dispatch_queue_create("ODataSync peer advertiser", DISPATCH_QUEUE_SERIAL);
+  _queue = ODSQueueOf(self, "ODataSync peer advertiser");
   return self;
 }
 
 - (void)dealloc
 {
   [self stop];
+  ODSSystemDispatchRelease(_queue);
 }
 
 static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServiceErrorType error, const char *name, const char *type,
@@ -126,7 +154,7 @@ static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServi
 
 - (BOOL)start:(NSError **)error
 {
-  if (_registration) return YES;
+  if (self.advertising) return YES;
   ODataSyncPeerTrust *trust = _server.trust;
   if (!_server.running || !trust || !_server.listener) {
     if (error) *error = ODSDiscoveryError(kDNSServiceErr_BadState, @"Only a running peer server with a trust is advertised");
@@ -150,27 +178,45 @@ static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServi
     if (error) *error = ODSDiscoveryError(status, @"The peer server could not be advertised (on Linux: is avahi-daemon running?)");
     return NO;
   }
-  _registration = [ODSWatch watch:service queue:_queue];
-  if (!_registration) {
+  ODSWatch *registration = [ODSWatch watch:service queue:_queue];
+  if (!registration) {
     if (error) *error = ODSDiscoveryError(kDNSServiceErr_Unknown, @"The peer server's advertisement cannot be followed");
     return NO;
+  }
+  // The daemon's connection broken: no longer advertised (start again).
+  __weak ODataSyncPeerAdvertiser *weak = self;
+  __weak ODSWatch *weakRegistration = registration;
+  registration.failed = ^(DNSServiceErrorType failure) {
+    ODataSyncPeerAdvertiser *strong = weak;
+    if (!strong) return;
+    @synchronized (strong) {
+      if (strong->_registration == weakRegistration) strong->_registration = nil;
+    }
+  };
+  @synchronized (self) {
+    _registration = registration;
   }
   return YES;
 }
 
 - (void)stop
 {
-  ODSWatch *registration = _registration;
-  _registration = nil;
+  ODSWatch *registration = nil;
+  @synchronized (self) {
+    registration = _registration;
+    _registration = nil;
+  }
   if (!registration) return;
-  dispatch_sync(_queue, ^{
+  ODSOnQueue(_queue, self, ^{
     [registration cancel];
   });
 }
 
 - (BOOL)isAdvertising
 {
-  return _registration != nil;
+  @synchronized (self) {
+    return _registration != nil;
+  }
 }
 
 @end
@@ -258,7 +304,7 @@ static void ODSLookedUp(DNSServiceRef service, DNSServiceFlags flags, uint32_t i
   self = [super init];
   if (!self) return nil;
   _replica = [replica copy];
-  _queue = dispatch_queue_create("ODataSync peer browser", DISPATCH_QUEUE_SERIAL);
+  _queue = ODSQueueOf(self, "ODataSync peer browser");
   _delegateQueue = [NSOperationQueue mainQueue];
   _found = [NSMutableDictionary dictionary];
   return self;
@@ -267,11 +313,14 @@ static void ODSLookedUp(DNSServiceRef service, DNSServiceFlags flags, uint32_t i
 - (void)dealloc
 {
   [self stop];
+  ODSSystemDispatchRelease(_queue);
 }
 
 - (BOOL)start:(NSError **)error
 {
-  if (_browsing) return YES;
+  @synchronized (self) {
+    if (_browsing) return YES;
+  }
   DNSServiceRef browsing = NULL;
   DNSServiceErrorType status = DNSServiceBrowse(&browsing, 0, kDNSServiceInterfaceIndexAny, ODataSyncPeerServiceType.UTF8String, NULL,
                                                 ODSBrowsed, (__bridge void *)self);
@@ -279,20 +328,41 @@ static void ODSLookedUp(DNSServiceRef service, DNSServiceFlags flags, uint32_t i
     if (error) *error = ODSDiscoveryError(status, @"Peers could not be looked for (on Linux: is avahi-daemon running?)");
     return NO;
   }
-  _browsing = [ODSWatch watch:browsing queue:_queue];
-  if (!_browsing) {
+  ODSWatch *watch = [ODSWatch watch:browsing queue:_queue];
+  if (!watch) {
     if (error) *error = ODSDiscoveryError(kDNSServiceErr_Unknown, @"Looking for peers cannot be followed");
     return NO;
+  }
+  // The daemon's connection broken: no longer looking (the delegate told;
+  // start again), what was found forgotten.
+  __weak ODataSyncPeerBrowser *weak = self;
+  __weak ODSWatch *weakWatch = watch;
+  watch.failed = ^(DNSServiceErrorType failure) {
+    ODataSyncPeerBrowser *strong = weak;
+    if (!strong) return;
+    @synchronized (strong) {
+      if (strong->_browsing != weakWatch) return;
+      strong->_browsing = nil;
+    }
+    for (ODSFound *found in strong->_found.allValues) [found cancel];
+    [strong->_found removeAllObjects];
+    [strong failed:failure];
+  };
+  @synchronized (self) {
+    _browsing = watch;
   }
   return YES;
 }
 
 - (void)stop
 {
-  ODSWatch *browsing = _browsing;
-  _browsing = nil;
+  ODSWatch *browsing = nil;
+  @synchronized (self) {
+    browsing = _browsing;
+    _browsing = nil;
+  }
   if (!browsing) return;
-  dispatch_sync(_queue, ^{
+  ODSOnQueue(_queue, self, ^{
     [browsing cancel];
     for (ODSFound *found in self->_found.allValues) [found cancel];
     [self->_found removeAllObjects];
@@ -302,7 +372,7 @@ static void ODSLookedUp(DNSServiceRef service, DNSServiceFlags flags, uint32_t i
 - (NSArray *)peers
 {
   __block NSArray *peers = nil;
-  dispatch_sync(_queue, ^{
+  ODSOnQueue(_queue, self, ^{
     NSMutableDictionary *byReplica = [NSMutableDictionary dictionary];
     for (ODSFound *found in self->_found.allValues) {
       if (found.announcement) byReplica[found.announcement.replica] = found.announcement;

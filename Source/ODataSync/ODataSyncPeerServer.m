@@ -231,7 +231,18 @@ static BOOL ODSIsReplica(NSString *text)
             @"code": code, @"expires": @(floor(expires.timeIntervalSince1970)) };
 }
 
-// This device's own token: what a peer checks this server by.
+- (ODataSyncPeerPairing *)pairingWithReplica:(NSString *)replica
+{
+  for (ODataSyncPeerPairing *pairing in _trust.pairings) {
+    if ([pairing.replica isEqualToString:replica]) return pairing;
+  }
+  return nil;
+}
+
+// This device's own token: what a peer checks this server by. Given to
+// any client that connects with a certificate: bound to this device's, it
+// is of no use to another; what it tells (the user, the replica, the
+// scopes) is what a peer checks.
 - (void)answerPeer:(HSRequest *)request reply:(HSReply *)reply
 {
   NSString *token = _trust.token;
@@ -249,6 +260,20 @@ static BOOL ODSIsReplica(NSString *text)
   NSDictionary *body = [request.JSONBody isKindOfClass:[NSDictionary class]] ? request.JSONBody : nil;
   NSString *code = body[@"Code"], *replica = body[@"Replica"];
   NSString *thumbprint = [_listener thumbprintOfConnectionFrom:request.remoteAddress];
+  // What the request says, checked before the code is spent on it: a
+  // malformed one leaves the offer to the device it was for. (Not 403
+  // anywhere here: URL loading takes a 403 on a connection with a client
+  // certificate for that certificate refused.)
+  ODataSyncPeerPairing *paired = ODSIsReplica(replica) ? [self pairingWithReplica:replica] : nil;
+  NSString *refusal = !thumbprint ? @"Not a peer connection"
+                    : !ODSIsReplica(replica) ? @"Replica is not a replica ID"
+                    : [replica isEqualToString:_engine.replicaID] ? @"That is this device's own replica"
+                    : paired && ![paired.thumbprint isEqualToString:thumbprint] ? @"That replica is paired with another certificate here"
+                    : nil;
+  if (refusal) {
+    [reply finishWithResponse:[HSResponse responseWithError:HSError(400, refusal)]];
+    return;
+  }
   NSDictionary *offer = nil;
   @synchronized (self) {
     offer = _offer;
@@ -257,9 +282,7 @@ static BOOL ODSIsReplica(NSString *text)
     if (!matches) offer = nil;
     else _offer = nil;  // once
   }
-  if (!offer || !thumbprint || !ODSIsReplica(replica)) {
-    // 410, not 403: the offer is gone (and URL loading takes a 403 on a
-    // connection with a client certificate for that certificate refused).
+  if (!offer) {
     [reply finishWithResponse:[HSResponse responseWithError:HSError(410, @"No pairing offered with that code, or it has expired")]];
     return;
   }
@@ -284,7 +307,8 @@ static BOOL ODSIsReplica(NSString *text)
 
 - (BOOL)isRunning
 {
-  return _server.running;
+  // Behind a listener, it too (one that failed, a network gone, is not).
+  return _server.running && (!_listener || _listener.running);
 }
 
 @end
