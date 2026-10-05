@@ -233,6 +233,7 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODataSyncChange.m \
 	Source/ODataSync/ODataSyncEngine.m \
 	Source/ODataSync/ODataSyncPeerServer.m \
+	Source/ODataSync/ODataSyncPeerTokens.m \
 	Source/ODataSync/ODataSyncRemote.m \
 	Source/ODataSync/ODataSyncService.m
 
@@ -240,7 +241,17 @@ ODataSync_HEADER_FILES = \
 	ODataSync.h \
 	ODataSyncEngine.h \
 	ODataSyncPeerServer.h \
-	ODataSyncService.h
+	ODataSyncPeerTokens.h \
+	ODataSyncService.h \
+	ODataSyncPeerIdentity.h \
+	ODataSyncPeerListener.h \
+	ODataSyncPeerTrust.h \
+	ODataSyncPeerTransport.h \
+	ODataSyncPeerDiscovery.h
+
+# The peer identity, listener, trust, transport and discovery (TLS,
+# Bonjour) are Apple only: their headers are installed (the umbrella names
+# them), empty here; the tokens a service issues are everyone's.
 
 ODataSync_HEADER_FILES_DIR = Source/ODataSync/include/ODataSync
 ODataSync_HEADER_FILES_INSTALL_DIR = ODataSync

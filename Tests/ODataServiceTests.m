@@ -3391,6 +3391,49 @@ static NSAttributeDescription *OISSwatchAttribute(NSString *name, NSAttributeTyp
   XCTAssertEqual([self getProductsWithToken:tokens[@"es256"]].status, 200);
 }
 
+// Tokens signed here (HSSignJWT: Security on Apple, gnutls elsewhere),
+// checked with the public key alone; not with another key, not altered.
+- (void)testSignedJWTs
+{
+  NSError *error = nil;
+  NSDictionary *key = HSGenerateSigningKey(&error), *other = HSGenerateSigningKey(&error);
+  XCTAssertNotNil(key, @"%@", error);
+  XCTAssertEqualObjects(key[@"crv"], @"P-256");
+  XCTAssertNotNil(key[@"d"]);
+  XCTAssertNil(HSPublicKey(key)[@"d"], @"the public part only");
+  XCTAssertNotEqualObjects(key[@"kid"], other[@"kid"]);
+  OISScopedProducts *products = [[OISScopedProducts alloc] initWithEntity:OISCatalogEntity(@"Product")];
+  [_service setHandler:products forEntitySet:@"Products"];
+  HSJWTAuthenticator *jwt = [[HSJWTAuthenticator alloc] initWithIssuer:@"https://issuer.example.test/" audience:@"ois-api"];
+  jwt.keySet = @{ @"keys": @[ HSPublicKey(key) ] };
+  jwt.algorithms = [NSSet setWithObject:@"ES256"];
+  _service.authenticator = jwt;
+  NSInteger now = (NSInteger)[NSDate date].timeIntervalSince1970;
+  NSDictionary *claims = @{ @"iss": @"https://issuer.example.test/", @"aud": @"ois-api", @"sub": @"ann", @"iat": @(now), @"exp": @(now + 300) };
+
+  // Signed more than once: ECDSA's signatures differ, each good.
+  for (int i = 0; i < 3; i++) {
+    NSString *token = HSSignJWT(claims, key, &error);
+    XCTAssertNotNil(token, @"%@", error);
+    products.lastPrincipal = nil;
+    OISServiceResponse *response = [self getProductsWithToken:token];
+    XCTAssertEqual(response.status, 200, @"%@", response.text);
+    XCTAssertEqualObjects(products.lastPrincipal.subject, @"ann");
+  }
+  XCTAssertEqual([self getProductsWithToken:HSSignJWT(claims, other, NULL)].status, 401, @"another key");
+  NSString *token = HSSignJWT(claims, key, NULL);
+  NSMutableArray<NSString *> *parts = [[token componentsSeparatedByString:@"."] mutableCopy];
+  NSMutableDictionary *altered = [claims mutableCopy];
+  altered[@"sub"] = @"bob";
+  NSString *payload = [[NSJSONSerialization dataWithJSONObject:altered options:0 error:NULL] base64EncodedStringWithOptions:0];
+  payload = [[[payload stringByReplacingOccurrencesOfString:@"+" withString:@"-"] stringByReplacingOccurrencesOfString:@"/" withString:@"_"]
+             stringByReplacingOccurrencesOfString:@"=" withString:@""];
+  parts[1] = payload;
+  XCTAssertEqual([self getProductsWithToken:[parts componentsJoinedByString:@"."]].status, 401, @"claims altered");
+  XCTAssertNil(HSSignJWT(claims, HSPublicKey(key), &error), @"no d, no signature");
+  XCTAssertNotNil(error);
+}
+
 - (void)testJWTKeysFromTheIssuer
 {
   NSDictionary *fixtures = [self JWTFixtures];

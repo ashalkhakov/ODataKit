@@ -346,12 +346,10 @@ another device adds it as a remote, `+[ODataSyncRemote
 peerWithServiceRoot:]`. So a phone that spent the day in a basement hands
 its inspections to one with a signal, which sends them on.
 
-Not on iOS, for now: the peer server is left out of ODataSync's iOS build
-(with ODataService and HTTPServerKit), and devices there sync with a
-service. Before it goes in, a device should prove who it is to a peer
-without the app setting up trust between devices. One way: the service
-issues each device a short-lived, signed token naming its replica and
-what it may sync, and a peer checks it as it checks the service's own.
+Between phones and tablets, over TLS with each device's certificate,
+found by Bonjour, trusted by a token the service issues or by pairing:
+[peer sync](peer-sync.md). On a network the app trusts (or on GNUstep),
+plain HTTP, the app's own authenticator:
 
 ```objc
 // The device that offers its store:

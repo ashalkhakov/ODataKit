@@ -90,10 +90,30 @@
 - (int32_t)countProductsSlowlyInSeconds:(double)seconds reply:(ODataReply *)reply;
 @end
 
-@interface WorkbenchCatalogOperations : NSObject <WorkbenchCatalogFunctions>
+@interface WorkbenchCatalogOperations : NSObject <WorkbenchCatalogFunctions, ODataSyncPeerTokenActions>
+// Peer tokens for devices (ODataSync's peer sync): the sync service's.
+@property (nonatomic, weak) ODataSyncService *sync;
+@end
+
+// Who calls the built-in service: "workbench", whoever it is. It serves
+// itself, or the local network with no authentication (Sync > Serve on the
+// Network); a device gets a peer token for this subject.
+@interface WorkbenchSignIn : NSObject <HSAuthenticator>
+@end
+
+@implementation WorkbenchSignIn
+- (void)authenticateRequest:(HSRequest *)request reply:(HSAuthenticationReply *)reply
+{
+  [reply finishWithPrincipal:[[HSPrincipal alloc] initWithSubject:@"workbench" claims:@{}]];
+}
 @end
 
 @implementation WorkbenchCatalogOperations
+
+- (NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply
+{
+  return [self.sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
+}
 
 + (NSDictionary *)ODataOperationNames
 {
@@ -275,11 +295,20 @@ NSString *WorkbenchServiceStamp(NSString *previous)
   service.namespaceName = @"Catalog";
   // Not AuditEntry: the model's other configuration, the application's.
   service.configurationName = WorkbenchServedConfiguration;
-  service.serviceOperations = [[WorkbenchCatalogOperations alloc] init];
+  WorkbenchCatalogOperations *operations = [[WorkbenchCatalogOperations alloc] init];
+  service.serviceOperations = operations;
+  service.authenticator = [[WorkbenchSignIn alloc] init];
   // GET <root>/$explain/<path>: the Explain button's plans.
   service.explains = YES;
   // Histories compared, deletions kept: the Sync window's devices.
   _sync = [[ODataSyncService alloc] initWithService:service];
+  // Peer tokens, signed by a key of this run's: devices that sync with the
+  // Workbench trust each other by them (the Device app's Peers).
+  NSDictionary *signingKey = HSGenerateSigningKey(NULL);
+  if (signingKey) {
+    _sync.peerTokens = [[ODataSyncPeerTokenIssuer alloc] initWithIssuer:_serviceRoot.absoluteString signingKey:signingKey];
+    operations.sync = _sync;
+  }
   for (NSString *problem in service.operationProblems) NSLog(@"Workbench: %@", problem);
   for (NSString *problem in service.metadataProblems) NSLog(@"Workbench: %@", problem);
   _service = service;

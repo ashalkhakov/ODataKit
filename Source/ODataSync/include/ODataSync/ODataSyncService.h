@@ -22,6 +22,7 @@
 #pragma once
 #import <ODataSync/ODataSyncEngine.h>
 #import <ODataService/ODataService.h>
+#import <ODataSync/ODataSyncPeerTokens.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -54,6 +55,13 @@ NS_ASSUME_NONNULL_BEGIN
 // Sets whose handler is neither the default nor an ODataSyncSetHandler:
 // their deletions and histories are not checked.
 @property (nonatomic, readonly, copy) NSArray<NSString *> *uncheckedEntitySets;
+// Peer tokens for its devices (docs/peer-sync.md, 3.1): set, the service
+// answers PeerToken(Replica, Thumbprint) for a device signed in, through
+// the service's serviceOperations, made for it when the service has none
+// (else that object adopts ODataSyncPeerTokenActions and answers with
+// -peerTokenWithReplica:thumbprint:reply:). Before the first request.
+@property (nonatomic, strong, nullable) ODataSyncPeerTokenIssuer *peerTokens;
+- (nullable NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply;
 @end
 
 NS_ASSUME_NONNULL_END

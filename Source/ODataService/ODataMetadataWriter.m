@@ -2,23 +2,24 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODataMetadataWriter.h"
+#import <ODataKit/ODataXML.h>
 #import "ODataValue.h"
 #import <ODataKit/ODataRegex.h>
 
 // An element with these attributes, in this order: name, value, name,
 // value. NSXML escapes what it writes.
-static NSXMLElement *OISElement(NSString *name, NSArray *attributes)
+static ODataXMLElement *OISElement(NSString *name, NSArray *attributes)
 {
-  NSXMLElement *element = [[NSXMLElement alloc] initWithName:name];
+  ODataXMLElement *element = [[ODataXMLElement alloc] initWithName:name];
   for (NSUInteger i = 0; i + 1 < attributes.count; i += 2) {
-    [element addAttribute:[NSXMLNode attributeWithName:attributes[i] stringValue:[attributes[i + 1] description]]];
+    [element addAttribute:[ODataXMLNode attributeWithName:attributes[i] stringValue:[attributes[i + 1] description]]];
   }
   return element;
 }
 
-static NSXMLElement *OISTextElement(NSString *name, NSString *text)
+static ODataXMLElement *OISTextElement(NSString *name, NSString *text)
 {
-  NSXMLElement *element = [[NSXMLElement alloc] initWithName:name];
+  ODataXMLElement *element = [[ODataXMLElement alloc] initWithName:name];
   element.stringValue = text;
   return element;
 }
@@ -197,7 +198,7 @@ static BOOL OISIsTrue(id value)
 }
 
 // A JSON CSDL value as a CSDL XML expression.
-- (NSXMLElement *)expression:(id)value
+- (ODataXMLElement *)expression:(id)value
 {
   if (!value || value == [NSNull null]) return OISElement(@"Null", nil);
   if ([value isKindOfClass:[@YES class]]) return OISTextElement(@"Bool", [value boolValue] ? @"true" : @"false");
@@ -211,7 +212,7 @@ static BOOL OISIsTrue(id value)
   if ([value isKindOfClass:[NSDate class]]) return OISTextElement(@"DateTimeOffset", ODataDateTimeOffsetString(value));
   if ([value isKindOfClass:[NSString class]]) return OISTextElement(@"String", value);
   if ([value isKindOfClass:[NSArray class]]) {
-    NSXMLElement *collection = OISElement(@"Collection", nil);
+    ODataXMLElement *collection = OISElement(@"Collection", nil);
     for (id item in value) [collection addChild:[self expression:item]];
     return collection;
   }
@@ -232,7 +233,7 @@ static BOOL OISIsTrue(id value)
         [attributes addObject:[key substringFromIndex:1]];
         [attributes addObject:[dictionary[key] description]];
       }
-      NSXMLElement *element = OISElement([expression substringFromIndex:1], attributes);
+      ODataXMLElement *element = OISElement([expression substringFromIndex:1], attributes);
       id operand = dictionary[expression];
       if ([operand isKindOfClass:[NSArray class]]) {
         for (id item in operand) [element addChild:[self expression:item]];
@@ -241,14 +242,14 @@ static BOOL OISIsTrue(id value)
       }
       return element;
     }
-    NSXMLElement *record = OISElement(@"Record", nil);
+    ODataXMLElement *record = OISElement(@"Record", nil);
     if ([dictionary[@"@type"] isKindOfClass:[NSString class]]) {
-      [record addAttribute:[NSXMLNode attributeWithName:@"Type" stringValue:dictionary[@"@type"]]];
+      [record addAttribute:[ODataXMLNode attributeWithName:@"Type" stringValue:dictionary[@"@type"]]];
       [self useTerm:dictionary[@"@type"]];
     }
     for (NSString *key in [dictionary.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
       if ([key hasPrefix:@"@"]) continue;
-      NSXMLElement *propertyValue = OISElement(@"PropertyValue", @[ @"Property", key ]);
+      ODataXMLElement *propertyValue = OISElement(@"PropertyValue", @[ @"Property", key ]);
       [propertyValue addChild:[self expression:dictionary[key]]];
       [record addChild:propertyValue];
     }
@@ -277,7 +278,7 @@ static BOOL OISIsTrue(id value)
 
 // Annotation elements: by term (Term#Qualifier), a term's own annotations
 // inside it (Term@Term), as JSON CSDL keys them.
-- (NSArray<NSXMLElement *> *)annotations:(NSDictionary<NSString *, id> *)annotations
+- (NSArray<ODataXMLElement *> *)annotations:(NSDictionary<NSString *, id> *)annotations
 {
   NSMutableArray *elements = [NSMutableArray array];
   for (NSString *key in [annotations.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
@@ -285,7 +286,7 @@ static BOOL OISIsTrue(id value)
     NSRange hash = [key rangeOfString:@"#"];
     NSString *term = hash.location == NSNotFound ? key : [key substringToIndex:hash.location];
     [self useTerm:term];
-    NSXMLElement *annotation = hash.location == NSNotFound
+    ODataXMLElement *annotation = hash.location == NSNotFound
         ? OISElement(@"Annotation", @[ @"Term", term ])
         : OISElement(@"Annotation", @[ @"Term", term, @"Qualifier", [key substringFromIndex:hash.location + 1] ]);
     [annotation addChild:[self expression:annotations[key]]];
@@ -294,15 +295,15 @@ static BOOL OISIsTrue(id value)
     for (NSString *other in annotations) {
       if ([other hasPrefix:prefix]) nested[[other substringFromIndex:prefix.length]] = annotations[other];
     }
-    for (NSXMLElement *inner in [self annotations:nested]) [annotation addChild:inner];
+    for (ODataXMLElement *inner in [self annotations:nested]) [annotation addChild:inner];
     [elements addObject:annotation];
   }
   return elements;
 }
 
-static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *children)
+static void OISAddChildren(ODataXMLElement *parent, NSArray<ODataXMLElement *> *children)
 {
-  for (NSXMLElement *child in children) [parent addChild:child];
+  for (ODataXMLElement *child in children) [parent addChild:child];
 }
 
 // What userInfo says of an entity or a property: Core's description and
@@ -444,20 +445,20 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
 
 #pragma mark - Writing
 
-- (void)append:(NSXMLElement *)element toNamespace:(NSString *)ns in:(NSMutableDictionary<NSString *, NSMutableArray *> *)schemas
+- (void)append:(ODataXMLElement *)element toNamespace:(NSString *)ns in:(NSMutableDictionary<NSString *, NSMutableArray *> *)schemas
 {
   if (!schemas[ns]) schemas[ns] = [NSMutableArray array];
   [schemas[ns] addObject:element];
 }
 
-- (NSXMLElement *)propertyNamed:(NSString *)name type:(NSString *)type nullable:(BOOL)nullable
+- (ODataXMLElement *)propertyNamed:(NSString *)name type:(NSString *)type nullable:(BOOL)nullable
                       maxLength:(NSNumber *)maxLength annotations:(NSDictionary *)annotations
 {
-  NSXMLElement *property = OISElement(@"Property", @[ @"Name", name, @"Type", type ]);
-  if (!nullable) [property addAttribute:[NSXMLNode attributeWithName:@"Nullable" stringValue:@"false"]];
-  if ([OISElementTypeOf(type) isEqualToString:@"Edm.Decimal"]) [property addAttribute:[NSXMLNode attributeWithName:@"Scale" stringValue:@"variable"]];
+  ODataXMLElement *property = OISElement(@"Property", @[ @"Name", name, @"Type", type ]);
+  if (!nullable) [property addAttribute:[ODataXMLNode attributeWithName:@"Nullable" stringValue:@"false"]];
+  if ([OISElementTypeOf(type) isEqualToString:@"Edm.Decimal"]) [property addAttribute:[ODataXMLNode attributeWithName:@"Scale" stringValue:@"variable"]];
   if (maxLength && [OISElementTypeOf(type) isEqualToString:@"Edm.String"]) {
-    [property addAttribute:[NSXMLNode attributeWithName:@"MaxLength" stringValue:[NSString stringWithFormat:@"%lld", maxLength.longLongValue]]];
+    [property addAttribute:[ODataXMLNode attributeWithName:@"MaxLength" stringValue:[NSString stringWithFormat:@"%lld", maxLength.longLongValue]]];
   }
   OISAddChildren(property, [self annotations:annotations ?: @{}]);
   return property;
@@ -466,20 +467,20 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
 - (void)writeEntity:(NSEntityDescription *)entity into:(NSMutableDictionary *)schemas used:(NSMutableSet *)usedTypes
 {
   NSString *qualified = [self typeNameForEntity:entity];
-  NSXMLElement *type = OISElement(@"EntityType", @[ @"Name", OISSimpleNameOf(qualified) ]);
-  if (entity.superentity) [type addAttribute:[NSXMLNode attributeWithName:@"BaseType" stringValue:[self typeNameForEntity:entity.superentity]]];
-  if (entity.isAbstract) [type addAttribute:[NSXMLNode attributeWithName:@"Abstract" stringValue:@"true"]];
+  ODataXMLElement *type = OISElement(@"EntityType", @[ @"Name", OISSimpleNameOf(qualified) ]);
+  if (entity.superentity) [type addAttribute:[ODataXMLNode attributeWithName:@"BaseType" stringValue:[self typeNameForEntity:entity.superentity]]];
+  if (entity.isAbstract) [type addAttribute:[ODataXMLNode attributeWithName:@"Abstract" stringValue:@"true"]];
   if ([self.openEntityNames containsObject:[self rootOf:entity].name]) {
-    [type addAttribute:[NSXMLNode attributeWithName:@"OpenType" stringValue:@"true"]];
+    [type addAttribute:[ODataXMLNode attributeWithName:@"OpenType" stringValue:@"true"]];
   }
   if ([self mediaAttributeOfEntity:entity] && (!entity.superentity || ![self mediaAttributeOfEntity:entity.superentity])) {
-    [type addAttribute:[NSXMLNode attributeWithName:@"HasStream" stringValue:@"true"]];
+    [type addAttribute:[ODataXMLNode attributeWithName:@"HasStream" stringValue:@"true"]];
   }
   OISAddChildren(type, [self annotations:[self annotationsFromUserInfo:entity.userInfo]]);
 
   NSArray *key = entity.superentity ? @[] : [self.mapper keyAttributesForEntity:entity];
   if (key.count) {
-    NSXMLElement *keyElement = OISElement(@"Key", nil);
+    ODataXMLElement *keyElement = OISElement(@"Key", nil);
     for (NSAttributeDescription *attr in key) {
       if (![self.mapper servesProperty:attr]) {
         [_problems addObject:[NSString stringWithFormat:@"%@.%@ is the key, which OData.served cannot leave out", entity.name, attr.name]];
@@ -519,10 +520,10 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
       if (!target || ![self writes:target]) continue;
       NSString *targetType = [self typeNameForEntity:target];
       NSString *navigationType = rel.isToMany ? [NSString stringWithFormat:@"Collection(%@)", targetType] : targetType;
-      NSXMLElement *navigation = OISElement(@"NavigationProperty", @[ @"Name", [self.mapper propertyForRelationship:rel], @"Type", navigationType ]);
-      if (!rel.isToMany && !rel.isOptional) [navigation addAttribute:[NSXMLNode attributeWithName:@"Nullable" stringValue:@"false"]];
+      ODataXMLElement *navigation = OISElement(@"NavigationProperty", @[ @"Name", [self.mapper propertyForRelationship:rel], @"Type", navigationType ]);
+      if (!rel.isToMany && !rel.isOptional) [navigation addAttribute:[ODataXMLNode attributeWithName:@"Nullable" stringValue:@"false"]];
       if (rel.inverseRelationship && [self.mapper servesProperty:rel.inverseRelationship]) {
-        [navigation addAttribute:[NSXMLNode attributeWithName:@"Partner" stringValue:[self.mapper propertyForRelationship:rel.inverseRelationship]]];
+        [navigation addAttribute:[ODataXMLNode attributeWithName:@"Partner" stringValue:[self.mapper propertyForRelationship:rel.inverseRelationship]]];
       }
       OISAddChildren(navigation, [self annotations:[self annotationsOfRelationship:rel]]);
       [type addChild:navigation];
@@ -546,8 +547,8 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
     [written addObject:name];
     ODataSchemaEnumType *enumType = schema.enumTypes[name];
     if (enumType) {
-      NSXMLElement *element = OISElement(@"EnumType", @[ @"Name", enumType.name ]);
-      if (enumType.isFlags) [element addAttribute:[NSXMLNode attributeWithName:@"IsFlags" stringValue:@"true"]];
+      ODataXMLElement *element = OISElement(@"EnumType", @[ @"Name", enumType.name ]);
+      if (enumType.isFlags) [element addAttribute:[ODataXMLNode attributeWithName:@"IsFlags" stringValue:@"true"]];
       for (NSString *member in enumType.memberNames) {
         [element addChild:OISElement(@"Member", @[ @"Name", member, @"Value", enumType.values[member] ])];
       }
@@ -556,13 +557,13 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
     }
     ODataSchemaComplexType *complex = schema.complexTypes[name];
     if (!complex) continue;
-    NSXMLElement *element = OISElement(@"ComplexType", @[ @"Name", complex.name ]);
+    ODataXMLElement *element = OISElement(@"ComplexType", @[ @"Name", complex.name ]);
     if (complex.baseType) {
-      [element addAttribute:[NSXMLNode attributeWithName:@"BaseType" stringValue:complex.baseType]];
+      [element addAttribute:[ODataXMLNode attributeWithName:@"BaseType" stringValue:complex.baseType]];
       [queue addObject:complex.baseType];
     }
-    if (complex.isAbstract) [element addAttribute:[NSXMLNode attributeWithName:@"Abstract" stringValue:@"true"]];
-    if (complex.isOpen) [element addAttribute:[NSXMLNode attributeWithName:@"OpenType" stringValue:@"true"]];
+    if (complex.isAbstract) [element addAttribute:[ODataXMLNode attributeWithName:@"Abstract" stringValue:@"true"]];
+    if (complex.isOpen) [element addAttribute:[ODataXMLNode attributeWithName:@"OpenType" stringValue:@"true"]];
     for (NSString *propertyName in [complex.declaredProperties.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
       ODataSchemaProperty *p = complex.declaredProperties[propertyName];
       [element addChild:[self propertyNamed:p.name type:p.type nullable:p.nullable maxLength:nil annotations:nil]];
@@ -572,13 +573,13 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
   }
 }
 
-- (NSXMLElement *)container
+- (ODataXMLElement *)container
 {
-  NSXMLElement *container = OISElement(@"EntityContainer", @[ @"Name", self.containerName ]);
+  ODataXMLElement *container = OISElement(@"EntityContainer", @[ @"Name", self.containerName ]);
   NSArray *entities = self.entities;
   for (NSEntityDescription *entity in entities) {
     if (entity.superentity) continue;
-    NSXMLElement *set = OISElement(@"EntitySet", @[ @"Name", [self.mapper entitySetForEntity:entity], @"EntityType", [self typeNameForEntity:entity] ]);
+    ODataXMLElement *set = OISElement(@"EntitySet", @[ @"Name", [self.mapper entitySetForEntity:entity], @"EntityType", [self typeNameForEntity:entity] ]);
     // Its own relationships, and those of its derived types by a cast.
     for (NSEntityDescription *member in entities) {
       if ([self rootOf:member] != entity) continue;
@@ -625,7 +626,7 @@ static void OISAddChildren(NSXMLElement *parent, NSArray<NSXMLElement *> *childr
     OISAddChildren(set, [self annotations:annotations]);
     [container addChild:set];
   }
-  for (NSXMLElement *element in self.additionalContainerElements) [container addChild:[element copy]];
+  for (ODataXMLElement *element in self.additionalContainerElements) [container addChild:[element copy]];
   NSMutableDictionary *containerAnnotations = [NSMutableDictionary dictionary];
   // The versions the service speaks, which is how a 4.01 client learns it
   // may send 4.01 payloads (Part 1 section 13.3, item 16).
@@ -657,13 +658,13 @@ static NSString * const OISEdm = @"http://docs.oasis-open.org/odata/ns/edm";
   [self writeSchemaTypes:usedTypes into:schemas];
   // Edm.Untyped is CSDL 4.01's: 4.0 has JSON's vocabulary say "any JSON".
   BOOL untyped = ![version isEqualToString:@"4.0"];
-  for (NSXMLElement *original in self.additionalSchemaElements) {
-    NSXMLElement *element = [original copy];
+  for (ODataXMLElement *original in self.additionalSchemaElements) {
+    ODataXMLElement *element = [original copy];
     // An operation's overload, as a target names it: NS.Name, or bound,
     // NS.Name(its binding parameter's type); its own permissions inside it.
     NSMutableString *overload = [NSMutableString stringWithFormat:@"%@.%@", self.namespaceName, [element attributeForName:@"Name"].stringValue];
     if ([[element attributeForName:@"IsBound"].stringValue isEqualToString:@"true"]) {
-      NSXMLElement *binding = [element elementsForName:@"Parameter"].firstObject;
+      ODataXMLElement *binding = [element elementsForName:@"Parameter"].firstObject;
       [overload appendFormat:@"(%@)", [binding attributeForName:@"Type"].stringValue ?: @""];
     }
     if ([self.operationPermissions[overload] count]) {
@@ -671,9 +672,9 @@ static NSString * const OISEdm = @"http://docs.oasis-open.org/odata/ns/edm";
                                                      @{ @"Permissions": [self permissionsOf:self.operationPermissions[overload]] } }]);
     }
     // An operation's JSON parameter or result references the vocabulary.
-    for (NSXMLNode *child in element.children) {
-      if (child.kind != NSXMLElementKind) continue;
-      NSXMLNode *attribute = [(NSXMLElement *)child attributeForName:@"Type"];
+    for (ODataXMLNode *child in element.children) {
+      if (child.kind != ODataXMLElementKind) continue;
+      ODataXMLNode *attribute = [(ODataXMLElement *)child attributeForName:@"Type"];
       NSString *type = attribute.stringValue;
       if (!untyped && [OISElementTypeOf(type) isEqualToString:@"Edm.Untyped"]) {
         type = [type isEqualToString:@"Edm.Untyped"] ? @"Org.OData.JSON.V1.JSON" : @"Collection(Org.OData.JSON.V1.JSON)";
@@ -685,26 +686,26 @@ static NSString * const OISEdm = @"http://docs.oasis-open.org/odata/ns/edm";
   }
   [self append:[self container] toNamespace:self.namespaceName in:schemas];
 
-  NSXMLElement *edmx = [[NSXMLElement alloc] initWithName:@"edmx:Edmx" URI:OISEdmx];
-  [edmx addNamespace:[NSXMLNode namespaceWithName:@"edmx" stringValue:OISEdmx]];
-  [edmx addAttribute:[NSXMLNode attributeWithName:@"Version" stringValue:version]];
+  ODataXMLElement *edmx = [[ODataXMLElement alloc] initWithName:@"edmx:Edmx" URI:OISEdmx];
+  [edmx addNamespace:[ODataXMLNode namespaceWithName:@"edmx" stringValue:OISEdmx]];
+  [edmx addAttribute:[ODataXMLNode attributeWithName:@"Version" stringValue:version]];
   // The standard vocabularies used, each where OASIS publishes it.
   for (NSString *vocabulary in [self.vocabularies.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
     if (![vocabulary hasPrefix:@"Org.OData."] || ![vocabulary hasSuffix:@".V1"]) continue;
     NSString *alias = [[vocabulary substringFromIndex:10] stringByDeletingPathExtension];
-    NSXMLElement *reference = [[NSXMLElement alloc] initWithName:@"edmx:Reference" URI:OISEdmx];
-    [reference addAttribute:[NSXMLNode attributeWithName:@"Uri"
+    ODataXMLElement *reference = [[ODataXMLElement alloc] initWithName:@"edmx:Reference" URI:OISEdmx];
+    [reference addAttribute:[ODataXMLNode attributeWithName:@"Uri"
                                              stringValue:[NSString stringWithFormat:@"https://oasis-tcs.github.io/odata-vocabularies/vocabularies/%@.xml", vocabulary]]];
-    NSXMLElement *include = [[NSXMLElement alloc] initWithName:@"edmx:Include" URI:OISEdmx];
-    [include addAttribute:[NSXMLNode attributeWithName:@"Namespace" stringValue:vocabulary]];
-    [include addAttribute:[NSXMLNode attributeWithName:@"Alias" stringValue:alias]];
+    ODataXMLElement *include = [[ODataXMLElement alloc] initWithName:@"edmx:Include" URI:OISEdmx];
+    [include addAttribute:[ODataXMLNode attributeWithName:@"Namespace" stringValue:vocabulary]];
+    [include addAttribute:[ODataXMLNode attributeWithName:@"Alias" stringValue:alias]];
     [reference addChild:include];
     [edmx addChild:reference];
   }
-  NSXMLElement *services = [[NSXMLElement alloc] initWithName:@"edmx:DataServices" URI:OISEdmx];
+  ODataXMLElement *services = [[ODataXMLElement alloc] initWithName:@"edmx:DataServices" URI:OISEdmx];
   for (NSString *ns in [schemas.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
-    NSXMLElement *schema = OISElement(@"Schema", @[ @"Namespace", ns ]);
-    [schema addNamespace:[NSXMLNode namespaceWithName:@"" stringValue:OISEdm]];
+    ODataXMLElement *schema = OISElement(@"Schema", @[ @"Namespace", ns ]);
+    [schema addNamespace:[ODataXMLNode namespaceWithName:@"" stringValue:OISEdm]];
     OISAddChildren(schema, schemas[ns]);
     // Its version, which clients name in $schemaversion (Core is referenced:
     // the container's ODataVersions is a Core term).
@@ -714,10 +715,10 @@ static NSString * const OISEdm = @"http://docs.oasis-open.org/odata/ns/edm";
     [services addChild:schema];
   }
   [edmx addChild:services];
-  NSXMLDocument *document = [[NSXMLDocument alloc] initWithRootElement:edmx];
+  ODataXMLDocument *document = [[ODataXMLDocument alloc] initWithRootElement:edmx];
   document.version = @"1.0";
   document.characterEncoding = @"utf-8";
-  return [document XMLStringWithOptions:NSXMLNodeCompactEmptyElement];
+  return [document XMLStringWithOptions:ODataXMLNodeCompactEmptyElement];
 }
 
 @end

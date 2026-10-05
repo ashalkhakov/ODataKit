@@ -92,6 +92,12 @@ typedef NS_ENUM(NSInteger, WBSyncAction) {
 // The work on a thread of its own; didChange says how it went. NO, and
 // nothing done, while another runs.
 - (BOOL)run:(WBSyncAction)action;
+// The remote of the service (the first): where a peer token comes from.
+@property (nonatomic, readonly) ODataSyncRemote *serviceRemote;
+// A sync with one remote alone (a peer: its download, then its upload),
+// on a thread of its own, said as "Sync with name"; NO while another runs.
+// The remote is the engine's only while it runs.
+- (BOOL)syncWithRemote:(ODataSyncRemote *)remote named:(NSString *)name;
 // A whole sync, waited for.
 - (BOOL)syncAndWait:(NSError *_Nullable *_Nullable)error;
 

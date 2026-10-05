@@ -7,6 +7,7 @@
 #pragma once
 #import <UIKit/UIKit.h>
 #import "WorkbenchDevice.h"
+#import "DVPeers.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -23,8 +24,12 @@ FOUNDATION_EXPORT NSNotificationName const DVSessionDidLogNotification;
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
 @property (nonatomic, readonly, nullable) WorkbenchDevice *device;
 @property (nonatomic, readonly, copy, nullable) NSURL *serviceRoot;
-// What happened last, in words.
+// The device's peers: with the device, nil without (or when its identity
+// cannot be made: the status says why).
+@property (nonatomic, readonly, nullable) DVPeers *peers;
+// What happened last, in words; said anew (posted).
 @property (nonatomic, readonly, copy) NSString *status;
+- (void)say:(NSString *)status;
 // The Workbench's root, as typed: a new device for a new root (its store
 // emptied). Nil when done; else why not.
 - (nullable NSString *)useServiceRoot:(NSString *)text;

@@ -17,6 +17,7 @@
 
 #pragma once
 #import <ODataKit/OISCoreData.h>
+#import <ODataKit/ODataXML.h>
 #import <ODataKit/ODataPropertyMapper.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -84,8 +85,8 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoContentType;  // @"OData.content
 @property (nonatomic, copy, nullable) NSString *schemaVersion;
 // More elements for the schema of namespaceName (Function, Action) and for
 // the entity container (FunctionImport, ActionImport); copied in.
-@property (nonatomic, copy, nullable) NSArray<NSXMLElement *> *additionalSchemaElements;
-@property (nonatomic, copy, nullable) NSArray<NSXMLElement *> *additionalContainerElements;
+@property (nonatomic, copy, nullable) NSArray<ODataXMLElement *> *additionalSchemaElements;
+@property (nonatomic, copy, nullable) NSArray<ODataXMLElement *> *additionalContainerElements;
 
 // The document, in the CSDL of this OData-Version: 4.0 or 4.01.
 - (NSString *)XMLStringForVersion:(NSString *)version;

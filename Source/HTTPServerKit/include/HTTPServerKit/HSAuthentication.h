@@ -158,6 +158,20 @@ FOUNDATION_EXPORT id<HSFetching> HSDefaultFetcher(void);
 // issuer), and fetched again after keySetLifetime, or when a token names a
 // key they lack (a rotation), at most once a keySetRefetchInterval.
 // Requests wait for a fetch (503 if it fails).
+// Tokens of one's own: for an application that issues them (ES256, a P-256
+// key as a JWK, its private d with it), which an HSJWTAuthenticator given
+// the public key (keySet) then checks.
+//
+// A new P-256 key, as a JWK with its d, alg ES256, use sig, and kid its
+// RFC 7638 thumbprint. Keep it secret; give out HSPublicKey of it.
+FOUNDATION_EXPORT NSDictionary<NSString *, id> *_Nullable HSGenerateSigningKey(NSError *_Nullable *_Nullable error);
+// The public part of a key (no d), for a JWK Set.
+FOUNDATION_EXPORT NSDictionary<NSString *, id> *HSPublicKey(NSDictionary<NSString *, id> *jwk);
+// claims signed with the key (ES256), compact: its header names the key
+// (kid) and the type (JWT).
+FOUNDATION_EXPORT NSString *_Nullable HSSignJWT(NSDictionary<NSString *, id> *claims, NSDictionary<NSString *, id> *jwk,
+                                                NSError *_Nullable *_Nullable error);
+
 @interface HSJWTAuthenticator : NSObject <HSAuthenticator>
 // issuer: exactly as the tokens' iss has it. audience: this service's
 // name at the provider; nil takes any audience, which only suits a

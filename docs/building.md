@@ -52,22 +52,23 @@ project: `make -C Server` writes `Server/build/ois-serve`, and
 
 ## iOS
 
-ODataKit, OTelKit, ODataIncrementalStore and ODataSync build for iOS 15 and
-later (devices and the simulator) as well as for macOS: the same targets in
+ODataKit, OTelKit, ODataIncrementalStore, HTTPServerKit, ODataService and
+ODataSync build for iOS 15 and later (devices and the simulator) as well
+as for macOS: the same targets in
 `ODataKit.xcodeproj`, the same schemes, chosen by the destination.
 
 ```
 xcodebuild -workspace ODataKit.xcworkspace -scheme ODataSync -destination 'generic/platform=iOS Simulator' build
 ```
 
-On iOS they are the client's:
+HTTPServerKit and ODataService build for iOS too, so that a device can
+serve its store to its peers ([peer sync](peer-sync.md)). On iOS:
 
-- **ODataSync** is the device's part alone: `ODataSyncEngine` and the
-  remotes, the rules, the changes. `ODataSyncPeerServer` and
-  `ODataSyncService` serve (ODataService over HTTPServerKit). Their sources,
-  their headers and the two frameworks are filtered to macOS in the target,
-  and `ODataSync.h` leaves them out on iOS.
-- **ODataService** and **HTTPServerKit** stay macOS (and GNUstep) only.
+- **HTTPServerKit**: a server is started (`-startOnPort:error:`), never
+  run (`-runOnPort:` answers that it is unsupported).
+- **ODataService**: no XML store (`NSXMLStoreType` is macOS only).
+- **ODataSync**: its peer identity, listener, trust, transport and discovery
+  (TLS, Bonjour) are Apple's, on iOS and macOS alike.
 - **XML**: Foundation on iOS has no `NSXMLDocument`, which reading and
   writing `$metadata` (and a generated model) use. `ODataXML.h` names the
   classes the client uses, `ODataXMLDocument`, `ODataXMLElement` and

@@ -6,6 +6,7 @@
 
 #import <UIKit/UIKit.h>
 #import "DVControllers.h"
+#import "DVPeersController.h"
 
 static NSString * const DVTabKey = @"DVTab";
 
@@ -23,8 +24,9 @@ static NSString * const DVTabKey = @"DVTab";
     [[DVDataController alloc] initWithSession:_session style:UITableViewStylePlain],
     [[DVListController alloc] initWithSession:_session kind:DVListWaiting],
     [[DVListController alloc] initWithSession:_session kind:DVListConflicts],
-    [[DVListController alloc] initWithSession:_session kind:DVListRequests],
-    [[DVSettingsController alloc] initWithSession:_session style:UITableViewStyleInsetGrouped] ];
+    [[DVPeersController alloc] initWithSession:_session style:UITableViewStyleInsetGrouped],
+    [[DVSettingsController alloc] initWithSession:_session style:UITableViewStyleInsetGrouped],
+    [[DVListController alloc] initWithSession:_session kind:DVListRequests] ];
   NSMutableArray *tabs = [NSMutableArray array];
   for (UIViewController *screen in screens) {
     UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:screen];
@@ -35,9 +37,10 @@ static NSString * const DVTabKey = @"DVTab";
   UITabBarController *tabBar = [[UITabBarController alloc] init];
   tabBar.viewControllers = tabs;
   tabBar.delegate = self;
-  // The tab last shown; with no Workbench yet, its address.
+  // The tab last shown; with no Workbench yet, its address (Settings). On
+  // an iPhone the last, Requests, is under More.
   NSInteger tab = [[NSUserDefaults standardUserDefaults] integerForKey:DVTabKey];
-  tabBar.selectedIndex = _session.device ? (NSUInteger)MAX(0, MIN(tab, (NSInteger)tabs.count - 1)) : tabs.count - 1;
+  tabBar.selectedIndex = _session.device ? (NSUInteger)MAX(0, MIN(tab, (NSInteger)tabs.count - 1)) : 4;
   _window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
   _window.rootViewController = tabBar;
   [_window makeKeyAndVisible];

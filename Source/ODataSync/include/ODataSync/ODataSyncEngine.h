@@ -255,6 +255,8 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 @property (nonatomic, readonly) NSPersistentStoreCoordinator *coordinator;
 @property (nonatomic, readonly, copy) NSArray<ODataSyncRemote *> *remotes;
 - (void)addRemote:(ODataSyncRemote *)remote;
+// No longer synced with (a peer gone): what it was sent is kept.
+- (void)removeRemote:(ODataSyncRemote *)remote;
 // How a both entity's conflicts are settled, when neither code nor its
 // ODataSync.conflicts says: the resolver, else the policy.
 @property (nonatomic) ODataSyncConflictPolicy conflictPolicy;
@@ -296,6 +298,14 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 // no longer gives deleted, rows it gives that are missing read
 // (docs/offline-sync.md, 4.1). After a change of user, or now and then.
 - (BOOL)reconcileWithRemote:(ODataSyncRemote *)remote error:(NSError **)error;
+// This device's peer token (docs/peer-sync.md, 3.1), from a remote that
+// issues them (a service whose ODataSyncService has peerTokens), for the
+// device signed in there: PeerToken(Replica, Thumbprint), the thumbprint
+// its identity's (ODataSyncPeerIdentity). The answer is what
+// -[ODataSyncPeerTrust takePeerTokenAnswer:error:] takes: the token, and
+// the service's keys and issuer that peers' tokens are checked with.
+- (nullable NSDictionary<NSString *, id> *)peerTokenFromRemote:(ODataSyncRemote *)remote thumbprint:(NSString *)thumbprint
+                                                         error:(NSError **)error;
 
 // The changes set aside, oldest first.
 - (NSArray<ODataSyncIssue *> *)issues;

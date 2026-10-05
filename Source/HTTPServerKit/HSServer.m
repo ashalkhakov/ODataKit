@@ -146,7 +146,14 @@
 
 - (BOOL)runOnPort:(NSUInteger)port error:(NSError **)error
 {
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+  // An app does not block its main thread serving: -startOnPort:error:.
+  if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFeatureUnsupportedError
+                                      userInfo:@{ NSLocalizedDescriptionKey: @"On iOS a server is started (-startOnPort:error:), not run" }];
+  return NO;
+#else
   return [_server runWithOptions:[self optionsForPort:port] error:error];
+#endif
 }
 
 - (void)stop

@@ -96,6 +96,18 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 
 @end
 
+// The service's operations when it has none of its own: PeerToken.
+@interface ODSPeerTokenOperations : NSObject <ODataSyncPeerTokenActions>
+@property (nonatomic, weak) ODataSyncService *sync;
+@end
+
+@implementation ODSPeerTokenOperations
+- (NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply
+{
+  return [self.sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
+}
+@end
+
 @implementation ODataSyncService
 
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
@@ -145,6 +157,28 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 - (void)setTombstoneRetention:(NSTimeInterval)retention
 {
   _engine.tombstoneRetention = retention;
+}
+
+- (void)setPeerTokens:(ODataSyncPeerTokenIssuer *)peerTokens
+{
+  _peerTokens = peerTokens;
+  if (peerTokens && !_service.serviceOperations) {
+    ODSPeerTokenOperations *operations = [[ODSPeerTokenOperations alloc] init];
+    operations.sync = self;
+    _service.serviceOperations = operations;
+  }
+}
+
+- (NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply
+{
+  if (!_peerTokens) {
+    [reply failWithError:ODataServiceError(501, @"This service issues no peer tokens")];
+    return nil;
+  }
+  NSError *error = nil;
+  NSDictionary *answer = [_peerTokens answerForPrincipal:reply.request.principal replica:replica thumbprint:thumbprint error:&error];
+  if (!answer) [reply failWithError:error];
+  return answer;
 }
 
 @end

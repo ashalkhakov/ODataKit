@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODataOperationCatalog.h"
+#import <ODataKit/ODataXML.h>
 #import "ODataMetadataWriter.h"
 #import "ODataService.h"
 #import <objc/runtime.h>
@@ -441,9 +442,9 @@ static BOOL OISEntityIsOrInherits(NSEntityDescription *entity, NSEntityDescripti
 
 #pragma mark CSDL
 
-static void OISSet(NSXMLElement *element, NSString *name, NSString *value)
+static void OISSet(ODataXMLElement *element, NSString *name, NSString *value)
 {
-  [element addAttribute:[NSXMLNode attributeWithName:name stringValue:value]];
+  [element addAttribute:[ODataXMLNode attributeWithName:name stringValue:value]];
 }
 
 static BOOL OISIsDecimal(NSString *type)
@@ -451,9 +452,9 @@ static BOOL OISIsDecimal(NSString *type)
   return [type hasSuffix:@"Edm.Decimal"] || [type hasSuffix:@"Edm.Decimal)"];
 }
 
-- (NSXMLElement *)parameterNamed:(NSString *)name type:(NSString *)type scalar:(BOOL)scalar
+- (ODataXMLElement *)parameterNamed:(NSString *)name type:(NSString *)type scalar:(BOOL)scalar
 {
-  NSXMLElement *parameter = [[NSXMLElement alloc] initWithName:@"Parameter"];
+  ODataXMLElement *parameter = [[ODataXMLElement alloc] initWithName:@"Parameter"];
   OISSet(parameter, @"Name", name);
   OISSet(parameter, @"Type", type);
   if (scalar) OISSet(parameter, @"Nullable", @"false");
@@ -461,11 +462,11 @@ static BOOL OISIsDecimal(NSString *type)
   return parameter;
 }
 
-- (NSArray<NSXMLElement *> *)schemaElements
+- (NSArray<ODataXMLElement *> *)schemaElements
 {
   NSMutableArray *elements = [NSMutableArray array];
   for (OISServedOperation *operation in _operations) {
-    NSXMLElement *element = [[NSXMLElement alloc] initWithName:operation.isAction ? @"Action" : @"Function"];
+    ODataXMLElement *element = [[ODataXMLElement alloc] initWithName:operation.isAction ? @"Action" : @"Function"];
     OISSet(element, @"Name", operation.name);
     if (operation.boundEntity) OISSet(element, @"IsBound", @"true");
     // A function's result can be read on from: the service composes on it.
@@ -479,7 +480,7 @@ static BOOL OISIsDecimal(NSString *type)
       [element addChild:[self parameterNamed:parameter.name type:parameter.type scalar:parameter.scalar != 0]];
     }
     if (operation.returns) {
-      NSXMLElement *returns = [[NSXMLElement alloc] initWithName:@"ReturnType"];
+      ODataXMLElement *returns = [[ODataXMLElement alloc] initWithName:@"ReturnType"];
       OISSet(returns, @"Type", operation.returns.type);
       if (operation.returns.scalar) OISSet(returns, @"Nullable", @"false");
       if (OISIsDecimal(operation.returns.type)) OISSet(returns, @"Scale", @"variable");
@@ -490,12 +491,12 @@ static BOOL OISIsDecimal(NSString *type)
   return elements;
 }
 
-- (NSArray<NSXMLElement *> *)containerElements
+- (NSArray<ODataXMLElement *> *)containerElements
 {
   NSMutableArray *elements = [NSMutableArray array];
   for (OISServedOperation *operation in _operations) {
     if (operation.boundEntity) continue;
-    NSXMLElement *element = [[NSXMLElement alloc] initWithName:operation.isAction ? @"ActionImport" : @"FunctionImport"];
+    ODataXMLElement *element = [[ODataXMLElement alloc] initWithName:operation.isAction ? @"ActionImport" : @"FunctionImport"];
     OISSet(element, @"Name", operation.name);
     OISSet(element, operation.isAction ? @"Action" : @"Function", operation.qualifiedName);
     NSEntityDescription *returned = operation.returns.entity;

@@ -12,6 +12,7 @@
 
 #pragma once
 #import "OISCoreData.h"
+#import <ODataKit/ODataXML.h>
 #import "ODataPropertyMapper.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -57,8 +58,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable OISServedOperation *)importNamed:(NSString *)name;
 
 // CSDL: the operations for the schema, the imports for the container.
-@property (nonatomic, readonly) NSArray<NSXMLElement *> *schemaElements;
-@property (nonatomic, readonly) NSArray<NSXMLElement *> *containerElements;
+@property (nonatomic, readonly) NSArray<ODataXMLElement *> *schemaElements;
+@property (nonatomic, readonly) NSArray<ODataXMLElement *> *containerElements;
 
 @end
 

@@ -43,7 +43,11 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
 - (void)openDeviceAt:(NSURL *)root emptied:(BOOL)emptied
 {
   NSURL *model = [[NSBundle mainBundle] URLForResource:@"Catalog" withExtension:@"momd"];
-  // The old device lets go of the store first.
+  // The old device lets go of the store first; its peers, of the network
+  // (and, emptied, of its identity: the new device is another replica).
+  [_peers stop];
+  if (emptied) [_peers discard];
+  _peers = nil;
   _device.didChange = nil;
   _device.didLog = nil;
   _device = nil;
@@ -70,6 +74,16 @@ static NSString * const DVSyncsEachChangeKey = @"DVSyncsEachChange";
   _device.didLog = ^(WorkbenchLogEntry *entry) {
     [[NSNotificationCenter defaultCenter] postNotificationName:DVSessionDidLogNotification object:weak userInfo:@{ @"entry": entry }];
   };
+  NSError *error = nil;
+  NSURL *directory = [[self storeURL].URLByDeletingLastPathComponent URLByAppendingPathComponent:@"Peers" isDirectory:YES];
+  _peers = [[DVPeers alloc] initWithDevice:_device directory:directory error:&error];
+  _peers.say = ^(NSString *status) {
+    [weak say:status];
+  };
+  if (!_peers) {
+    [self say:[NSString stringWithFormat:@"No peers: the device's identity is not made (%@).", error.localizedDescription]];
+    return;
+  }
   [self say:emptied ? @"A new device: Sync reads the Workbench's data into it." : @"Sync to meet the Workbench's changes."];
 }
 
