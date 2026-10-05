@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		004AD4935B974590CF29438D /* DVSession.m in Sources */ = {isa = PBXBuildFile; fileRef = A8F39C78E497A6DDC6D25874 /* DVSession.m */; };
+		1ADB09E402EED6FCC4CBA9D7 /* DVPeersController.m in Sources */ = {isa = PBXBuildFile; fileRef = AC8AD86E41B1ABFCD55D57F3 /* DVPeersController.m */; };
 		251A5D57025DC130790DA3FE /* ODataIncrementalStore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 88D20759103361E28574DB0D /* ODataIncrementalStore.framework */; };
 		2864FDDE5FC3A2D4EBDDF089 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0060369DE486910F1594791 /* Foundation.framework */; };
 		2F7ECD43FC9ADFE9916B0E79 /* ODataIncrementalStore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 88D20759103361E28574DB0D /* ODataIncrementalStore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -15,11 +16,16 @@
 		4394AEC36262BE5D36A8C069 /* OTelKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F7C220C848FCB7563B74E3B /* OTelKit.framework */; };
 		5FD339952994BEACEF332A33 /* ODataSync.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F8D1D730F169250E33F6BC13 /* ODataSync.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		65737AED44C8C36AECBFE502 /* Catalog.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 0F3066026D1F99BEDD4E2A82 /* Catalog.xcdatamodeld */; };
+		6822673A9345EF59A3AD8AF1 /* ODataService.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5E9BEA94A6A8F5476A872D54 /* ODataService.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6BA6A336A5FC30788421FAFF /* ODataKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 0F10D5FE2D1F0BC7740B310F /* ODataKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		8126F78C984BD2B96DB394A8 /* ODataSync.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F8D1D730F169250E33F6BC13 /* ODataSync.framework */; };
+		8FFD5530C4040EEAFEEE8A21 /* HTTPServerKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A6A0BBFD64D3247DF6A7D5B7 /* HTTPServerKit.framework */; };
 		A0A787E3174D9DFE1F43DBD1 /* OTelKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 6F7C220C848FCB7563B74E3B /* OTelKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A6A76995814F2DEDE7DA5A4C /* ODataKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0F10D5FE2D1F0BC7740B310F /* ODataKit.framework */; };
+		AC59F9E10DC4A7594836DD80 /* ODataService.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5E9BEA94A6A8F5476A872D54 /* ODataService.framework */; };
 		C03D83CAAB19976DE0EC1832 /* DVControllers.m in Sources */ = {isa = PBXBuildFile; fileRef = 1ABCA2DCA3F87246AA51D3FC /* DVControllers.m */; };
+		C8EF5AE70708D2330E55B276 /* HTTPServerKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A6A0BBFD64D3247DF6A7D5B7 /* HTTPServerKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		CB1E9FDF68481C7A16B7808D /* DVPeers.m in Sources */ = {isa = PBXBuildFile; fileRef = CD62C6EF6803638ECDE52052 /* DVPeers.m */; };
 		D5C3D35C9D56B53475779711 /* WorkbenchSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = DE667380C022DC9FD676BEE0 /* WorkbenchSupport.m */; };
 		EB4FCC575681E8DC59D2C254 /* WorkbenchModel.m in Sources */ = {isa = PBXBuildFile; fileRef = FA5DCF091AB5EFDD1DF35B20 /* WorkbenchModel.m */; };
 		F8AF2EECF669C19ADBDABECF /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = B93D08049F8B798C4EB2CCBD /* main.m */; };
@@ -53,6 +59,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = 4CBB61F9CEEAF8A9C5A1F7CF;
 			remoteInfo = OTelKit;
+		};
+		61599C06E19BDAFEEA16602D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BAC21FE3B01261AF001053FB /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = AA000000000000000000000A;
+			remoteInfo = ODataService;
+		};
+		6FC71A2BC6F86F4F235A8E52 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BAC21FE3B01261AF001053FB /* ODataKit.xcodeproj */;
+			proxyType = 1;
+			remoteGlobalIDString = 9828CC078A88AE7706B232C7;
+			remoteInfo = HTTPServerKit;
 		};
 		91F1C65FD1F6E2D02F4B09CE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -116,6 +136,8 @@
 				A0A787E3174D9DFE1F43DBD1 /* OTelKit.framework in Embed Frameworks */,
 				2F7ECD43FC9ADFE9916B0E79 /* ODataIncrementalStore.framework in Embed Frameworks */,
 				5FD339952994BEACEF332A33 /* ODataSync.framework in Embed Frameworks */,
+				C8EF5AE70708D2330E55B276 /* HTTPServerKit.framework in Embed Frameworks */,
+				6822673A9345EF59A3AD8AF1 /* ODataService.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -126,18 +148,22 @@
 		03B92C1A012BD84C32E70922 /* WorkbenchSupport.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchSupport.h; path = ../Workbench/WorkbenchSupport.h; sourceTree = "<group>"; };
 		0431D927701B172CB3774D07 /* Catalog.xcdatamodel */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcdatamodel; path = Catalog.xcdatamodel; sourceTree = "<group>"; };
 		1ABCA2DCA3F87246AA51D3FC /* DVControllers.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DVControllers.m; sourceTree = "<group>"; };
+		20F7D38F1DF5C105495F665C /* DVPeersController.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DVPeersController.h; sourceTree = "<group>"; };
 		3D47F48BFD2C5A6010CE9702 /* Debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = ../../Xcode/Configs/Debug.xcconfig; sourceTree = "<group>"; };
 		52001F7F5DF291BD06D0E6E9 /* Device.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Device.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		55AC93644493C8CB4F27B3BB /* DVPeers.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DVPeers.h; sourceTree = "<group>"; };
 		66756F86A0C54CDFBB474F73 /* Release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = ../../Xcode/Configs/Release.xcconfig; sourceTree = "<group>"; };
 		7EBD4B51D669E88B2BD478B3 /* DVSession.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DVSession.h; sourceTree = "<group>"; };
 		96D0A79DF75EF7AE24A00186 /* WorkbenchDevice.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WorkbenchDevice.m; path = ../Workbench/WorkbenchDevice.m; sourceTree = "<group>"; };
 		9DEFFF5DBD966FC96A54D14F /* Device.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Device.xcconfig; sourceTree = "<group>"; };
 		A8F39C78E497A6DDC6D25874 /* DVSession.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DVSession.m; sourceTree = "<group>"; };
+		AC8AD86E41B1ABFCD55D57F3 /* DVPeersController.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DVPeersController.m; sourceTree = "<group>"; };
 		AE5BB003B608366C9C5F41FE /* DVControllers.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DVControllers.h; sourceTree = "<group>"; };
 		B93D08049F8B798C4EB2CCBD /* main.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		BAC21FE3B01261AF001053FB /* ODataKit.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = ODataKit.xcodeproj; path = ../../ODataKit.xcodeproj; sourceTree = "<group>"; };
 		C002E1D3C0BB2198181252D5 /* WorkbenchDevice.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchDevice.h; path = ../Workbench/WorkbenchDevice.h; sourceTree = "<group>"; };
 		C0060369DE486910F1594791 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		CD62C6EF6803638ECDE52052 /* DVPeers.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DVPeers.m; sourceTree = "<group>"; };
 		D28A923B8EB20FA9A218A7CF /* WorkbenchModel.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = WorkbenchModel.h; path = ../Workbench/WorkbenchModel.h; sourceTree = "<group>"; };
 		DE667380C022DC9FD676BEE0 /* WorkbenchSupport.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = WorkbenchSupport.m; path = ../Workbench/WorkbenchSupport.m; sourceTree = "<group>"; };
 		EB982D0289EDD5071861C74B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -154,6 +180,8 @@
 				4394AEC36262BE5D36A8C069 /* OTelKit.framework in Frameworks */,
 				251A5D57025DC130790DA3FE /* ODataIncrementalStore.framework in Frameworks */,
 				8126F78C984BD2B96DB394A8 /* ODataSync.framework in Frameworks */,
+				8FFD5530C4040EEAFEEE8A21 /* HTTPServerKit.framework in Frameworks */,
+				AC59F9E10DC4A7594836DD80 /* ODataService.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -208,6 +236,10 @@
 				7EBD4B51D669E88B2BD478B3 /* DVSession.h */,
 				AE5BB003B608366C9C5F41FE /* DVControllers.h */,
 				EB982D0289EDD5071861C74B /* Info.plist */,
+				55AC93644493C8CB4F27B3BB /* DVPeers.h */,
+				CD62C6EF6803638ECDE52052 /* DVPeers.m */,
+				20F7D38F1DF5C105495F665C /* DVPeersController.h */,
+				AC8AD86E41B1ABFCD55D57F3 /* DVPeersController.m */,
 			);
 			name = Device;
 			sourceTree = "<group>";
@@ -275,6 +307,8 @@
 				5A1D40892C53709A4E67435B /* PBXTargetDependency */,
 				B95CE2412DA809F8944605DB /* PBXTargetDependency */,
 				E57DBF6898673DEE4C3DDC97 /* PBXTargetDependency */,
+				2DCC0B02B027504029D31694 /* PBXTargetDependency */,
+				5AC87D419D7E2AEF12FA028A /* PBXTargetDependency */,
 			);
 			name = Device;
 			productName = Device;
@@ -390,16 +424,28 @@
 				3EFA9DE626EAC45CBA89AD80 /* WorkbenchDevice.m in Sources */,
 				D5C3D35C9D56B53475779711 /* WorkbenchSupport.m in Sources */,
 				65737AED44C8C36AECBFE502 /* Catalog.xcdatamodeld in Sources */,
+				CB1E9FDF68481C7A16B7808D /* DVPeers.m in Sources */,
+				1ADB09E402EED6FCC4CBA9D7 /* DVPeersController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		2DCC0B02B027504029D31694 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = HTTPServerKit;
+			targetProxy = 6FC71A2BC6F86F4F235A8E52 /* PBXContainerItemProxy */;
+		};
 		5A1D40892C53709A4E67435B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = OTelKit;
 			targetProxy = 4C65897077EB37DF1DFB5046 /* PBXContainerItemProxy */;
+		};
+		5AC87D419D7E2AEF12FA028A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ODataService;
+			targetProxy = 61599C06E19BDAFEEA16602D /* PBXContainerItemProxy */;
 		};
 		B95CE2412DA809F8944605DB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;

@@ -38,6 +38,7 @@ need the framework project in the same workspace).
 | `Catalog` | A small AppKit client |
 | `Workbench` | The workbench |
 | `Device` | The Workbench's device on iOS ([iOS](#ios)) |
+| `DeviceDesktop` | The same device on macOS (and Linux, with `make`): its desktop counterpart |
 
 ```
 xcodebuild -workspace ODataKit.xcworkspace -scheme ODataKitTests -destination 'platform=macOS' test
@@ -52,22 +53,23 @@ project: `make -C Server` writes `Server/build/ois-serve`, and
 
 ## iOS
 
-ODataKit, OTelKit, ODataIncrementalStore and ODataSync build for iOS 15 and
-later (devices and the simulator) as well as for macOS: the same targets in
+ODataKit, OTelKit, ODataIncrementalStore, HTTPServerKit, ODataService and
+ODataSync build for iOS 15 and later (devices and the simulator) as well
+as for macOS: the same targets in
 `ODataKit.xcodeproj`, the same schemes, chosen by the destination.
 
 ```
 xcodebuild -workspace ODataKit.xcworkspace -scheme ODataSync -destination 'generic/platform=iOS Simulator' build
 ```
 
-On iOS they are the client's:
+HTTPServerKit and ODataService build for iOS too, so that a device can
+serve its store to its peers ([peer sync](peer-sync.md)). On iOS:
 
-- **ODataSync** is the device's part alone: `ODataSyncEngine` and the
-  remotes, the rules, the changes. `ODataSyncPeerServer` and
-  `ODataSyncService` serve (ODataService over HTTPServerKit). Their sources,
-  their headers and the two frameworks are filtered to macOS in the target,
-  and `ODataSync.h` leaves them out on iOS.
-- **ODataService** and **HTTPServerKit** stay macOS (and GNUstep) only.
+- **HTTPServerKit**: a server is started (`-startOnPort:error:`), never
+  run (`-runOnPort:` answers that it is unsupported).
+- **ODataService**: no XML store (`NSXMLStoreType` is macOS only).
+- **ODataSync**: its peer identity, listener, trust, transport and discovery
+  (TLS, Bonjour) are Apple's, on iOS and macOS alike.
 - **XML**: Foundation on iOS has no `NSXMLDocument`, which reading and
   writing `$metadata` (and a generated model) use. `ODataXML.h` names the
   classes the client uses, `ODataXMLDocument`, `ODataXMLElement` and
@@ -90,7 +92,11 @@ Install [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) first: it
 is the Core Data this store subclasses (`NSIncrementalStore`, the coordinator)
 and the server stores in. Install its model compiler too (`make -C Tools/momc
 install` there): the tests and example apps compile `Catalog.xcdatamodeld` to
-`.momd`, which is what FreeCoreData loads. Then:
+`.momd`, which is what FreeCoreData loads. ODataSync's peers need
+GnuTLS, libcurl (built with GnuTLS) and Avahi's dns_sd compatibility
+library: on Ubuntu, `libgnutls28-dev libcurl4-gnutls-dev
+libavahi-compat-libdnssd-dev`, and `avahi-daemon` running to find peers
+([peer sync](peer-sync.md)). Then:
 
 ```sh
 . /usr/share/GNUstep/Makefiles/GNUstep.sh
@@ -240,6 +246,10 @@ make -C Tests/Live live      # GNUstep
   line per check; `--self-test builtin` needs no network.
 - `Examples/Device`: the Workbench's device on iOS, which syncs with a
   Workbench serving on the network (`Workbench --serve`) ([its README](../Examples/Device/README.md)).
+- `Examples/DeviceDesktop`: the same device on a desktop, macOS or Linux,
+  for peer sync between desktops and phones (`make -C Examples/DeviceDesktop`
+  on Linux; it needs `libqrencode-dev` too). `DeviceDesktop --self-test
+  <Workbench root>` tests peer sync end to end ([its README](../Examples/DeviceDesktop/README.md)).
 - `Examples/Catalog`: a smaller client: a table, a predicate, an inspector.
 - `Examples/QuickStart`: the README's first path, one file.
 

@@ -131,11 +131,14 @@ xcodebuild -workspace ODataKit.xcworkspace -scheme Workbench build   # macOS
 make -C Examples/Workbench && openapp Examples/Workbench/Workbench.app   # GNUstep
 ```
 
-CI packages it on every push (a universal macOS app, a Linux AppImage), and
+CI packages it on every push (a universal macOS app, a Linux AppImage that
+carries the desktop Device app and a launcher too), and
 attaches both to each release — [its README](Examples/Workbench/README.md).
 
-Its Sync window's device also runs on an iPhone: [the Device app](Examples/Device/README.md)
-syncs over the network with a Workbench that serves its built-in service.
+Its Sync window's device also runs on an iPhone ([the Device app](Examples/Device/README.md))
+and on a desktop, macOS or Linux ([its desktop counterpart](Examples/DeviceDesktop/README.md)).
+Each syncs over the network with a Workbench that serves its built-in service,
+and with the other devices nearby ([peer sync](docs/peer-sync.md)).
 
 ## What works
 
@@ -243,7 +246,7 @@ flowchart LR
 - [Query plans](docs/query-plan.md) · [Write plans](docs/write-plan.md): how the service plans reads and writes
 - [How it works](docs/how-it-works.md): the mapping, query translation, what runs where
 - [Client conformance](docs/odata-conformance.md): OData v4, item by item
-- [Workbench](Examples/Workbench/README.md) · [Device (iOS)](Examples/Device/README.md)
+- [Workbench](Examples/Workbench/README.md) · [Device (iOS)](Examples/Device/README.md) · [Device (desktop)](Examples/DeviceDesktop/README.md)
 
 ## License
 

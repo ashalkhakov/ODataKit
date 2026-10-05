@@ -16,13 +16,15 @@
 // served); down sets are read only. What a peer sends is written as coming
 // from that peer (ODataSyncReplicaHeader), so it is passed on to the
 // service and the other peers, not back; its ODataSync.modified stamps are
-// kept, and move this side's clock past them. Discovery and trust are the
-// app's.
+// kept, and move this side's clock past them. Over TLS, with a trust (below),
+// the device's peers are known by their certificates; on a network the app
+// trusts, plain HTTP with its own authenticator. Discovery:
+// ODataSyncPeerAdvertiser.
 
 #pragma once
 #import <ODataSync/ODataSyncEngine.h>
 
-@class ODataService;
+@class ODataService, ODataSyncPeerTrust, ODataSyncPeerListener;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,6 +41,25 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)start:(NSError **)error;
 - (void)stop;
 @property (nonatomic, readonly, getter=isRunning) BOOL running;
+
+// Over TLS, for devices (docs/peer-sync.md): at
+// https://<host>:<port>/sync/<replica ID>/, the server itself on loopback
+// behind an ODataSyncPeerListener with the trust's identity. Who may sync:
+// a peer showing a token the service issued, bound to the certificate it
+// connects with, or one this device paired with (the trust's to say);
+// each write made as coming from the replica its token or pairing names.
+// The port is the one peers reach (not 0: the service root names it).
+// Also answered there: GET $peer (this device's own token, for a peer to
+// check it by), POST $pair (a pairing: see -pairingOfferForSubject:scopes:).
+- (instancetype)initWithEngine:(ODataSyncEngine *)engine trust:(ODataSyncPeerTrust *)trust host:(NSString *)host port:(NSUInteger)port
+    NS_DESIGNATED_INITIALIZER;
+@property (nonatomic, readonly, nullable) ODataSyncPeerTrust *trust;
+@property (nonatomic, readonly, nullable) ODataSyncPeerListener *listener;
+// A pairing's offer, for the other device to read (a QR code of its JSON):
+// host, port, replica, thumbprint, and a one-time code good for two
+// minutes (one at a time: a new offer replaces the last). The device that
+// pairs with it syncs here as subject, with these scopes.
+- (NSDictionary<NSString *, id> *)pairingOfferForSubject:(NSString *)subject scopes:(NSSet<NSString *> *)scopes;
 @end
 
 NS_ASSUME_NONNULL_END

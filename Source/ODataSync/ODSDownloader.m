@@ -203,6 +203,9 @@ static const NSInteger ODSGone = 410;
     BOOL created = NO;
     NSManagedObject *object = [self objectFor:row entity:entity context:context created:&created];
     if (onlyMissing && !created) {
+      // No version counter: nothing tells the peer's copy newer; only what
+      // is missing here is taken.
+      if (!version) continue;
       // The service's version, newer than this one: as good as from the service.
       id theirs = versionProperty ? row[versionProperty] : nil;
       id ours = [object valueForKey:version.name];

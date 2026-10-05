@@ -33,24 +33,42 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
 
 - (instancetype)initWithEngine:(WorkbenchEngine *)engine
 {
+  WorkbenchDevice *device = [[WorkbenchDevice alloc] initWithModelURL:engine.modelURL serviceRoot:engine.serviceRoot transport:engine storeURL:nil];
+  if (!device) return nil;
+  self = [self initWithDevice:device engine:engine];
+  if (!self) return nil;
+  __weak WBSyncWindow *weak = self;
+  device.didLog = ^(WorkbenchLogEntry *entry) {
+    [weak logged:entry];
+  };
+  device.didChange = ^(NSString *status) {
+    [weak changed:status];
+  };
+  return self;
+}
+
+- (instancetype)initWithDevice:(WorkbenchDevice *)device engine:(WorkbenchEngine *)engine
+{
   self = [super init];
   if (!self) return nil;
   _engine = engine;
+  _device = device;
   _objects = @[];
   _changes = @[];
   _conflicts = @[];
-  _device = [[WorkbenchDevice alloc] initWithModelURL:engine.modelURL serviceRoot:engine.serviceRoot transport:engine storeURL:nil];
-  if (!_device) return nil;
-  __weak WBSyncWindow *weak = self;
-  _device.didLog = ^(WorkbenchLogEntry *entry) {
-    [weak logged:entry];
-  };
-  _device.didChange = ^(NSString *status) {
-    [weak changed:status];
-  };
   [self makeWindow];
   [self entityChanged:nil];
   return self;
+}
+
+- (void)setDevice:(WorkbenchDevice *)device
+{
+  _device = device;
+  [_rulePopup selectItemAtIndex:device.rule];
+  _offlineButton.state = device.offline ? NSOnState : NSOffState;
+  _autoSyncButton.state = device.syncsEachChange ? NSOnState : NSOffState;
+  [self entityChanged:nil];
+  [self reload];
 }
 
 - (ODataSyncEngine *)sync
@@ -134,6 +152,8 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
                              @[ @"Upload", NSStringFromSelector(@selector(upload:)), @76 ],
                              @[ @"Reconcile", NSStringFromSelector(@selector(reconcile:)), @90 ],
                              @[ @"Change at the Service", NSStringFromSelector(@selector(changeAtTheService:)), @170 ] ]) {
+    // Another client's change: the Workbench's alone, whose service it is.
+    if (!_engine && [button[1] isEqualToString:NSStringFromSelector(@selector(changeAtTheService:))]) continue;
     NSButton *made = WBSyncButton(button[0], NSMakeRect(x, top, [button[2] doubleValue], 28), self, NSSelectorFromString(button[1]));
     made.autoresizingMask = NSViewMinYMargin;
     [content addSubview:made];
@@ -387,7 +407,10 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
 // The switch as it is now (the self-test sets it without its action).
 - (void)takeAutoSync
 {
-  _device.syncsEachChange = _autoSyncButton.state == NSOnState;
+  BOOL syncs = _autoSyncButton.state == NSOnState;
+  if (syncs == _device.syncsEachChange) return;
+  _device.syncsEachChange = syncs;
+  if (self.didChangeSetting) self.didChangeSetting();
 }
 
 - (void)setValue:(id)value ofAttribute:(NSString *)name row:(NSInteger)row
@@ -447,6 +470,10 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
 {
   (void)sender;
   if (_device.busy) return;
+  if (self.resetsDevice) {
+    self.resetsDevice();
+    return;
+  }
   if (![_device reset]) {
     _statusField.stringValue = @"The device's store does not open.";
     return;
@@ -471,6 +498,7 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
 {
   (void)sender;
   _device.rule = (WBSyncRule)_rulePopup.indexOfSelectedItem;
+  if (self.didChangeSetting) self.didChangeSetting();
 }
 
 - (BOOL)isOffline
@@ -490,6 +518,7 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
   _device.offline = _offlineButton.state == NSOnState;
   _statusField.stringValue = _device.offline ? @"Offline: change things on the device; they wait, and go when it is back."
                                              : @"Back online: Sync sends what waits.";
+  if (self.didChangeSetting) self.didChangeSetting();
 }
 
 #pragma mark Tables
@@ -529,7 +558,7 @@ static NSButton *WBSyncButton(NSString *title, NSRect frame, id target, SEL acti
     WorkbenchLogEntry *entry = requests[(NSUInteger)row];
     if ([identifier isEqualToString:@"time"]) return WBTimeText(entry.date);
     if ([identifier isEqualToString:@"method"]) return entry.method;
-    if ([identifier isEqualToString:@"url"]) return WBRequestPath(entry, _engine.serviceRoot);
+    if ([identifier isEqualToString:@"url"]) return WBRequestPath(entry, _device.serviceRoot);
     if ([identifier isEqualToString:@"status"]) return entry.status ? @(entry.status) : @"-";
     if ([identifier isEqualToString:@"ms"]) return entry.duration ? [NSString stringWithFormat:@"%.0f", entry.duration * 1000] : @"";
     return nil;

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OData Device
+GenericName=OData Offline Device
+Comment=An offline device synced with a Workbench, and with peers nearby
+Exec=AppRun device
+Icon=odata-device
+Terminal=false
+Categories=Development;Network;

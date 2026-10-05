@@ -101,6 +101,13 @@ id ODSUnarchive(NSData *data)
   }
 }
 
+- (void)removeRemote:(ODataSyncRemote *)remote
+{
+  @synchronized (self) {
+    [_remotes removeObject:remote];
+  }
+}
+
 - (ODataSyncRemote *)remoteWithIdentifier:(NSString *)identifier
 {
   for (ODataSyncRemote *remote in self.remotes) {
@@ -179,6 +186,39 @@ id ODSUnarchive(NSData *data)
 - (BOOL)syncWithError:(NSError **)error
 {
   [_running lock];
+  // Unlocked whatever happens: an exception out of a sync leaves the
+  // engine able to sync again.
+  @try {
+    return [self syncLocked:error];
+  } @finally {
+    [_running unlock];
+  }
+}
+
+- (BOOL)syncWithRemote:(ODataSyncRemote *)remote error:(NSError **)error
+{
+  [_running lock];
+  @try {
+    // A remote while it syncs (its state kept under its identifier), alone.
+    BOOL added = ![self.remotes containsObject:remote];
+    if (added) [self addRemote:remote];
+    @synchronized (_tally) {
+      [_tally removeAllObjects];
+    }
+    [self noticeModelVersion];
+    BOOL ok = [self downloadFromRemote:remote error:error] && [self uploadToRemote:remote error:error];
+    @synchronized (_tally) {
+      _lastResult = [[ODataSyncResult alloc] initWithTally:_tally];
+    }
+    if (added) [self removeRemote:remote];
+    return ok;
+  } @finally {
+    [_running unlock];
+  }
+}
+
+- (BOOL)syncLocked:(NSError **)error
+{
   @synchronized (_tally) {
     [_tally removeAllObjects];
   }
@@ -197,7 +237,6 @@ id ODSUnarchive(NSData *data)
   }
   if (!ok && error) [span recordError:*error];
   [span end];
-  [_running unlock];
   return ok;
 }
 
@@ -239,6 +278,25 @@ id ODSUnarchive(NSData *data)
 {
   return [self.model checkNames:error] && [[[ODSUploader alloc] initWithEngine:self remote:remote] collect:error] &&
          [[[ODSDownloader alloc] initWithEngine:self remote:remote] reconcile:error];
+}
+
+- (NSDictionary *)peerTokenFromRemote:(ODataSyncRemote *)remote thumbprint:(NSString *)thumbprint error:(NSError **)error
+{
+  NSURL *url = [NSURL URLWithString:@"PeerToken" relativeToURL:remote.serviceRoot].absoluteURL;
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+  request.HTTPMethod = @"POST";
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+  request.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"Replica": self.replicaID, @"Thumbprint": thumbprint } options:0 error:NULL];
+  ODataHTTPResponse *response = [[self clientOf:remote] sendRequest:request error:error];
+  id json = [response JSONWithError:error];
+  // An Edm.Untyped result, as itself or under value.
+  NSDictionary *answer = [json isKindOfClass:[NSDictionary class]] && [json[@"value"] isKindOfClass:[NSDictionary class]] ? json[@"value"] : json;
+  if (![answer isKindOfClass:[NSDictionary class]] || ![answer[@"Token"] isKindOfClass:[NSString class]]) {
+    if (error && response) *error = ODSError(1, @"The remote's PeerToken answer is not one");
+    return nil;
+  }
+  return answer;
 }
 
 #pragma mark The outbox

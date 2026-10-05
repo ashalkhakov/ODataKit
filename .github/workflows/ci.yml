@@ -66,7 +66,7 @@ jobs:
 
       - name: Build the example apps
         run: |
-          for scheme in Catalog Workbench; do
+          for scheme in Catalog Workbench DeviceDesktop; do
             xcodebuild -workspace ODataKit.xcworkspace -scheme "$scheme" \
               -destination 'platform=macOS' -configuration Debug \
               -derivedDataPath "$RUNNER_TEMP/DerivedData" build
@@ -113,6 +113,17 @@ jobs:
         continue-on-error: true
         run: |
           "$RUNNER_TEMP/DerivedData/Build/Products/Debug/Workbench.app/Contents/MacOS/Workbench" --self-test
+
+      # Peer sync end to end (Examples/DeviceDesktop): three devices of the
+      # desktop Device app's, against the Workbench serving its built-in
+      # service on loopback; tokens, TLS, Bonjour, pairing. No network beyond
+      # this machine: fatal.
+      - name: Device self-test (peer sync)
+        run: |
+          products="$RUNNER_TEMP/DerivedData/Build/Products/Debug"
+          "$products/Workbench.app/Contents/MacOS/Workbench" --serve > "$RUNNER_TEMP/workbench-serve.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8640/odata/ && break; sleep 1; done
+          "$products/DeviceDesktop.app/Contents/MacOS/DeviceDesktop" --self-test http://127.0.0.1:8640/odata/
 
       # The Workbench as an app, for each push: Release, universal (arm64 and
       # x86_64), the frameworks embedded, signed ad hoc and named -unsigned.
@@ -178,14 +189,16 @@ jobs:
       # Both pinned to commits, not branches. The patches ref decides the
       # recipe hash the stack is cached under, so a moving branch would keep
       # serving a prefix built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 7539fc686a72250574fff6c17e1c92eb024ddc33
+      # gnustep-patches #7: NSSortDescriptor sorts nil before every value.
+      GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
       # its momc keeps a model version's Identifier, which models generated
       # from $metadata carry (#40).
       # #51: the SQL backends share one libCDSQLStore, so a process can load
       # both, and evaluate MATCHES in SQL.
-      FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
+      # #61: NULL sorts as Core Data sorts it, on every SQL backend.
+      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
@@ -257,8 +270,11 @@ jobs:
             libpthread-workqueue-dev libsqlite3-dev \
             libfreetype-dev libfontconfig1-dev libxrender-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
-            xvfb libpq-dev libmariadb-dev
+            xvfb libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev avahi-daemon libqrencode-dev
           # xvfb is a display for the Workbench's self-test.
+          # libavahi-compat-libdnssd-dev is ODataSync's Bonjour (its peers);
+          # avahi-daemon answers it, for the peer discovery test.
+          # libqrencode-dev draws the desktop Device app's pairing codes.
           # libpq-dev and libmariadb-dev are FreeCoreData's SQL backends'.
           # libsqlite3-dev is FreeCoreData's: NSSQLitePersistentStore links it.
           # libxml2-dev is what gives gnustep-base the NSXML momc reads models
@@ -346,11 +362,14 @@ jobs:
           . $PREFIX/System/Library/Makefiles/GNUstep.sh
           make -C Examples/Catalog
           make -C Examples/Workbench
+          make -C Examples/DeviceDesktop
+          make -C Examples/Launcher
 
       - name: Unit tests
         run: |
           . $PREFIX/System/Library/Makefiles/GNUstep.sh
-          make test
+          sudo systemctl start avahi-daemon || echo "::warning::avahi-daemon did not start: the discovery test is not run"
+          AVAHI_COMPAT_NOWARN=1 make test
 
       # The suite again, with the SQL backends as more stores the predicate
       # pair tests run over: PostgreSQL and MySQL together, then MariaDB
@@ -383,6 +402,17 @@ jobs:
           cd Examples/Workbench
           LD_LIBRARY_PATH="$PWD/../../obj${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             xvfb-run -a ./Workbench.app/Workbench --self-test
+
+      # Peer sync end to end on GNUstep (Examples/DeviceDesktop): GnuTLS,
+      # libcurl, Avahi (avahi-daemon started for the unit tests), against
+      # the Workbench serving on loopback. Fatal.
+      - name: Device self-test (peer sync)
+        run: |
+          . $PREFIX/System/Library/Makefiles/GNUstep.sh
+          export LD_LIBRARY_PATH="$PWD/obj${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" AVAHI_COMPAT_NOWARN=1
+          (cd Examples/Workbench && xvfb-run -a ./Workbench.app/Workbench --serve > "$RUNNER_TEMP/workbench-serve.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:8640/odata/ && break; sleep 1; done
+          Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop --self-test http://127.0.0.1:8640/odata/
 
       # The Workbench as an AppImage: the app, the library, FreeCoreData and
       # the GNUstep runtime in one file (Scripts/prepare-appdir.sh,

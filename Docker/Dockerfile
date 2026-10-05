@@ -19,7 +19,8 @@
 #   check      sdk, with the loopback check run and an application built
 #              against the installed libraries both ways, for CI
 #   unit       sdk, with the XCTest suite run (make test), as CI's unit
-#              tests: tools-xctest is part of the stack for it
+#              tests: tools-xctest is part of the stack for it, and
+#              avahi-daemon runs for the peer discovery test
 #
 # The stack is gnustep-patches' build, as CI's: the same two pins.
 
@@ -48,8 +49,8 @@ COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
 FROM toolchain AS stack
-ARG GNUSTEP_PATCHES_REF=7539fc686a72250574fff6c17e1c92eb024ddc33
-ARG FREECOREDATA_REF=b612b0a90fcae0b0fabcd1ff71442988eb67b518
+ARG GNUSTEP_PATCHES_REF=00a9c890134abe3e752d49545556a228cb8b7122
+ARG FREECOREDATA_REF=1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
 RUN set -e; \
     mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
     git init -q && git remote add origin https://github.com/ashalkhakov/gnustep-patches.git; \
@@ -68,6 +69,11 @@ RUN set -e; \
 
 FROM stack AS sdk
 ARG VERSION=0.0.0
+ARG DEBIAN_FRONTEND=noninteractive
+# ODataSync's peers: Bonjour by Avahi's dns_sd compatibility library (here,
+# not in the toolchain, so the stack's layers stay cached).
+RUN apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev \
+ && rm -rf /var/lib/apt/lists/*
 COPY . /usr/src/odatakit
 WORKDIR /usr/src/odatakit
 RUN set -e; \
@@ -96,8 +102,15 @@ RUN set -e; \
     echo "check: the loopback check, and an application built both ways, pass"
 
 FROM sdk AS unit
+ARG DEBIAN_FRONTEND=noninteractive
+# The peer discovery test advertises and browses: avahi-daemon, which
+# talks to the system D-Bus, both started for the run.
+RUN apt-get update && apt-get install -y --no-install-recommends avahi-daemon dbus \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /usr/src/odatakit
-RUN make test
+RUN set -e; \
+    mkdir -p /run/dbus; dbus-daemon --system --fork; avahi-daemon --daemonize --no-chroot; \
+    AVAHI_COMPAT_NOWARN=1 make test
 
 FROM ubuntu:${UBUNTU} AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
@@ -107,7 +120,7 @@ RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcqui
       > /etc/apt/apt.conf.d/99-odatakit
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libgnutls30t64 libffi8 libicu74 libxml2 libxslt1.1 zlib1g libcurl3t64-gnutls libgmp10 \
-      libsqlite3-0 libpq5 libmariadb3 libstdc++6 libatomic1 \
+      libsqlite3-0 libpq5 libmariadb3 libstdc++6 libatomic1 libavahi-compat-libdnssd1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=sdk /opt/gnustep /opt/gnustep
 COPY --from=sdk /usr/local/share/ois-serve /usr/local/share/ois-serve

@@ -394,6 +394,33 @@ static NSArray<NSString *> *WBSyncBookkeeping(void)
   return YES;
 }
 
+- (ODataSyncRemote *)serviceRemote
+{
+  return [self remote];
+}
+
+- (BOOL)syncWithRemote:(ODataSyncRemote *)remote named:(NSString *)name
+{
+  NSString *what = [@"Sync with " stringByAppendingString:name];
+  if (_busy) {
+    [self say:@"Still syncing."];
+    return NO;
+  }
+  _busy = YES;
+  [self say:[what stringByAppendingString:@"…"]];
+  ODataSyncEngine *sync = _sync;
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    NSError *error = nil;
+    // The engine's only while it runs: Sync stays the service's.
+    BOOL ok = [sync syncWithRemote:remote error:&error];
+    ODataSyncResult *result = sync.lastResult;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self finished:what ok:ok result:result error:error];
+    });
+  });
+  return YES;
+}
+
 - (void)finished:(NSString *)what ok:(BOOL)ok result:(ODataSyncResult *)result error:(NSError *)error
 {
   _busy = NO;

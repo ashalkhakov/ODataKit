@@ -19,8 +19,10 @@ static NSURL *OISURL(id text)
 
 static NSString *OISStoreType(NSString *name)
 {
-  NSMutableDictionary *known = [@{ @"SQLite": NSSQLiteStoreType, @"InMemory": NSInMemoryStoreType,
-                                   @"XML": NSXMLStoreType } mutableCopy];
+  NSMutableDictionary *known = [@{ @"SQLite": NSSQLiteStoreType, @"InMemory": NSInMemoryStoreType } mutableCopy];
+#if !(defined(__APPLE__) && TARGET_OS_IPHONE)
+  known[@"XML"] = NSXMLStoreType;  // not on iOS
+#endif
 #if defined(__APPLE__)
   known[@"Binary"] = NSBinaryStoreType;  // FreeCoreData has none
 #endif

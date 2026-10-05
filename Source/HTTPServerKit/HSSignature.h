@@ -23,6 +23,8 @@ FOUNDATION_EXPORT NSSet<NSString *> *HSSignatureAlgorithms(void);
 
 FOUNDATION_EXPORT NSData *HSSHA256(NSData *data);
 
+FOUNDATION_EXPORT NSString *HSBase64URLEncode(NSData *data);
+
 // RFC 4648 section 5, without padding; nil for anything else.
 FOUNDATION_EXPORT NSData *_Nullable HSBase64URLDecode(NSString *text);
 

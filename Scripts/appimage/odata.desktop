@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OData Workbench
+GenericName=OData Tools
+Comment=Open the Workbench, or the Device app that syncs with it and with peers
+Exec=AppRun
+Icon=odata
+Terminal=false
+Categories=Development;

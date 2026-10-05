@@ -11,6 +11,9 @@
       location = "group:Examples/Device/Device.xcodeproj">
    </FileRef>
    <FileRef
+      location = "group:Examples/DeviceDesktop/DeviceDesktop.xcodeproj">
+   </FileRef>
+   <FileRef
       location = "group:ODataKit.xcodeproj">
    </FileRef>
 </Workspace>

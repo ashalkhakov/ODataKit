@@ -8,5 +8,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Peers: devices serving their store nearby (ODataSyncPeerServiceType). -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_odatasync._tcp</string>
+	</array>
 </dict>
 </plist>

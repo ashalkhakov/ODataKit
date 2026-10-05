@@ -57,9 +57,12 @@ BUILD_DIR = build
 HTTPSERVERKIT_VERSION ?= $(shell git -C "$(CURDIR)" describe --tags --always 2>/dev/null || echo dev)
 FLAGS = -fobjc-arc -fblocks -fobjc-exceptions -Wall -Wno-unused-parameter -DHTTPSERVERKIT_VERSION='"$(HTTPSERVERKIT_VERSION)"'
 INCLUDES = $(INCLUDE_DIRS) $(GCDWebServer_INCLUDE_DIRS)
-LIBS = -framework Foundation -framework CoreData -framework Security -framework SystemConfiguration -framework CoreServices -lz
-SOURCES = $(wildcard ../Source/*/*.m) $(GCDWebServer_OBJC_FILES)
-HEADERS = $(wildcard ../Source/*/include/*/*.h ../Source/*/*.h)
+LIBS = -framework Foundation -framework CoreData -framework Security -framework Network -framework SystemConfiguration \
+	-framework CoreServices -lz
+# What differs by system is in each library's apple/ (and linux/, which
+# the GNUstep build compiles): this is Apple's.
+SOURCES = $(wildcard ../Source/*/*.m ../Source/*/apple/*.m) $(GCDWebServer_OBJC_FILES)
+HEADERS = $(wildcard ../Source/*/include/*/*.h ../Source/*/*.h ../Source/*/apple/*.h)
 
 all: $(BUILD_DIR)/ois-serve $(BUILD_DIR)/ois-serve-check $(BUILD_DIR)/catalog-server
 

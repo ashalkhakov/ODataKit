@@ -2,15 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "HSSignature.h"
-
-#if defined(__APPLE__)
-#import <Security/Security.h>
-#import <CommonCrypto/CommonDigest.h>
-#else
-#include <gnutls/gnutls.h>
-#include <gnutls/abstract.h>
-#include <gnutls/crypto.h>
-#endif
+#import "HSSignatureSystem.h"
 
 NSSet<NSString *> *HSSignatureAlgorithms(void)
 {
@@ -28,14 +20,39 @@ NSData *HSBase64URLDecode(NSString *text)
   return [[NSData alloc] initWithBase64EncodedString:standard options:0];
 }
 
+NSString *HSBase64URLEncode(NSData *data)
+{
+  NSString *base64 = [data base64EncodedStringWithOptions:0];
+  base64 = [[base64 stringByReplacingOccurrencesOfString:@"+" withString:@"-"] stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+  return [base64 stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"="]];
+}
+
+NSError *HSSigningError(NSString *what)
+{
+  return [NSError errorWithDomain:@"HSSignature" code:1 userInfo:@{ NSLocalizedDescriptionKey: what }];
+}
+
+// A number as exactly size bytes, big-endian: padded with zeros, or its
+// leading zeros taken off.
+NSData *HSFixedWidth(NSData *number, NSUInteger size)
+{
+  const unsigned char *bytes = number.bytes;
+  NSUInteger skip = 0;
+  while (number.length - skip > size && bytes[skip] == 0) skip++;
+  if (number.length - skip > size) return nil;
+  NSMutableData *out = [NSMutableData dataWithLength:size - (number.length - skip)];
+  [out appendBytes:bytes + skip length:number.length - skip];
+  return out;
+}
+
 // A JWK member's bytes: an unsigned big-endian number, or a coordinate.
-static NSData *HSMember(NSDictionary *jwk, NSString *name)
+NSData *HSMember(NSDictionary *jwk, NSString *name)
 {
   id value = jwk[name];
   return [value isKindOfClass:[NSString class]] ? HSBase64URLDecode(value) : nil;
 }
 
-static NSData *HSWithoutLeadingZeros(NSData *number)
+NSData *HSWithoutLeadingZeros(NSData *number)
 {
   const unsigned char *bytes = number.bytes;
   NSUInteger skip = 0;
@@ -56,12 +73,6 @@ static NSUInteger HSBits(NSData *number)
   return bits;
 }
 
-typedef struct {
-  const char *family;  // RS, PS, ES
-  int hash;            // 256, 384, 512
-  const char *curve;   // ES only
-  NSUInteger size;     // an ES coordinate's bytes
-} HSAlgorithm;
 
 static BOOL HSAlgorithmNamed(NSString *alg, HSAlgorithm *out)
 {
@@ -75,162 +86,6 @@ static BOOL HSAlgorithmNamed(NSString *alg, HSAlgorithm *out)
   return YES;
 }
 
-#if defined(__APPLE__)
-
-static NSData *HSDERLength(NSUInteger length)
-{
-  if (length < 0x80) return [NSData dataWithBytes:(unsigned char[]){ (unsigned char)length } length:1];
-  unsigned char bytes[5];
-  NSUInteger count = 0;
-  for (NSUInteger n = length; n; n >>= 8) count++;
-  bytes[0] = (unsigned char)(0x80 | count);
-  for (NSUInteger i = 0; i < count; i++) bytes[count - i] = (unsigned char)(length >> (8 * i));
-  return [NSData dataWithBytes:bytes length:count + 1];
-}
-
-static NSData *HSDERInteger(NSData *number)
-{
-  NSMutableData *value = [NSMutableData data];
-  NSData *n = HSWithoutLeadingZeros(number);
-  if (n.length && (((const unsigned char *)n.bytes)[0] & 0x80)) [value appendBytes:"\0" length:1];
-  [value appendData:n];
-  NSMutableData *der = [NSMutableData dataWithBytes:"\x02" length:1];
-  [der appendData:HSDERLength(value.length)];
-  [der appendData:value];
-  return der;
-}
-
-static SecKeyRef HSCreateKey(NSData *data, CFStringRef type, NSString **reason)
-{
-  CFErrorRef error = NULL;
-  NSDictionary *attributes = @{ (__bridge id)kSecAttrKeyType: (__bridge id)type,
-                                (__bridge id)kSecAttrKeyClass: (__bridge id)kSecAttrKeyClassPublic };
-  SecKeyRef key = SecKeyCreateWithData((__bridge CFDataRef)data, (__bridge CFDictionaryRef)attributes, &error);
-  if (!key) {
-    if (reason) *reason = [NSString stringWithFormat:@"the key does not load: %@", CFBridgingRelease(error)];
-    else if (error) CFRelease(error);
-  }
-  return key;
-}
-
-static BOOL HSVerify(HSAlgorithm a, NSDictionary *jwk, NSData *input, NSData *signature, NSString **reason)
-{
-  SecKeyRef key = NULL;
-  SecKeyAlgorithm algorithm;
-  if (a.family[0] == 'E') {
-    NSMutableData *point = [NSMutableData dataWithBytes:"\x04" length:1];
-    [point appendData:HSMember(jwk, @"x")];
-    [point appendData:HSMember(jwk, @"y")];
-    key = HSCreateKey(point, kSecAttrKeyTypeECSECPrimeRandom, reason);
-    algorithm = a.hash == 256 ? kSecKeyAlgorithmECDSASignatureMessageX962SHA256
-              : a.hash == 384 ? kSecKeyAlgorithmECDSASignatureMessageX962SHA384
-                              : kSecKeyAlgorithmECDSASignatureMessageX962SHA512;
-    // JWS has r || s; X9.62 is SEQUENCE { r, s } (RFC 4754's raw form
-    // needs macOS 14).
-    NSMutableData *body = [NSMutableData dataWithData:HSDERInteger([signature subdataWithRange:NSMakeRange(0, a.size)])];
-    [body appendData:HSDERInteger([signature subdataWithRange:NSMakeRange(a.size, a.size)])];
-    NSMutableData *der = [NSMutableData dataWithBytes:"\x30" length:1];
-    [der appendData:HSDERLength(body.length)];
-    [der appendData:body];
-    signature = der;
-  } else {
-    // PKCS #1 RSAPublicKey: SEQUENCE { modulus, publicExponent }.
-    NSMutableData *body = [NSMutableData dataWithData:HSDERInteger(HSMember(jwk, @"n"))];
-    [body appendData:HSDERInteger(HSMember(jwk, @"e"))];
-    NSMutableData *der = [NSMutableData dataWithBytes:"\x30" length:1];
-    [der appendData:HSDERLength(body.length)];
-    [der appendData:body];
-    key = HSCreateKey(der, kSecAttrKeyTypeRSA, reason);
-    if (a.family[0] == 'R') {
-      algorithm = a.hash == 256 ? kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA256
-                : a.hash == 384 ? kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA384
-                                : kSecKeyAlgorithmRSASignatureMessagePKCS1v15SHA512;
-    } else {
-      algorithm = a.hash == 256 ? kSecKeyAlgorithmRSASignatureMessagePSSSHA256
-                : a.hash == 384 ? kSecKeyAlgorithmRSASignatureMessagePSSSHA384
-                                : kSecKeyAlgorithmRSASignatureMessagePSSSHA512;
-    }
-  }
-  if (!key) return NO;
-  CFErrorRef error = NULL;
-  BOOL ok = SecKeyVerifySignature(key, algorithm, (__bridge CFDataRef)input, (__bridge CFDataRef)signature, &error);
-  CFRelease(key);
-  if (error) CFRelease(error);
-  if (!ok && reason) *reason = @"the signature does not verify";
-  return ok;
-}
-
-NSData *HSSHA256(NSData *data)
-{
-  unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-  CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
-  return [NSData dataWithBytes:digest length:sizeof digest];
-}
-
-#else
-
-static gnutls_datum_t HSDatum(NSData *data)
-{
-  return (gnutls_datum_t){ (unsigned char *)data.bytes, (unsigned int)data.length };
-}
-
-static BOOL HSVerify(HSAlgorithm a, NSDictionary *jwk, NSData *input, NSData *signature, NSString **reason)
-{
-  gnutls_pubkey_t key;
-  if (gnutls_pubkey_init(&key) < 0) {
-    if (reason) *reason = @"no key";
-    return NO;
-  }
-  int loaded;
-  gnutls_sign_algorithm_t algorithm;
-  NSData *checked = signature;
-  gnutls_datum_t der = { NULL, 0 };
-  if (a.family[0] == 'E') {
-    gnutls_ecc_curve_t curve = a.hash == 256 ? GNUTLS_ECC_CURVE_SECP256R1 : a.hash == 384 ? GNUTLS_ECC_CURVE_SECP384R1 : GNUTLS_ECC_CURVE_SECP521R1;
-    NSData *x = HSMember(jwk, @"x"), *y = HSMember(jwk, @"y");
-    gnutls_datum_t xd = HSDatum(x), yd = HSDatum(y);
-    loaded = gnutls_pubkey_import_ecc_raw(key, curve, &xd, &yd);
-    algorithm = a.hash == 256 ? GNUTLS_SIGN_ECDSA_SHA256 : a.hash == 384 ? GNUTLS_SIGN_ECDSA_SHA384 : GNUTLS_SIGN_ECDSA_SHA512;
-    // JWS has r || s; GnuTLS takes the DER of X9.62.
-    NSData *r = [signature subdataWithRange:NSMakeRange(0, a.size)];
-    NSData *s = [signature subdataWithRange:NSMakeRange(a.size, a.size)];
-    gnutls_datum_t rd = HSDatum(r), sd = HSDatum(s);
-    if (loaded >= 0 && gnutls_encode_rs_value(&der, &rd, &sd) >= 0) {
-      checked = [NSData dataWithBytes:der.data length:der.size];
-    } else {
-      loaded = -1;
-    }
-  } else {
-    NSData *n = HSMember(jwk, @"n"), *e = HSMember(jwk, @"e");
-    gnutls_datum_t nd = HSDatum(n), ed = HSDatum(e);
-    loaded = gnutls_pubkey_import_rsa_raw(key, &nd, &ed);
-    if (a.family[0] == 'R') {
-      algorithm = a.hash == 256 ? GNUTLS_SIGN_RSA_SHA256 : a.hash == 384 ? GNUTLS_SIGN_RSA_SHA384 : GNUTLS_SIGN_RSA_SHA512;
-    } else {
-      algorithm = a.hash == 256 ? GNUTLS_SIGN_RSA_PSS_RSAE_SHA256 : a.hash == 384 ? GNUTLS_SIGN_RSA_PSS_RSAE_SHA384 : GNUTLS_SIGN_RSA_PSS_RSAE_SHA512;
-    }
-  }
-  if (der.data) gnutls_free(der.data);
-  if (loaded < 0) {
-    gnutls_pubkey_deinit(key);
-    if (reason) *reason = @"the key does not load";
-    return NO;
-  }
-  gnutls_datum_t data = HSDatum(input), sig = HSDatum(checked);
-  int verified = gnutls_pubkey_verify_data2(key, algorithm, 0, &data, &sig);
-  gnutls_pubkey_deinit(key);
-  if (verified < 0 && reason) *reason = @"the signature does not verify";
-  return verified >= 0;
-}
-
-NSData *HSSHA256(NSData *data)
-{
-  unsigned char digest[32];
-  gnutls_hash_fast(GNUTLS_DIG_SHA256, data.bytes, data.length, digest);
-  return [NSData dataWithBytes:digest length:sizeof digest];
-}
-
-#endif
 
 BOOL HSVerifyJWS(NSString *alg, NSDictionary *jwk, NSData *input, NSData *signature, NSString **reason)
 {
@@ -274,5 +129,49 @@ BOOL HSVerifyJWS(NSString *alg, NSDictionary *jwk, NSData *input, NSData *signat
       return NO;
     }
   }
-  return HSVerify(a, jwk, input, signature, reason);
+  return HSSystemVerify(a, jwk, input, signature, reason);
+}
+
+#pragma mark - Signing
+
+// RFC 7638: the SHA-256 of the key's required members, in order.
+static NSString *HSKeyThumbprint(NSString *x, NSString *y)
+{
+  NSString *canonical = [NSString stringWithFormat:@"{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"%@\",\"y\":\"%@\"}", x, y];
+  return HSBase64URLEncode(HSSHA256([canonical dataUsingEncoding:NSUTF8StringEncoding]));
+}
+
+NSDictionary *HSGenerateSigningKey(NSError **error)
+{
+  NSData *x = nil, *y = nil, *d = nil;
+  if (!HSSystemNewP256(&x, &y, &d, error)) return nil;
+  NSString *xs = HSBase64URLEncode(x), *ys = HSBase64URLEncode(y);
+  return @{ @"kty": @"EC", @"crv": @"P-256", @"x": xs, @"y": ys, @"d": HSBase64URLEncode(d),
+            @"alg": @"ES256", @"use": @"sig", @"kid": HSKeyThumbprint(xs, ys) };
+}
+
+NSDictionary *HSPublicKey(NSDictionary *jwk)
+{
+  NSMutableDictionary *public = [NSMutableDictionary dictionary];
+  for (NSString *name in @[ @"kty", @"crv", @"x", @"y", @"alg", @"use", @"kid" ]) {
+    if (jwk[name]) public[name] = jwk[name];
+  }
+  return public;
+}
+
+NSString *HSSignJWT(NSDictionary *claims, NSDictionary *jwk, NSError **error)
+{
+  if (![jwk[@"kty"] isEqual:@"EC"] || ![jwk[@"crv"] isEqual:@"P-256"] || HSMember(jwk, @"x").length != 32 ||
+      HSMember(jwk, @"y").length != 32 || HSMember(jwk, @"d").length != 32) {
+    if (error) *error = HSSigningError(@"ES256 signs with a P-256 key and its d");
+    return nil;
+  }
+  NSMutableDictionary *header = [@{ @"alg": @"ES256", @"typ": @"JWT" } mutableCopy];
+  if (jwk[@"kid"]) header[@"kid"] = jwk[@"kid"];
+  NSData *headerJSON = [NSJSONSerialization dataWithJSONObject:header options:0 error:error];
+  NSData *claimsJSON = headerJSON ? [NSJSONSerialization dataWithJSONObject:claims options:0 error:error] : nil;
+  if (!claimsJSON) return nil;
+  NSString *input = [NSString stringWithFormat:@"%@.%@", HSBase64URLEncode(headerJSON), HSBase64URLEncode(claimsJSON)];
+  NSData *signature = HSSystemSignES256(jwk, [input dataUsingEncoding:NSUTF8StringEncoding], error);
+  return signature ? [NSString stringWithFormat:@"%@.%@", input, HSBase64URLEncode(signature)] : nil;
 }

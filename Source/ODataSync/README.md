@@ -58,7 +58,9 @@ flowchart LR
 - **Peers**: a device may serve its store (`ODataSyncPeerServer`, an
   `ODataService` on HTTPServerKit); another adds it as a remote and syncs
   with it as with the service. What came from one remote is passed on to
-  the others, never back.
+  the others, never back. Between devices on a local network: TLS with each
+  device's certificate, Bonjour, and trust by the service's peer tokens or
+  by pairing ([peer sync](../../docs/peer-sync.md)).
 - **Schema versions**: `$metadata` says the service's (`Core.SchemaVersion`)
   and each request names the device's (`$schemaversion`); a service on a
   newer model can read what an older device sends (`ODataService.upgradeBody`).
@@ -276,6 +278,12 @@ its built-in service, its outbox, the conflicts it meets, its requests.
 |---|---|
 | `include/ODataSync/ODataSyncEngine.h` | the public API: the engine, remotes, changes and issues, conflicts and resolvers |
 | `include/ODataSync/ODataSyncPeerServer.h` | a device's store served to its peers |
+| `include/ODataSync/ODataSyncPeerTokens.h` | peer tokens the service issues (`ODataSyncPeerTokenIssuer`) |
+| `include/ODataSync/ODataSyncPeerIdentity.h` | a device's key pair and certificate, its thumbprint |
+| `include/ODataSync/ODataSyncPeerListener.h` | TLS in front of the peer server, the client's certificate noted |
+| `include/ODataSync/ODataSyncPeerTrust.h` | whom a device syncs with: tokens, pairings |
+| `include/ODataSync/ODataSyncPeerTransport.h` | a remote's way to a peer over TLS, the peer checked; pairing |
+| `include/ODataSync/ODataSyncPeerDiscovery.h` | Bonjour: advertising and browsing for peers |
 | `include/ODataSync/ODataSyncService.h` | the server's part: `ODataSyncService`, `ODataSyncSetHandler` |
 | `ODataSyncEngine.m` | orchestration: remotes in turn, the sync loop, resolvers, the outbox's API |
 | `ODataSyncRemote.m`, `ODataSyncChange.m` | the public value classes |
@@ -289,11 +297,15 @@ its built-in service, its outbox, the conflicts it meets, its requests.
 | `ODSUploader.m` | up: history into the outbox, requests sent, answers taken |
 | `ODSConflicts.m` | conflicts: versions met, resolvers, resolutions applied |
 | `ODSVersions.m` | version vectors: text, comparison, merging |
-| `ODataSyncPeerServer.m`, `ODataSyncService.m` | the peer server and the service's part (macOS and GNUstep only) |
+| `ODataSyncPeerServer.m`, `ODataSyncService.m` | the peer server and the service's part |
+| `ODataSyncPeer*.m` | peers: identity, trust, transport, discovery, tokens, as the system interface below gives them |
+| `ODSSystem.h` | what peers need of the system: hashing, random bytes, the identity's keeping, an HTTPS client of a peer |
+| `apple/` | ODSSystem on Apple platforms (Security, URLSession) and the listener (Network.framework); the Xcode project builds it |
+| `linux/` | ODSSystem on Linux (GnuTLS, libcurl) and the listener (GnuTLS over sockets); the GNUmakefiles build it |
 
-On iOS, ODataSync is the device's part: the target filters the peer server,
-the service's part, their headers, and ODataService and HTTPServerKit to
-macOS, and `ODataSync.h` leaves them out. The rest builds unchanged.
+What differs from system to system is in `apple/` and `linux/`, one
+directory each, which the build picks; the rest has no `#if` for it. The
+whole of ODataSync builds on macOS, iOS and GNUstep.
 
 ## Tests
 

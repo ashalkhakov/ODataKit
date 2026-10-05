@@ -33,6 +33,10 @@ endif
 
 GNUSTEP_LIBS += -lCoreData -ldispatch
 
+# ODataSync's peers: Avahi's dns_sd compatibility library (Bonjour).
+DNSSD_CFLAGS := $(shell pkg-config --cflags avahi-compat-libdns_sd 2>/dev/null || echo -I/usr/include/avahi-compat-libdns_sd)
+DNSSD_LIBS := $(shell pkg-config --libs avahi-compat-libdns_sd 2>/dev/null || echo -ldns_sd)
+
 OBJCFLAGS = $(GNUSTEP_FLAGS) \
 	-fobjc-runtime=gnustep-2.0 \
 	-fobjc-arc \
@@ -46,9 +50,11 @@ OBJCFLAGS = $(GNUSTEP_FLAGS) \
 KIT_SRCS = $(wildcard $(SRC_DIR)/ODataKit/*.m)
 CLIENT_SRCS = $(wildcard $(SRC_DIR)/ODataIncrementalStore/*.m)
 TRACE_SRCS = $(wildcard $(SRC_DIR)/OTelKit/*.m)
-HOST_SRCS = $(wildcard $(SRC_DIR)/HTTPServerKit/*.m)
+# What differs from system to system is in each library's linux/ (and
+# apple/, the Xcode project's): this is Linux's.
+HOST_SRCS = $(wildcard $(SRC_DIR)/HTTPServerKit/*.m) $(wildcard $(SRC_DIR)/HTTPServerKit/linux/*.m)
 SERVICE_SRCS = $(wildcard $(SRC_DIR)/ODataService/*.m)
-SYNC_SRCS = $(wildcard $(SRC_DIR)/ODataSync/*.m)
+SYNC_SRCS = $(wildcard $(SRC_DIR)/ODataSync/*.m) $(wildcard $(SRC_DIR)/ODataSync/linux/*.m)
 SRCS = $(KIT_SRCS) $(CLIENT_SRCS) $(TRACE_SRCS) $(HOST_SRCS) $(SERVICE_SRCS) $(SYNC_SRCS)
 GCDWebServer_OBJS = $(GCDWebServer_OBJC_FILES:.m=.o)
 
@@ -74,10 +80,11 @@ libODataService.so: $(SERVICE_SRCS:.m=.o) libODataKit.so libHTTPServerKit.so
 	$(CC) -shared -o $@ $(SERVICE_SRCS:.m=.o) -L. -lHTTPServerKit -lOTelKit -lODataKit $(GNUSTEP_LIBS)
 
 libODataSync.so: $(SYNC_SRCS:.m=.o) libODataService.so libODataIncrementalStore.so libOTelKit.so libODataKit.so
-	$(CC) -shared -o $@ $(SYNC_SRCS:.m=.o) -L. -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit $(GNUSTEP_LIBS)
+	$(CC) -shared -o $@ $(SYNC_SRCS:.m=.o) -L. -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit $(GNUSTEP_LIBS) \
+	  -lgnutls -lcurl $(DNSSD_LIBS)
 
 $(SRC_DIR)/ODataSync/%.o: $(SRC_DIR)/ODataSync/%.m
-	$(CC) $(OBJCFLAGS) -I$(SRC_DIR)/ODataSync -c $< -o $@
+	$(CC) $(OBJCFLAGS) -I$(SRC_DIR)/ODataSync $(DNSSD_CFLAGS) -c $< -o $@
 
 $(SRC_DIR)/HTTPServerKit/%.o: $(SRC_DIR)/HTTPServerKit/%.m
 	$(CC) $(OBJCFLAGS) $(GCDWebServer_INCLUDE_DIRS) -DHTTPSERVERKIT_VERSION='"$(HTTPSERVERKIT_VERSION)"' -c $< -o $@
