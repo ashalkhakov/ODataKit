@@ -92,7 +92,17 @@ int DDRunSelfTest(NSURL *workbench)
     }
     return (BOOL)(found != nil);
   });
-  DDCheck(seen, @"B finds A nearby (Bonjour)", found ? found.serviceRoot.absoluteString : @"not in thirty seconds (is avahi-daemon running?)");
+  NSError *refused = b.peers.discoveryError ?: a.peers.discoveryError;
+  if (!seen && refused.code == -65570) {
+    // macOS (and iOS) ask the user before an app may use the local network;
+    // where no one can answer (a CI runner), Bonjour is refused. Not this
+    // code's failure: said, not counted.
+    printf("SKIP B finds A nearby (Bonjour): %s\n", refused.localizedDescription.UTF8String);
+  } else {
+    DDCheck(seen, @"B finds A nearby (Bonjour)",
+            found ? found.serviceRoot.absoluteString
+                  : refused ? refused.localizedDescription : @"not in thirty seconds (on Linux: is avahi-daemon running?)");
+  }
 
   // A's change, not sent to the Workbench, reaches B from A.
   NSManagedObject *product = DDFirstProduct(a);
@@ -100,14 +110,21 @@ int DDRunSelfTest(NSURL *workbench)
   NSString *name = [NSString stringWithFormat:@"Peer-synced %@", [NSUUID UUID].UUIDString.lowercaseString];
   a.device.offline = YES;
   [a.device setValue:name ofAttribute:@"name" object:product];
-  if (found) {
-    DDSynced(b, @"B syncs with A, by token", ^{
-      return [b.peers syncWithPeer:found];
-    });
-    DDCheck([[b.device valueOfAttribute:@"name" entity:@"Product" key:key] isEqual:name], @"B has A's change", nil);
-  }
+  // By token: with A as found, or (Bonjour refused) at A's root, its
+  // certificate expected.
+  DDSynced(b, found ? @"B syncs with A, by token" : @"B syncs with A at its root, by token", ^{
+    if (found) return [b.peers syncWithPeer:found];
+    NSURL *root = a.peers.serviceRoot;
+    ODataSyncRemote *remote = [ODataSyncRemote peerWithServiceRoot:root];
+    ODataSyncPeerTransport *transport = [[ODataSyncPeerTransport alloc] initWithServiceRoot:root trust:b.peers.trust];
+    transport.expectedThumbprint = a.peers.trust.identity.thumbprint;
+    remote.transport = transport;
+    return [b.device syncWithRemote:remote named:@"Self-test A"];
+  });
+  DDCheck([[b.device valueOfAttribute:@"name" entity:@"Product" key:key] isEqual:name], @"B has A's change", nil);
 
   // C, with no token: refused, then paired with A, and synced.
+  // (The app's own refusal, before any connection: found or not.)
   if (found) {
     BOOL started = [c.peers syncWithPeer:found];
     DDCheck(!started, @"C, without a token or a pairing, does not sync", c.status);

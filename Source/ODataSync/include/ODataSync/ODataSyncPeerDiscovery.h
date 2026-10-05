@@ -51,6 +51,11 @@ FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
 - (BOOL)start:(NSError **)error;
 - (void)stop;
 @property (nonatomic, readonly, getter=isAdvertising) BOOL advertising;
+// Told (on the main queue) when the daemon refused the advertisement once
+// started (another policy, the app not allowed the local network), or its
+// connection broke: no longer advertising; error says why.
+@property (nonatomic, copy, nullable) void (^didFail)(NSError *error);
+@property (atomic, readonly, nullable) NSError *error;
 @end
 
 @class ODataSyncPeerBrowser;

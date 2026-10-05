@@ -125,6 +125,10 @@ static dispatch_queue_t ODSQueueOf(id owner, const char *label)
 
 #pragma mark - Advertising
 
+@interface ODataSyncPeerAdvertiser ()
+- (void)failed:(DNSServiceErrorType)error;
+@end
+
 @implementation ODataSyncPeerAdvertiser {
   ODSWatch *_registration;
   NSString *_name;
@@ -147,9 +151,11 @@ static dispatch_queue_t ODSQueueOf(id owner, const char *label)
   ODSSystemDispatchRelease(_queue);
 }
 
+// Registered, or refused: a refusal ends the advertisement.
 static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServiceErrorType error, const char *name, const char *type,
                           const char *domain, void *context)
 {
+  if (error != kDNSServiceErr_NoError) [(__bridge ODataSyncPeerAdvertiser *)context failed:error];
 }
 
 - (BOOL)start:(NSError **)error
@@ -185,18 +191,32 @@ static void ODSRegistered(DNSServiceRef service, DNSServiceFlags flags, DNSServi
   }
   // The daemon's connection broken: no longer advertised (start again).
   __weak ODataSyncPeerAdvertiser *weak = self;
-  __weak ODSWatch *weakRegistration = registration;
   registration.failed = ^(DNSServiceErrorType failure) {
-    ODataSyncPeerAdvertiser *strong = weak;
-    if (!strong) return;
-    @synchronized (strong) {
-      if (strong->_registration == weakRegistration) strong->_registration = nil;
-    }
+    [weak failed:failure];
   };
   @synchronized (self) {
     _registration = registration;
   }
   return YES;
+}
+
+// On the queue: the advertisement over, the owner told why.
+- (void)failed:(DNSServiceErrorType)failure
+{
+  ODSWatch *registration = nil;
+  @synchronized (self) {
+    registration = _registration;
+    _registration = nil;
+  }
+  if (!registration) return;
+  [registration cancel];
+  NSError *error = ODSDiscoveryError(failure, failure == -65570 ? @"Not advertised: the app may not use the local network (macOS, iOS: the user allows it)"
+                                                                : @"No longer advertised");
+  _error = error;
+  void (^didFail)(NSError *) = self.didFail;
+  if (didFail) dispatch_async(dispatch_get_main_queue(), ^{
+    didFail(error);
+  });
 }
 
 - (void)stop
@@ -397,7 +417,8 @@ static void ODSLookedUp(DNSServiceRef service, DNSServiceFlags flags, uint32_t i
 
 - (void)failed:(DNSServiceErrorType)error
 {
-  NSError *failure = ODSDiscoveryError(error, @"Looking for peers failed");
+  NSError *failure = ODSDiscoveryError(error, error == -65570 ? @"Not looking for peers: the app may not use the local network (macOS, iOS: the user allows it)"
+                                                             : @"Looking for peers failed");
   [self tell:^(id<ODataSyncPeerBrowserDelegate> delegate) {
     if ([delegate respondsToSelector:@selector(peerBrowser:didFailWithError:)]) [delegate peerBrowser:self didFailWithError:failure];
   }];

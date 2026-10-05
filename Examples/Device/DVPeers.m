@@ -205,6 +205,14 @@ static NSString *DVLocalAddress(void)
   ODataSyncPeerServer *server = [[ODataSyncPeerServer alloc] initWithEngine:_device.sync trust:_trust host:host port:_port];
   if (![server start:error]) return NO;
   ODataSyncPeerAdvertiser *advertiser = [[ODataSyncPeerAdvertiser alloc] initWithServer:server name:_deviceName];
+  __weak DVPeers *weak = self;
+  advertiser.didFail = ^(NSError *failure) {
+    DVPeers *strong = weak;
+    if (!strong) return;
+    strong->_discoveryError = failure;
+    [strong changed];
+    [strong say:failure.localizedDescription];
+  };
   if (![advertiser start:error]) {
     [server stop];
     return NO;
@@ -303,6 +311,7 @@ static NSString *DVLocalAddress(void)
 
 - (void)peerBrowser:(ODataSyncPeerBrowser *)browser didFailWithError:(NSError *)error
 {
+  _discoveryError = error;
   [_browser stop];
   _browser = nil;
   [self changed];
