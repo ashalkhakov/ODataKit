@@ -101,16 +101,19 @@ int DDRunSelfTest(NSURL *workbench)
     // where no one can answer (a CI runner), Bonjour is refused. Not this
     // code's failure: said, not counted.
     printf("SKIP B finds A nearby (Bonjour): %s\n", refused.localizedDescription.UTF8String);
-  } else if (!seen && !refused && registered && DDSystemMayHideBonjour()) {
-    // Registered, and nothing seen, no error: as macOS answers an app no one
-    // allowed the local network. Discovery itself is ODataSyncPeerTests'.
-    printf("SKIP B finds A nearby (Bonjour): A is registered as \"%s\", but nothing came back; this system may hide Bonjour "
-           "from an app no one allowed the local network\n", registered.UTF8String);
+  } else if (!seen && !refused && DDSystemMayHideBonjour()) {
+    // Nothing seen, no error: as macOS answers an app no one allowed the
+    // local network, which may leave even the registration unanswered.
+    // Discovery itself is ODataSyncPeerTests'.
+    printf("SKIP B finds A nearby (Bonjour): %s, and nothing came back; this system may hide Bonjour from an app no one "
+           "allowed the local network\n",
+           registered ? [NSString stringWithFormat:@"A is registered as \"%@\"", registered].UTF8String
+                      : "A's advertisement was not answered (registered or refused)");
   } else if (!seen && !refused && !registered) {
     DDCheck(NO, @"B finds A nearby (Bonjour)", @"A's advertisement was never registered by the daemon");
   } else {
     DDCheck(seen, @"B finds A nearby (Bonjour)",
-            found ? found.serviceRoot.absoluteString
+            found ? [NSString stringWithFormat:@"%@, A registered as \"%@\"", found.serviceRoot.absoluteString, registered ?: @"(not yet)"]
                   : refused ? refused.localizedDescription : @"not in thirty seconds (on Linux: is avahi-daemon running?)");
   }
 

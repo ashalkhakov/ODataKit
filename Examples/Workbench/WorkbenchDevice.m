@@ -200,12 +200,6 @@ static NSArray<NSString *> *WBSyncBookkeeping(void)
     if ([name isEqualToString:@"Product"]) info[ODataSyncModifiedKey] = @"lastChanged";
     entity.userInfo = info;
   }
-  // The device keeps a deleted object's key, for the service to be told.
-  for (NSEntityDescription *entity in model.entities) {
-    for (NSAttributeDescription *attribute in entity.attributesByName.allValues) {
-      if (WBIsKey(attribute)) attribute.preservesValueInHistoryOnDeletion = YES;
-    }
-  }
   [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
   NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
   if (_temporary) {

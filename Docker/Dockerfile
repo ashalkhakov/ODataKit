@@ -50,7 +50,7 @@ SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
 FROM toolchain AS stack
 ARG GNUSTEP_PATCHES_REF=00a9c890134abe3e752d49545556a228cb8b7122
-ARG FREECOREDATA_REF=1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
+ARG FREECOREDATA_REF=65b3ebb409cf5a8d9f75f07df8056d173ce2ceeb
 RUN set -e; \
     mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
     git init -q && git remote add origin https://github.com/ashalkhakov/gnustep-patches.git; \

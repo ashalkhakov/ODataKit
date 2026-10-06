@@ -11,11 +11,6 @@
 NSString * const ODataUserInfoUnmapped = @"OData.unmapped";
 NSString * const ODataModelVersionPrefix = @"odata:";
 
-// The version identifier again, on every entity: FreeCoreData's momc before
-// v0.4.1 does not carry a model's userDefinedModelVersionIdentifier into
-// the compiled model, and an entity's userInfo survives any momc.
-static NSString * const OISUserInfoModelVersion = @"OData.modelVersion";
-
 #pragma mark - Names
 
 // UserName is userName, ID is id, URLPath is urlPath.
@@ -295,10 +290,6 @@ static void OISApplyVocabularies(NSDictionary<NSString *, id> *annotations, ODat
   for (id identifier in model.versionIdentifiers) {
     if ([identifier isKindOfClass:[NSString class]] && [identifier hasPrefix:ODataModelVersionPrefix]) return identifier;
   }
-  for (NSEntityDescription *entity in model.entities) {
-    NSString *version = entity.userInfo[OISUserInfoModelVersion];
-    if ([version isKindOfClass:[NSString class]] && [version hasPrefix:ODataModelVersionPrefix]) return version;
-  }
   return nil;
 }
 
@@ -319,7 +310,7 @@ static void OISApplyVocabularies(NSDictionary<NSString *, id> *annotations, ODat
     entity.name = name;
     entity.managedObjectClassName = @"NSManagedObject";
     entity.abstract = type.isAbstract;
-    NSMutableDictionary *info = [@{ ODataUserInfoType: qualified, OISUserInfoModelVersion: version } mutableCopy];
+    NSMutableDictionary *info = [@{ ODataUserInfoType: qualified } mutableCopy];
     // Its own set: a derived type is found through its base's.
     NSMutableArray *sets = [NSMutableArray array];
     for (NSString *set in schema.entitySets) {
@@ -579,24 +570,12 @@ static void OISAddUserInfo(ODataXMLElement *parent, NSDictionary *info)
   return [document XMLDataWithOptions:ODataXMLNodePrettyPrint | ODataXMLNodeCompactEmptyElement];
 }
 
-// The userDefinedModelVersionIdentifier of a model document, or of the
-// first entity's OData.modelVersion entry.
+// The userDefinedModelVersionIdentifier of a model document.
 static NSString *OISDocumentVersion(NSData *document)
 {
   ODataXMLElement *root = document.length ? [[ODataXMLDocument alloc] initWithData:document options:0 error:NULL].rootElement : nil;
   NSString *version = [root attributeForName:@"userDefinedModelVersionIdentifier"].stringValue;
-  if (version.length) return version;
-  for (ODataXMLElement *entity in [root elementsForName:@"entity"]) {
-    for (ODataXMLElement *userInfo in [entity elementsForName:@"userInfo"]) {
-      for (ODataXMLElement *entry in [userInfo elementsForName:@"entry"]) {
-        if ([[entry attributeForName:@"key"].stringValue isEqualToString:@"OData.modelVersion"]) {
-          NSString *value = [entry attributeForName:@"value"].stringValue;
-          if (value.length) return value;
-        }
-      }
-    }
-  }
-  return nil;
+  return version.length ? version : nil;
 }
 
 + (NSString *)writeModel:(NSManagedObjectModel *)model toPackage:(NSString *)path changed:(BOOL *)changed error:(NSError **)error

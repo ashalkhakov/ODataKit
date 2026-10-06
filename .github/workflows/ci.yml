@@ -198,7 +198,9 @@ jobs:
       # #51: the SQL backends share one libCDSQLStore, so a process can load
       # both, and evaluate MATCHES in SQL.
       # #61: NULL sorts as Core Data sorts it, on every SQL backend.
-      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
+      # #62: momc reads and writes "Preserve After Deletion" as Xcode spells
+      # it (preserveAfterDeletion): the Catalog's keys carry it.
+      FREECOREDATA_REF: 65b3ebb409cf5a8d9f75f07df8056d173ce2ceeb
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
