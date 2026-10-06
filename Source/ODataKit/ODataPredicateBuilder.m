@@ -179,9 +179,57 @@ static NSPredicate *OISCompare(NSExpression *left, NSPredicateOperatorType type,
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, NSArray *> *spans;
 @property (nonatomic, strong, nullable) NSMutableDictionary<NSString *, NSAttributeDescription *> *wanted;
 @property (nonatomic, strong, nullable) NSManagedObjectContext *context;
+// OData's conditions are three-valued (URL conventions 5.1.1.1.7-9): true,
+// false, or null, which $filter leaves out as it does false. A predicate
+// says where a condition is true; for one that can be null, this says
+// where it is false, the rest being null. A condition not in it is never
+// null: false wherever it is not true.
+@property (nonatomic, strong) NSMapTable<NSPredicate *, NSPredicate *> *falsehoods;
 @end
 
 @implementation OISPredicateBuild
+
+// p, a condition null where neither it nor f holds: f where it is false.
+- (NSPredicate *)condition:(NSPredicate *)p falseWhere:(NSPredicate *)f
+{
+  if (!p || !f) return p;
+  if (!self.falsehoods) {
+    self.falsehoods = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+                                            valueOptions:NSPointerFunctionsStrongMemory];
+  }
+  [self.falsehoods setObject:f forKey:p];
+  return p;
+}
+
+// Where p is false: what it says, for one that can be null; else
+// wherever it is not true.
+- (NSPredicate *)falsehoodOf:(NSPredicate *)p
+{
+  return [self.falsehoods objectForKey:p] ?: [NSCompoundPredicate notPredicateWithSubpredicate:p];
+}
+
+- (BOOL)mayBeNull:(NSPredicate *)p
+{
+  return [self.falsehoods objectForKey:p] != nil;
+}
+
+// A function of terms that is null where any of them is (URL conventions
+// 5.1.1.4: "If a parameter of a canonical function is null, the function
+// returns null"), as has is (5.1.1.1.10), and a Boolean value itself:
+// true where they are all there and c holds, false where they are and it
+// does not.
+- (NSPredicate *)nullable:(NSPredicate *)c terms:(NSArray<OISTerm *> *)terms type:(NSPredicateOperatorType)type
+{
+  if (!c) return nil;
+  NSPredicate *t = [self guarded:[self nullSafe:c terms:terms type:type] terms:terms whenNull:NO];
+  BOOL mayBeNull = NO;
+  for (OISTerm *term in terms) mayBeNull = mayBeNull || term.guard || term.nullables.count;
+  if (!mayBeNull) return t;
+  NSPredicate *f = [self guarded:[self nullSafe:[NSCompoundPredicate notPredicateWithSubpredicate:c] terms:terms type:type]
+                           terms:terms
+                        whenNull:NO];
+  return [self condition:t falseWhere:f];
+}
 
 - (id)fail:(NSInteger)status message:(NSString *)message
 {
@@ -367,7 +415,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
   NSExpression *value = [self valueExpression:x typedBy:nil];
   if (!value) return nil;
   NSPredicate *p = OISCompare(value, NSMatchesPredicateOperatorType, [NSExpression expressionForConstantValue:anywhere], 0);
-  return [self guarded:[self nullSafe:p terms:@[ x ] type:NSMatchesPredicateOperatorType] terms:@[ x ] whenNull:NO];
+  return [self nullable:p terms:@[ x ] type:NSMatchesPredicateOperatorType];
 }
 
 // isdefined(path) (Data Aggregation section 3.2.1): whether the instance
@@ -848,8 +896,15 @@ static BOOL OISWidens(NSString *from, NSString *to)
         NSPredicate *l = [self predicate:e.left];
         NSPredicate *r = l ? [self predicate:e.right] : nil;
         if (!r) return nil;
-        return [e.name isEqualToString:@"and"] ? [NSCompoundPredicate andPredicateWithSubpredicates:@[ l, r ]]
-                                               : [NSCompoundPredicate orPredicateWithSubpredicates:@[ l, r ]];
+        // true and null is null, false and null false; true or null is
+        // true, false or null null (5.1.1.1.7, 5.1.1.1.8).
+        BOOL and = [e.name isEqualToString:@"and"];
+        NSPredicate *p = and ? [NSCompoundPredicate andPredicateWithSubpredicates:@[ l, r ]]
+                             : [NSCompoundPredicate orPredicateWithSubpredicates:@[ l, r ]];
+        if (![self mayBeNull:l] && ![self mayBeNull:r]) return p;
+        NSArray *falsehoods = @[ [self falsehoodOf:l], [self falsehoodOf:r] ];
+        return [self condition:p falseWhere:and ? [NSCompoundPredicate orPredicateWithSubpredicates:falsehoods]
+                                                : [NSCompoundPredicate andPredicateWithSubpredicates:falsehoods]];
       }
       if ([@[ @"eq", @"ne", @"gt", @"ge", @"lt", @"le" ] containsObject:e.name]) return [self compare:e.name left:e.left right:e.right];
       if ([e.name isEqualToString:@"in"]) return [self in:e.left list:e.right];
@@ -859,7 +914,11 @@ static BOOL OISWidens(NSString *from, NSString *to)
     case ODataExpressionUnary: {
       if (![e.name isEqualToString:@"not"]) return [self fail:400 message:[NSString stringWithFormat:@"%@ is not a condition", e]];
       NSPredicate *p = [self predicate:e.operand];
-      return p ? [NSCompoundPredicate notPredicateWithSubpredicate:p] : nil;
+      if (!p) return nil;
+      // not null is null (5.1.1.1.9): true where p is false, false where
+      // it is true.
+      if (![self mayBeNull:p]) return [NSCompoundPredicate notPredicateWithSubpredicate:p];
+      return [self condition:[self falsehoodOf:p] falseWhere:p];
     }
     case ODataExpressionLambda:
       return [self lambda:e];
@@ -895,7 +954,8 @@ static BOOL OISWidens(NSString *from, NSString *to)
       if (t.kind == OISTermValue && t.attribute.attributeType == NSBooleanAttributeType) {
         NSPredicate *p = OISCompare([self valueExpression:t typedBy:nil], NSEqualToPredicateOperatorType,
                                     [NSExpression expressionForConstantValue:@YES], 0);
-        return [self guarded:[self nullSafe:p terms:@[ t ] type:NSEqualToPredicateOperatorType] terms:@[ t ] whenNull:NO];
+        // Null where the value is.
+        return [self nullable:p terms:@[ t ] type:NSEqualToPredicateOperatorType];
       }
       return [self fail:400 message:[NSString stringWithFormat:@"%@ is not a condition", e]];
     }
@@ -1506,8 +1566,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   OISTerm *l = [self term:left];
   OISTerm *r = l ? [self term:right] : nil;
   if (!r) return nil;
-  NSPredicate *p = [self nullSafe:[self stringOperator:type name:name leftTerm:l rightTerm:r] terms:@[ l, r ] type:type];
-  return [self guarded:p terms:@[ l, r ] whenNull:NO];
+  return [self nullable:[self stringOperator:type name:name leftTerm:l rightTerm:r] terms:@[ l, r ] type:type];
 }
 
 - (NSPredicate *)stringOperator:(NSPredicateOperatorType)type name:(NSString *)name leftTerm:(OISTerm *)l rightTerm:(OISTerm *)r
@@ -1580,7 +1639,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   }
   NSPredicate *p = values.count ? OISCompare([self pathExpression:l], NSInPredicateOperatorType, [NSExpression expressionForConstantValue:values], 0)
                                 : [NSPredicate predicateWithValue:NO];
-  return [self guarded:[self nullSafe:p terms:@[ l ] type:NSInPredicateOperatorType] terms:@[ l ] whenNull:NO];
+  return [self nullable:p terms:@[ l ] type:NSInPredicateOperatorType];
 }
 
 - (NSPredicate *)in:(ODataExpression *)left list:(ODataExpression *)list
@@ -1648,7 +1707,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   if (!e.body && !collection.elementType) {
     NSExpression *count = [self pathExpression:collection];
     count = [NSExpression expressionForFunction:@"count:" arguments:@[ count ]];
-    return [self guarded:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
+    return [self any:collection count:count falseCount:count];
   }
 
   OISTerm *element = [self elementOf:collection];
@@ -1657,7 +1716,7 @@ static const NSUInteger OISMaxDateRanges = 200;
                                             usingIteratorVariable:element.variable
                                                         predicate:[self member:element of:collection test:nil]];
     NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
-    return [self guarded:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
+    return [self any:collection count:count falseCount:count];
   }
   element.wireName = e.variable;
   NSString *variable = element.variable;
@@ -1673,14 +1732,43 @@ static const NSUInteger OISMaxDateRanges = 200;
 
   // any: some element matches; all: none fails to. Of a cast collection,
   // its elements of the type.
-  NSPredicate *test = all ? [NSCompoundPredicate notPredicateWithSubpredicate:body] : body;
-  test = [self member:element of:collection test:test];
-  NSExpression *subquery = [NSExpression expressionForSubquery:[self pathExpression:collection]
-                                          usingIteratorVariable:variable
-                                                      predicate:test];
-  NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
-  NSPredicate *p = OISCompare(count, all ? NSEqualToPredicateOperatorType : NSGreaterThanPredicateOperatorType, zero, 0);
-  return [self guarded:p terms:@[ collection ] whenNull:NO];
+  NSExpression *(^counted)(NSPredicate *) = ^NSExpression *(NSPredicate *test) {
+    NSExpression *subquery = [NSExpression expressionForSubquery:[self pathExpression:collection]
+                                            usingIteratorVariable:variable
+                                                        predicate:[self member:element of:collection test:test]];
+    return [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
+  };
+  NSPredicate *notTrue = [NSCompoundPredicate notPredicateWithSubpredicate:body];
+  if (!all) {
+    if (!collection.guard && ![self mayBeNull:body]) {
+      NSExpression *count = counted(body);
+      return [self any:collection count:count falseCount:count];
+    }
+    // False where no member's condition is true or null: none could be.
+    NSPredicate *notFalse = [self mayBeNull:body] ? [NSCompoundPredicate notPredicateWithSubpredicate:[self falsehoodOf:body]] : body;
+    return [self any:collection count:counted(body) falseCount:counted(notFalse)];
+  }
+  NSPredicate *p = [self guarded:OISCompare(counted(notTrue), NSEqualToPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
+  if (!collection.guard && ![self mayBeNull:body]) return p;
+  // False where some member's condition is false; null where the
+  // collection is, or none is false and some null.
+  NSPredicate *f = [self guarded:OISCompare(counted([self falsehoodOf:body]), NSGreaterThanPredicateOperatorType, zero, 0)
+                           terms:@[ collection ]
+                        whenNull:NO];
+  return [self condition:p falseWhere:f];
+}
+
+// any: true where count is more than 0. Of a collection that may be null
+// (through a null to-one, or a cast that does not hold: its guard), null
+// there (URL conventions 5.1.1.15); else false where falseCount, the
+// members that are not known not to match, is 0.
+- (NSPredicate *)any:(OISTerm *)collection count:(NSExpression *)count falseCount:(NSExpression *)falseCount
+{
+  NSExpression *zero = [NSExpression expressionForConstantValue:@0];
+  NSPredicate *p = [self guarded:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
+  if (!collection.guard && count == falseCount) return p;
+  NSPredicate *f = [self guarded:OISCompare(falseCount, NSEqualToPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
+  return [self condition:p falseWhere:f];
 }
 
 // A new variable for the members of a collection.

@@ -667,6 +667,89 @@ static id OISWithoutETags(id json)
   ] contexts:[self staffs]];
 }
 
+// $filter's logic is three-valued (URL conventions 5.1.1.1.7-9): a
+// function of a null is null (5.1.1.4), as are a null Boolean, has of a
+// null, and any or all over a null collection (5.1.1.15); not null is null,
+// and null is left out. A comparison is never null: null eq a value is
+// false, null ne a value true, null gt a value false (5.1.1.1.1-6), so its
+// not keeps the row. Each with the rows the spec gives, in every store,
+// and written back by the client to the same rows.
+- (void)assertFilter:(NSString *)filter entity:(NSString *)entityName selects:(NSArray *)ids contexts:(NSArray *)contexts
+{
+  for (NSManagedObjectContext *context in contexts) {
+    NSEntityDescription *entity = context.persistentStoreCoordinator.managedObjectModel.entitiesByName[entityName];
+    NSString *store = ((NSPersistentStore *)context.persistentStoreCoordinator.persistentStores.firstObject).type;
+    NSError *error = nil;
+    NSPredicate *read = [self read:filter entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:entityName where:read in:context], ids, @"%@: %@ read as %@ (%@)", store, filter, read, error);
+  }
+}
+
+- (void)testNotIsThreeValued
+{
+  // Products: QuantityPerUnit null for 3, 5, 7, 8; Discontinued null for 7,
+  // true for 5 and 8; UnitPrice null for 8. "jars" in 4 and 6's.
+  NSArray *catalogs = [self catalogs];
+  NSDictionary<NSString *, NSArray *> *products = @{
+    @"not contains(QuantityPerUnit,'jars')": @[ @1, @2, @9 ],
+    @"not Discontinued": @[ @1, @2, @3, @4, @6, @9 ],
+    @"not (contains(QuantityPerUnit,'jars') or Discontinued)": @[ @1, @2, @9 ],
+    @"not (contains(QuantityPerUnit,'jars') and UnitPrice gt 20)": @[ @1, @2, @3, @7, @8, @9 ],
+    @"not not contains(QuantityPerUnit,'jars')": @[ @4, @6 ],
+    @"contains(QuantityPerUnit,'jars') or not contains(QuantityPerUnit,'jars')": @[ @1, @2, @4, @6, @9 ],
+    @"not startswith(QuantityPerUnit,'1') and not endswith(QuantityPerUnit,'jars')": @[ @2, @9 ],
+    // Comparisons are two-valued: their not keeps the null rows.
+    @"not (UnitPrice gt 20)": @[ @1, @2, @3, @7, @8, @9 ],
+    @"not (QuantityPerUnit eq '48 - 6 oz jars')": @[ @1, @2, @3, @5, @6, @7, @8, @9 ],
+    @"QuantityPerUnit ne '48 - 6 oz jars'": @[ @1, @2, @3, @5, @6, @7, @8, @9 ],
+    @"not (Discontinued eq true)": @[ @1, @2, @3, @4, @6, @7, @9 ],
+  };
+  for (NSString *filter in products) [self assertFilter:filter entity:@"Product" selects:products[filter] contexts:catalogs];
+  // Categories: Beverages' products 1, 2, 7 (7's QuantityPerUnit null),
+  // Condiments' 3, 4, 5, 9 (3 and 5's null), Produce none.
+  NSDictionary<NSString *, NSArray *> *categories = @{
+    @"not Products/any(p:contains(p/QuantityPerUnit,'ml'))": @[ @3 ],
+    @"Products/any(p:not contains(p/QuantityPerUnit,'ml'))": @[ @1, @2 ],
+    @"not Products/all(p:contains(p/QuantityPerUnit,'jars'))": @[ @1, @2 ],
+    @"Products/all(p:not contains(p/QuantityPerUnit,'ml'))": @[ @3 ],
+  };
+  for (NSString *filter in categories) [self assertFilter:filter entity:@"Category" selects:categories[filter] contexts:catalogs];
+  // Staff: Ann (1) has no manager, so Manager/Reports is null for her; Cy
+  // and Di are no Managers, so the cast is null for them.
+  NSArray *staffs = [self staffs];
+  NSDictionary<NSString *, NSArray *> *employees = @{
+    @"not Manager/Reports/any()": @[],
+    @"not Manager/Reports/any(r:r/Name eq 'Cy')": @[ @2 ],
+    @"not Manager/Reports/all(r:r/Name eq 'Cy')": @[ @2, @3, @4 ],
+    @"not (Default.Manager/Budget gt 1000)": @[ @2, @3, @4 ],
+    @"not (Default.Manager/Budget eq 800)": @[ @1, @3, @4 ],
+  };
+  for (NSString *filter in employees) [self assertFilter:filter entity:@"Employee" selects:employees[filter] contexts:staffs];
+
+  // And each written back by the client, to the same rows.
+  [self assertServiceFilters:products.allKeys clientCannotWrite:@{} entity:@"Product" contexts:catalogs];
+  [self assertServiceFilters:categories.allKeys clientCannotWrite:@{} entity:@"Category" contexts:catalogs];
+  [self assertServiceFilters:employees.allKeys clientCannotWrite:@{} entity:@"Employee" contexts:staffs];
+
+  // Core Data's NOT is two-valued: NOT of a function of nil is true. The
+  // client writes it so that the service, three-valued, selects the same.
+  [self assertClientPredicates:@[
+    @"NOT (quantityPerUnit CONTAINS 'jars')", @"NOT (quantityPerUnit BEGINSWITH '1' OR discontinued == YES)",
+    @"NOT (quantityPerUnit ENDSWITH 'jars' AND unitPrice > 20)", @"NOT NOT (quantityPerUnit CONTAINS 'oz')",
+    @"NOT (quantityPerUnit CONTAINS[c] 'JARS')",
+    @"NOT (SUBQUERY(suppliers, $s, NOT ($s.city CONTAINS 'o')).@count > 0)",
+  ] entity:@"Product" contexts:catalogs];
+  // Through a nil to-one the stores differ (Apple's count nil, FreeCoreData
+  // 0, and ANY raises on one of them), so the members' nulls are what is
+  // asked here; the to-one's are in the service's filters above.
+  [self assertClientPredicates:@[
+    @"NOT (ANY products.quantityPerUnit CONTAINS 'ml')",
+    @"SUBQUERY(products, $p, $p.quantityPerUnit CONTAINS 'ml').@count == 0",
+    @"SUBQUERY(products, $p, NOT ($p.quantityPerUnit CONTAINS 'jars')).@count == 0",
+    @"NOT (SUBQUERY(products, $p, $p.quantityPerUnit ENDSWITH 'jars').@count > 0)",
+  ] entity:@"Category" contexts:catalogs];
+}
+
 - (void)testTypesAndDates
 {
   [self assertServiceFilters:@[
@@ -698,12 +781,9 @@ static id OISWithoutETags(id json)
     XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[], @"%@", read);
     read = [self read:@"Manager/Reports/$count gt 1" entity:entity context:context error:&error];
     XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], (@[ @3, @4 ]), @"%@", read);
-    // Not as this builder has it, two-valued: not of what does not hold
-    // holds, so Ann is kept. OData's not of null is null (5.1.1.1.9), which
-    // would leave her out; that is how not treats a null property or cast
-    // throughout, and is a matter of its own.
+    // not null is null (5.1.1.1.9): she is left out of its not too.
     read = [self read:@"not Manager/Reports/any()" entity:entity context:context error:&error];
-    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[ @1 ], @"%@", read);
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[], @"%@", read);
   }
   NSDictionary *entities = OISStaffModel().entitiesByName;
   NSEntityDescription *employee = entities[@"Employee"], *manager = entities[@"Manager"];
