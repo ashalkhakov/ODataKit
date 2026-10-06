@@ -36,13 +36,6 @@ typedef NS_ENUM(NSInteger, OISTermKind) {
 // What a type cast on the way asks of an object's entity: the term has a
 // value only where it holds, and is null elsewhere.
 @property (nonatomic, strong, nullable) NSPredicate *guard;
-// A collection reached through to-ones that may be null: that they are set.
-// Where they are not, the collection has no members: any is false, all is
-// true, a count or a sum is 0, and min, max and average have no value.
-// (Not the guard: a cast's null makes what it is in null.)
-@property (nonatomic, strong, nullable) NSPredicate *present;
-// A count or a sum of such a collection: 0 where it is absent.
-@property (nonatomic) BOOL zeroWhenAbsent;
 // A collection's cast (Staff/NS.Manager): only its members of this type.
 @property (nonatomic, strong, nullable) NSEntityDescription *elementType;
 // The key paths the term's value comes from that may hold nil: an
@@ -542,8 +535,6 @@ static BOOL OISWidens(NSString *from, NSString *to)
       OISTerm *t = [[OISTerm alloc] init];
       t.kind = OISTermValue;
       t.guard = collection.guard;
-      t.present = collection.present;
-      t.zeroWhenAbsent = YES;
       t.wireName = e.description;
       if (collection.elementType || e.countFilter) {
         // The members counted: of a cast collection, those of the type;
@@ -642,12 +633,12 @@ static BOOL OISWidens(NSString *from, NSString *to)
     NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
     t.kind = relationship.isToMany ? OISTermCollection : OISTermEntity;
     t.entity = relationship.destinationEntity;
-    // A collection through a to-one that may be null has no members there;
-    // the to-one is tested first, as a store evaluating count: of nothing
-    // itself raises.
+    // A collection through a to-one that may be null has no members there,
+    // where a store evaluating count: of it itself raises: the to-one is
+    // tested first.
     if (relationship.isToMany && base.keyPath) {
-      t.present = OISCompare([self pathExpression:base], NSNotEqualToPredicateOperatorType,
-                             [NSExpression expressionForConstantValue:nil], 0);
+      t.guard = OISAnd(base.guard, OISCompare([self pathExpression:base], NSNotEqualToPredicateOperatorType,
+                                              [NSExpression expressionForConstantValue:nil], 0));
     }
   }
   return t;
@@ -713,8 +704,6 @@ static BOOL OISWidens(NSString *from, NSString *to)
   OISTerm *t = [[OISTerm alloc] init];
   t.kind = OISTermValue;
   t.guard = collection.guard;
-  t.present = collection.present;
-  t.zeroWhenAbsent = a.isCount || [a.method isEqualToString:@"sum"];
   t.variable = collection.variable;
   t.wireName = e.description;
   t.computed = YES;
@@ -1021,24 +1010,7 @@ static NSString *OISConstantString(OISTerm *t)
   }
   NSPredicate *comparison = [self comparison:type left:l right:r];
   if (!againstNull && l.kind == OISTermValue) comparison = [self nullSafe:comparison terms:@[ l, r ] type:type];
-  return [self guarded:[self absent:l right:r type:type compared:[self absent:r right:nil type:type compared:comparison]]
-                 terms:@[ l, r ]
-               whenNull:whenNull];
-}
-
-// A comparison of a count or an aggregate of a collection that may be
-// absent (through a null to-one): there, a count or a sum is 0, as it
-// is compared then, and anything else has no value. With no other side,
-// only that the collection is there.
-- (NSPredicate *)absent:(OISTerm *)t right:(OISTerm *)other type:(NSPredicateOperatorType)type compared:(NSPredicate *)p
-{
-  if (!p || !t.present) return p;
-  NSPredicate *there = OISAnd(t.present, p);
-  if (!t.zeroWhenAbsent || !other) return there;
-  NSPredicate *zero = OISCompare([NSExpression expressionForConstantValue:@0], type,
-                                 [self valueExpression:other typedBy:nil], 0);
-  NSPredicate *absent = OISAnd([NSCompoundPredicate notPredicateWithSubpredicate:t.present], zero);
-  return [NSCompoundPredicate orPredicateWithSubpredicates:@[ absent, there ]];
+  return [self guarded:comparison terms:@[ l, r ] whenNull:whenNull];
 }
 
 #pragma mark Step functions
@@ -1673,9 +1645,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   if (!e.body && !collection.elementType) {
     NSExpression *count = [self pathExpression:collection];
     count = [NSExpression expressionForFunction:@"count:" arguments:@[ count ]];
-    return [self guarded:[self of:collection all:NO holds:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0)]
-                   terms:@[ collection ]
-                whenNull:NO];
+    return [self guarded:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
   }
 
   OISTerm *element = [self elementOf:collection];
@@ -1684,9 +1654,7 @@ static const NSUInteger OISMaxDateRanges = 200;
                                             usingIteratorVariable:element.variable
                                                         predicate:[self member:element of:collection test:nil]];
     NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
-    return [self guarded:[self of:collection all:NO holds:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0)]
-                   terms:@[ collection ]
-                whenNull:NO];
+    return [self guarded:OISCompare(count, NSGreaterThanPredicateOperatorType, zero, 0) terms:@[ collection ] whenNull:NO];
   }
   element.wireName = e.variable;
   NSString *variable = element.variable;
@@ -1709,17 +1677,7 @@ static const NSUInteger OISMaxDateRanges = 200;
                                                       predicate:test];
   NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
   NSPredicate *p = OISCompare(count, all ? NSEqualToPredicateOperatorType : NSGreaterThanPredicateOperatorType, zero, 0);
-  return [self guarded:[self of:collection all:all holds:p] terms:@[ collection ] whenNull:NO];
-}
-
-// any or all of a collection that may be absent (through a null to-one):
-// none has a member there, so any is false and all true; the to-one first,
-// as a store evaluating count: of nothing raises.
-- (NSPredicate *)of:(OISTerm *)collection all:(BOOL)all holds:(NSPredicate *)p
-{
-  if (!collection.present) return p;
-  if (!all) return OISAnd(collection.present, p);
-  return [NSCompoundPredicate orPredicateWithSubpredicates:@[ [NSCompoundPredicate notPredicateWithSubpredicate:collection.present], p ]];
+  return [self guarded:p terms:@[ collection ] whenNull:NO];
 }
 
 // A new variable for the members of a collection.
