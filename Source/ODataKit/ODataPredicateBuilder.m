@@ -633,9 +633,12 @@ static BOOL OISWidens(NSString *from, NSString *to)
     NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
     t.kind = relationship.isToMany ? OISTermCollection : OISTermEntity;
     t.entity = relationship.destinationEntity;
-    // A collection through a to-one that may be null has no members there,
-    // where a store evaluating count: of it itself raises: the to-one is
-    // tested first.
+    // A collection through a to-one that may be null is null where no
+    // entity is related (OData 4.01 URL conventions, 5.1.1.15: "its value,
+    // and the values of its components, are treated as null"), so nothing
+    // about it holds there: any, all and every $count comparison leave the
+    // row out. The to-one is tested first, as a store evaluating count: of
+    // nothing itself raises.
     if (relationship.isToMany && base.keyPath) {
       t.guard = OISAnd(base.guard, OISCompare([self pathExpression:base], NSNotEqualToPredicateOperatorType,
                                               [NSExpression expressionForConstantValue:nil], 0));

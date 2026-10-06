@@ -673,9 +673,9 @@ static id OISWithoutETags(id json)
     @"Name eq 'Ann'",
     @"Manager/Name eq 'Ann'",
     @"Reports/any(r:r/Name eq 'Cy')",
-    // Through a to-one that may be null (Ann has no manager): no members.
+    // Through a to-one that may be null (Ann has no manager): null there.
     @"Manager/Reports/any()", @"Manager/Reports/any(r:r/Name eq 'Cy')", @"not Manager/Reports/any()",
-    @"Manager/Reports/$count gt 1",
+    @"Manager/Reports/$count gt 1", @"Manager/Reports/$count eq 0", @"Manager/Reports/all(r:r/Name eq 'Cy')",
     @"isof(Default.Manager)", @"not isof(Default.Manager)", @"isof(Manager,Default.Manager)",
     @"Default.Manager/Budget gt 1000", @"Default.Manager/Budget eq null", @"Manager/Default.Manager/Budget lt 1000",
     @"Reports/any(r:isof(r,Default.Manager))", @"Reports/Default.Manager/any(m:m/Budget lt 1000)",
@@ -690,6 +690,18 @@ static id OISWithoutETags(id json)
     NSError *error = nil;
     NSPredicate *read = [self read:@"Manager/Reports/any()" entity:entity context:context error:&error];
     XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], (@[ @2, @3, @4 ]), @"%@", read);
+    // Ann's Manager/Reports is null (5.1.1.15): no comparison of it, nor
+    // all, holds, so she is left out.
+    read = [self read:@"Manager/Reports/all(r:r/Name eq 'Cy')" entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[], @"%@", read);
+    read = [self read:@"Manager/Reports/$count eq 0" entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[], @"%@", read);
+    read = [self read:@"Manager/Reports/$count gt 1" entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], (@[ @3, @4 ]), @"%@", read);
+    // Not as this builder has it, two-valued: not of what does not hold
+    // holds, so Ann is kept. OData's not of null is null (5.1.1.1.9), which
+    // would leave her out; that is how not treats a null property or cast
+    // throughout, and is a matter of its own.
     read = [self read:@"not Manager/Reports/any()" entity:entity context:context error:&error];
     XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[ @1 ], @"%@", read);
   }
