@@ -36,6 +36,13 @@
 // that came through it.
 @property (nonatomic) BOOL countFilter;
 @property (nonatomic) NSInteger throughVariable;
+// Under an odd number of NOTs. Core Data's conditions are two-valued: a
+// function of nil, or ANY over a nil to-one's collection, is false, and
+// NOT of it true. OData's are three-valued: those are null, and not null is
+// null (URL conventions 5.1.1.1.9), which $filter leaves out. So under NOT
+// such a condition is written with its operands' nulls ruled out, which
+// makes it false where Core Data has it false.
+@property (nonatomic) BOOL negated;
 @end
 
 // An expression that applies a key path to another (the variable of a
@@ -117,7 +124,26 @@ static NSArray<NSEntityDescription *> *OISEntitiesIn(NSExpression *expression)
   inner.keysForObjectID = self.keysForObjectID;
   inner.version = self.version;
   inner.writesAggregates = self.writesAggregates;
+  inner.negated = self.negated;
   return inner;
+}
+
+// condition, which is null where an operand is (a function's argument, a
+// lambda's collection through a to-one), as Core Data has it under NOT:
+// false there (false and null is false: 5.1.1.1.7).
+- (ODataExpression *)known:(ODataExpression *)condition operands:(NSArray<ODataExpression *> *)operands negated:(BOOL)negated
+                     error:(NSError **)error
+{
+  if (!negated || !condition) return condition;
+  ODataExpression *known = condition;
+  for (ODataExpression *operand in operands) {
+    if (operand.kind == ODataExpressionLiteral) continue;
+    ODataExpression *null = [self literalFromText:@"null" error:error];
+    ODataExpression *there = null ? [ODataExpression binary:@"ne" left:operand right:null error:error] : nil;
+    known = there ? [ODataExpression binary:@"and" left:known right:there error:error] : nil;
+    if (!known) return nil;
+  }
+  return known;
 }
 
 // a and b and c, left to right, as the parser reads it; none is `empty`.
@@ -241,11 +267,17 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSEr
 - (ODataExpression *)translateCompound:(NSCompoundPredicate *)compound error:(NSError **)error
 {
   NSMutableArray *parts = [NSMutableArray array];
+  BOOL not = compound.compoundPredicateType == NSNotPredicateType;
+  if (not) self.negated = !self.negated;
   for (NSPredicate *sub in compound.subpredicates) {
     ODataExpression *t = [self expressionForPredicate:sub error:error];
-    if (!t) return nil;
+    if (!t) {
+      if (not) self.negated = !self.negated;
+      return nil;
+    }
     [parts addObject:t];
   }
+  if (not) self.negated = !self.negated;
   switch (compound.compoundPredicateType) {
     case NSAndPredicateType: return OISJoined(parts, @"and", YES, error);
     case NSOrPredicateType: return OISJoined(parts, @"or", NO, error);
@@ -318,11 +350,14 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSEr
     case NSGreaterThanOrEqualToPredicateOperatorType:
       return [ODataExpression binary:@"ge" left:lhs right:rhs error:error];
     case NSBeginsWithPredicateOperatorType:
-      return [self function:@"startswith" left:lhs right:rhs caseInsensitive:ci error:error];
+      return [self known:[self function:@"startswith" left:lhs right:rhs caseInsensitive:ci error:error] operands:@[ lhs, rhs ]
+                 negated:self.negated error:error];
     case NSEndsWithPredicateOperatorType:
-      return [self function:@"endswith" left:lhs right:rhs caseInsensitive:ci error:error];
+      return [self known:[self function:@"endswith" left:lhs right:rhs caseInsensitive:ci error:error] operands:@[ lhs, rhs ]
+                 negated:self.negated error:error];
     case NSContainsPredicateOperatorType:
-      return [self function:@"contains" left:lhs right:rhs caseInsensitive:ci error:error];
+      return [self known:[self function:@"contains" left:lhs right:rhs caseInsensitive:ci error:error] operands:@[ lhs, rhs ]
+                 negated:self.negated error:error];
     case NSInPredicateOperatorType: {
       NSArray *literals = [self literalsInExpression:cmp.rightExpression error:error];
       return literals ? [self membership:lhs literals:literals error:error] : nil;
@@ -424,7 +459,10 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSEr
   if (!lhs) return nil;
   ODataExpression *subject = ci ? OISCall1(@"tolower", lhs, error) : lhs;
   if (!subject) return nil;
-  return [ODataExpression call:@"matchesPattern" arguments:@[ subject, [ODataExpression literalWithValue:regex] ] error:error];
+  return [self known:[ODataExpression call:@"matchesPattern" arguments:@[ subject, [ODataExpression literalWithValue:regex] ] error:error]
+            operands:@[ lhs ]
+             negated:self.negated
+               error:error];
 }
 
 - (ODataExpression *)expressionForValue:(NSExpression *)expression error:(NSError **)error
@@ -834,10 +872,15 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSEr
   ODataPredicateTranslator *inner = [self innerFor:element];
   inner.lambdaVariable = [NSString stringWithFormat:@"x%lu", (unsigned long)self.lambdaDepth];
   inner.subqueryVariable = counted.variable;
+  // none is not any: what it asks of the members is under that not.
+  inner.negated = none ? !self.negated : self.negated;
   ODataExpression *test = [inner expressionForPredicate:body error:error];
   if (!test) return nil;
   ODataExpression *lambda = [ODataExpression lambda:function of:path variable:inner.lambdaVariable body:test error:error];
-  return none ? [ODataExpression unary:@"not" operand:lambda error:error] : lambda;
+  if (none && lambda) lambda = [ODataExpression unary:@"not" operand:lambda error:error];
+  // Through a nil to-one the count is nil, and the comparison false, any
+  // or none alike: the guard goes on the whole of it.
+  return [self known:lambda operands:[self toOnesBefore:collection.keyPath error:error] negated:self.negated error:error];
 }
 
 // SUBQUERY(cars, $c, q).@count > 1, at 4.01: Cars/$count($filter=q') gt 1,
@@ -1065,7 +1108,28 @@ static ODataExpression *OISAlongPath(ODataExpression *from, NSString *path, NSEr
                                                  options:cmp.options];
   ODataExpression *body = [inner expressionForPredicate:innerPredicate error:error];
   if (!body) return nil;
-  return [ODataExpression lambda:function of:collection variable:variable body:body error:error];
+  ODataExpression *lambda = [ODataExpression lambda:function of:collection variable:variable body:body error:error];
+  NSArray *before = i ? [self toOnesBefore:[[parts subarrayWithRange:NSMakeRange(0, i + 1)] componentsJoinedByString:@"."] error:error] : @[];
+  return [self known:lambda operands:before negated:self.negated error:error];
+}
+
+// What a collection at keyPath is reached through that may be null: the
+// path to the last to-one before it (Manager, of Manager/Reports), which is
+// null where any to-one on the way is.
+- (NSArray<ODataExpression *> *)toOnesBefore:(NSString *)keyPath error:(NSError **)error
+{
+  NSArray *parts = [keyPath componentsSeparatedByString:@"."];
+  NSEntityDescription *walk = self.elementType ? nil : self.entity;
+  NSUInteger last = 0;
+  for (NSUInteger i = 0; i + 1 < parts.count && walk; i++) {
+    NSRelationshipDescription *relationship = walk.relationshipsByName[parts[i]];
+    if (!relationship || relationship.isToMany) break;
+    last = i + 1;
+    walk = relationship.destinationEntity;
+  }
+  if (!last) return @[];
+  ODataExpression *path = [self mapKeyPath:[[parts subarrayWithRange:NSMakeRange(0, last)] componentsJoinedByString:@"."] error:error];
+  return path ? @[ path ] : @[];
 }
 
 #pragma mark - Managed objects as constants

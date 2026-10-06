@@ -1441,6 +1441,19 @@ What the tests found, and what was done about each:
     `UnitPrice ne 18` becomes `price == nil OR price != 18`.
   - The test comes first so that a store evaluating the predicate itself
     never does arithmetic on nil, which raises.
+- **`not` of null is null** (5.1.1.1.7-9). A comparison is never null,
+  but a function of a null is (`contains(QuantityPerUnit,'jars')`), as are
+  a null Boolean, `has` of a null, and `any` or `all` over a collection
+  through a null to-one. So `not contains(QuantityPerUnit,'jars')` leaves
+  out a null QuantityPerUnit. `and` and `or` follow the spec's tables:
+  `null and false` is false, `null or true` true.
+  - Each such condition keeps the predicate for where it is false beside
+    the one for where it is true: `quantityPerUnit != nil AND NOT
+    (quantityPerUnit CONTAINS 'jars')`. `not` swaps the two.
+  - Core Data's `NOT` is two-valued, so the client, under an odd number of
+    `NOT`s, writes such a condition with its operands known:
+    `NOT (quantityPerUnit CONTAINS 'jars')` is
+    `not (contains(QuantityPerUnit,'jars') and QuantityPerUnit ne null)`.
 - **Decimals compared as text.** Apple's SQLite store compares a computed
   value with an `NSDecimalNumber` constant as text, so
   `UnitPrice mul 2 lt 30` returned every row. Numbers in arithmetic, and
