@@ -633,6 +633,13 @@ static BOOL OISWidens(NSString *from, NSString *to)
     NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
     t.kind = relationship.isToMany ? OISTermCollection : OISTermEntity;
     t.entity = relationship.destinationEntity;
+    // A collection through a to-one that may be null has no members there,
+    // where a store evaluating count: of it itself raises: the to-one is
+    // tested first.
+    if (relationship.isToMany && base.keyPath) {
+      t.guard = OISAnd(base.guard, OISCompare([self pathExpression:base], NSNotEqualToPredicateOperatorType,
+                                              [NSExpression expressionForConstantValue:nil], 0));
+    }
   }
   return t;
 }

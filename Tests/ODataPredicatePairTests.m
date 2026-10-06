@@ -673,6 +673,9 @@ static id OISWithoutETags(id json)
     @"Name eq 'Ann'",
     @"Manager/Name eq 'Ann'",
     @"Reports/any(r:r/Name eq 'Cy')",
+    // Through a to-one that may be null (Ann has no manager): no members.
+    @"Manager/Reports/any()", @"Manager/Reports/any(r:r/Name eq 'Cy')", @"not Manager/Reports/any()",
+    @"Manager/Reports/$count gt 1",
     @"isof(Default.Manager)", @"not isof(Default.Manager)", @"isof(Manager,Default.Manager)",
     @"Default.Manager/Budget gt 1000", @"Default.Manager/Budget eq null", @"Manager/Default.Manager/Budget lt 1000",
     @"Reports/any(r:isof(r,Default.Manager))", @"Reports/Default.Manager/any(m:m/Budget lt 1000)",
@@ -682,6 +685,14 @@ static id OISWithoutETags(id json)
     // (hour() over these six years would be more ranges than a store takes.)
     @"month(Hired) eq 12", @"month(Hired) ne 6", @"month(Hired) ge 6", @"day(Hired) eq 1",
   ] clientCannotWrite:@{} entity:@"Employee" contexts:[self staffs]];
+  for (NSManagedObjectContext *context in [self staffs]) {
+    NSEntityDescription *entity = context.persistentStoreCoordinator.managedObjectModel.entitiesByName[@"Employee"];
+    NSError *error = nil;
+    NSPredicate *read = [self read:@"Manager/Reports/any()" entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], (@[ @2, @3, @4 ]), @"%@", read);
+    read = [self read:@"not Manager/Reports/any()" entity:entity context:context error:&error];
+    XCTAssertEqualObjects([self idsOf:@"Employee" where:read in:context], @[ @1 ], @"%@", read);
+  }
   NSDictionary *entities = OISStaffModel().entitiesByName;
   NSEntityDescription *employee = entities[@"Employee"], *manager = entities[@"Manager"];
   [self assertClientPredicates:@[
