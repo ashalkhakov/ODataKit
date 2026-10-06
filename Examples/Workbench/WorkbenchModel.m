@@ -17,6 +17,9 @@ static NSAttributeDescription *WBAttribute(NSString *name, NSAttributeType type,
   NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:wire forKey:@"OData.property"];
   [info addEntriesFromDictionary:more ?: @{}];
   attribute.userInfo = info;
+  // A key stays in a deleted row's tombstone: delta links can name it (the
+  // Catalog's keys say so in the model, "Preserve After Deletion").
+  if ([info[@"OData.key"] isEqual:@"YES"]) attribute.preservesValueInHistoryOnDeletion = YES;
   return attribute;
 }
 
@@ -128,12 +131,5 @@ NSManagedObjectModel *WorkbenchBuiltInModel(NSURL *catalogURL)
     WBAttribute(@"what", NSStringAttributeType, @"What", NO, nil) ]);
   model.entities = [served arrayByAddingObject:audit];
   [model setEntities:served forConfiguration:WorkbenchServedConfiguration];
-  // A deleted row's key stays in its tombstone: delta links can name it.
-  for (NSEntityDescription *entity in model.entities) {
-    for (NSAttributeDescription *attribute in entity.attributesByName.allValues) {
-      id key = attribute.userInfo[@"OData.key"];
-      if ([key isEqual:@"YES"] || [key isEqual:@YES]) attribute.preservesValueInHistoryOnDeletion = YES;
-    }
-  }
   return model;
 }
