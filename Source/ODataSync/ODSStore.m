@@ -31,10 +31,27 @@ static NSEntityDescription *ODSEntity(NSString *name, NSArray<NSAttributeDescrip
   return entity;
 }
 
+// A fetch index on the entity's attributes of those names, in that order.
+// The bookkeeping is looked up a row at a time (each object a sync moves):
+// unindexed, a sync reads each table once per row. Set after the
+// properties: Apple's Core Data drops an entity's indexes when they are set.
+static NSFetchIndexDescription *ODSIndex(NSEntityDescription *entity, NSString *name, NSArray<NSString *> *attributes)
+{
+  NSMutableArray *elements = [NSMutableArray array];
+  for (NSString *attribute in attributes) {
+    [elements addObject:[[NSFetchIndexElementDescription alloc] initWithProperty:entity.attributesByName[attribute]
+                                                                   collationType:NSFetchIndexElementTypeBinary]];
+  }
+  return [[NSFetchIndexDescription alloc] initWithName:name elements:elements];
+}
+
 NSEntityDescription *ODSTombstoneEntityDescription(void)
 {
-  return ODSEntity(ODSTombstoneEntity, @[ ODSAttribute(@"entityType", NSStringAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
-                                         ODSAttribute(@"deleted", NSDateAttributeType), ODSAttribute(@"versions", NSStringAttributeType) ]);
+  NSEntityDescription *tombstone = ODSEntity(ODSTombstoneEntity, @[ ODSAttribute(@"entityType", NSStringAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
+                                                                    ODSAttribute(@"deleted", NSDateAttributeType), ODSAttribute(@"versions", NSStringAttributeType) ]);
+  // By the object it was (a deletion told, a key reused), and by age (pruning).
+  tombstone.indexes = @[ ODSIndex(tombstone, @"byObject", @[ @"entityType", @"keyText" ]), ODSIndex(tombstone, @"byDeleted", @[ @"deleted" ]) ];
+  return tombstone;
 }
 
 @implementation ODSStore {
@@ -45,18 +62,25 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
 {
   if (model.entitiesByName[ODSRemoteStateEntity]) return;
-  NSArray *added = @[
-    ODSEntity(ODSRemoteStateEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"deltaLinks", NSBinaryDataAttributeType),
-                                       ODSAttribute(@"filters", NSBinaryDataAttributeType), ODSAttribute(@"historyToken", NSBinaryDataAttributeType) ]),
-    ODSEntity(ODSOutboxEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"entityType", NSStringAttributeType),
+  NSEntityDescription *outbox = ODSEntity(ODSOutboxEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"entityType", NSStringAttributeType),
                                   ODSAttribute(@"key", NSBinaryDataAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
                                   ODSAttribute(@"operation", NSInteger16AttributeType), ODSAttribute(@"properties", NSBinaryDataAttributeType),
                                   ODSAttribute(@"sequence", NSInteger64AttributeType), ODSAttribute(@"attempts", NSInteger32AttributeType),
                                   ODSAttribute(@"status", NSInteger32AttributeType), ODSAttribute(@"message", NSStringAttributeType),
-                                  ODSAttribute(@"setAside", NSBooleanAttributeType), ODSAttribute(@"relayed", NSBooleanAttributeType) ]),
-    ODSEntity(ODSShadowEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"entityType", NSStringAttributeType),
+                                  ODSAttribute(@"setAside", NSBooleanAttributeType), ODSAttribute(@"relayed", NSBooleanAttributeType) ]);
+  // An object's change waiting for a remote (each local change); a
+  // remote's changes, by its first column (each upload).
+  outbox.indexes = @[ ODSIndex(outbox, @"byObject", @[ @"remote", @"entityType", @"keyText" ]) ];
+  NSEntityDescription *shadow = ODSEntity(ODSShadowEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"entityType", NSStringAttributeType),
                                   ODSAttribute(@"keyText", NSStringAttributeType), ODSAttribute(@"etag", NSStringAttributeType),
-                                  ODSAttribute(@"values", NSBinaryDataAttributeType) ]),
+                                  ODSAttribute(@"values", NSBinaryDataAttributeType) ]);
+  // What a remote last had of an object (each object downloaded or sent).
+  shadow.indexes = @[ ODSIndex(shadow, @"byObject", @[ @"remote", @"entityType", @"keyText" ]) ];
+  NSArray *added = @[
+    ODSEntity(ODSRemoteStateEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"deltaLinks", NSBinaryDataAttributeType),
+                                       ODSAttribute(@"filters", NSBinaryDataAttributeType), ODSAttribute(@"historyToken", NSBinaryDataAttributeType) ]),
+    outbox,
+    shadow,
     ODSTombstoneEntityDescription(),
   ];
   // What a peer server serves: the synced entities, with their sub-entities.

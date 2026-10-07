@@ -241,6 +241,25 @@ static NSManagedObjectModel *OSTModel(void)
 
 #pragma mark Down
 
+// The bookkeeping is looked up an object at a time: each lookup indexed.
+- (void)testTheBookkeepingIsIndexed
+{
+  NSDictionary *entities = _device.managedObjectModel.entitiesByName;
+  NSDictionary *expected = @{ @"ODSShadow": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ] },
+                              @"ODSOutboxEntry": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ] },
+                              @"ODSTombstone": @{ @"byObject": @[ @"entityType", @"keyText" ], @"byDeleted": @[ @"deleted" ] } };
+  for (NSString *name in expected) {
+    NSMutableDictionary *found = [NSMutableDictionary dictionary];
+    for (NSFetchIndexDescription *index in [entities[name] indexes]) {
+      found[index.name] = [index.elements valueForKeyPath:@"property.name"];
+    }
+    XCTAssertEqualObjects(found, expected[name], @"%@", name);
+  }
+  // The store made with them takes what a sync writes.
+  [self sync];
+  XCTAssertEqual([self values:@"name" of:@"Asset" in:_device].count, 3u);
+}
+
 - (void)testDownloadWholeThenByDeltaLink
 {
   [self sync];
