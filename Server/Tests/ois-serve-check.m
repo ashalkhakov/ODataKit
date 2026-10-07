@@ -490,6 +490,15 @@ static HSAuthenticationReply *OISAskLater(NSString *authorization)
 }
 @end
 
+// An application's settings of its own, as SimpleNotes has them: its own
+// prefix, and none of the service's settings known to it by name.
+@interface OISOwnConfiguration : HSConfiguration
+@end
+
+@implementation OISOwnConfiguration
++ (NSString *)environmentPrefix { return @"OWN_"; }
+@end
+
 @interface OISCheckApplication : ODataServerApplication
 @property (nonatomic, strong) OISKeptLog *log;
 @property (nonatomic, strong) NSURL *file;
@@ -1230,6 +1239,28 @@ int main(int argc, const char *argv[])
             [NSString stringWithFormat:@"proxy_secret %.0f", [brief.metrics valueOf:@"http_auth_failures_total" labels:@{ @"reason": @"proxy_secret" }]]);
     } else {
       check(NO, @"keep-alive-timeout", error.localizedDescription ?: @"");
+    }
+
+    // $metadata to anyone, so that a client reads how to sign in before it
+    // has (OpenID Connect, its issuer): AllowAnonymousMetadata, from the
+    // environment of an application with settings of its own; the rest
+    // still signed in.
+    HSConfiguration *own = [OISOwnConfiguration configurationWithArguments:@{ @"Model": modelPath, @"AccessLog": @NO,
+                                                                              @"JWTIssuer": @"https://id.example.test/realms/notes" }
+                                                               environment:@{ @"OWN_ALLOW_ANONYMOUS_METADATA": @"YES" } error:&error];
+    HSApplication *open = own ? [[ODataServerApplication alloc] initWithConfiguration:own] : nil;
+    if (open && [open prepare:&error] && [open.server startOnPort:0 error:&error]) {
+      port = open.server.port;
+      OISReply *described = OISSend(@"GET", @"/odata/$metadata", nil, nil);
+      OISReply *served = OISSend(@"GET", @"/odata/", nil, nil);
+      OISReply *rows = OISSend(@"GET", @"/odata/Products", nil, nil);
+      check(described.status == 200 && [described.text containsString:@"https://id.example.test/realms/notes"] && served.status == 200 &&
+            rows.status == 401,
+            @"anonymous-metadata-setting", [NSString stringWithFormat:@"$metadata %ld, service document %ld, Products %ld",
+                                            (long)described.status, (long)served.status, (long)rows.status]);
+      [open.server stop];
+    } else {
+      check(NO, @"anonymous-metadata-setting", error.localizedDescription ?: @"");
     }
 
     // A request's trace, in memory: the server's span under the caller's,

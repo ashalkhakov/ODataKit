@@ -59,7 +59,8 @@ NS_ASSUME_NONNULL_BEGIN
 // answers PeerToken(Replica, Thumbprint) for a device signed in, through
 // the service's serviceOperations, made for it when the service has none
 // (else that object adopts ODataSyncPeerTokenActions and answers with
-// -peerTokenWithReplica:thumbprint:reply:). Before the first request.
+// -peerTokenWithReplica:thumbprint:reply:). Before the first request, as
+// serviceOperations.
 @property (nonatomic, strong, nullable) ODataSyncPeerTokenIssuer *peerTokens;
 - (nullable NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply;
 @end

@@ -582,7 +582,8 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
                                                                               NSEntityDescription *_Nullable entity,
                                                                               ODataRequest *request, NSError **error);
 // The object whose methods are the service's unbound operations; see
-// ODataFunctions. Set it before the first request.
+// ODataFunctions. Set it before the first request (after it, it is taken,
+// and $metadata changes under clients that read it: logged).
 @property (nonatomic, strong, nullable) id serviceOperations;
 // The operations that could not be declared, one sentence each, naming the
 // selector.

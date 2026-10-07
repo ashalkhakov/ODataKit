@@ -169,14 +169,20 @@ static void OISSetBasic(NSMutableURLRequest *request, NSURLCredential *credentia
 {
   ODataSchemaAuthorization *authorization = self.authorization;
   if (!authorization) {
-    // None declared (or $metadata not read yet), or none these credentials
-    // can take: the ones given, as they are; a provider is asked for a way
-    // the service declares.
+    // None declared, or $metadata not read yet (as where it is behind the
+    // sign-in): a bearer token if there is one, given or one the provider
+    // gave once the service refused a request (-refreshCredentials), else
+    // a user and password, given or a provider's that gives no tokens.
+    // Declared, but none these credentials can take: the ones given.
+    BOOL declared = self.authorizations.count > 0;
     NSString *token = self.accessToken;
+    if (!token.length && !declared) @synchronized (self) { token = _providedToken; }
+    BOOL tokens = [self.provider respondsToSelector:@selector(accessTokenForAuthorization:refresh:)];
+    NSURLCredential *credential = token.length || (!self.username && (declared || tokens)) ? nil : [self basicCredentialFor:nil];
     if (token.length) {
       [request setValue:[NSString stringWithFormat:@"Bearer %@", token] forHTTPHeaderField:@"Authorization"];
-    } else if (self.username) {
-      OISSetBasic(request, [self basicCredentialFor:nil]);
+    } else if (credential) {
+      OISSetBasic(request, credential);
     }
     return;
   }
@@ -210,7 +216,10 @@ static void OISSetBasic(NSMutableURLRequest *request, NSURLCredential *credentia
   ODataSchemaAuthorization *authorization = self.authorization;
   if (self.accessToken.length || ![self.provider respondsToSelector:@selector(accessTokenForAuthorization:refresh:)]) return NO;
   if (authorization && !authorization.usesBearerToken) return NO;
-  NSString *fresh = [self.provider accessTokenForAuthorization:authorization refresh:YES];
+  // refresh: a token it gave was refused; else asked for a first one.
+  BOOL gave;
+  @synchronized (self) { gave = _providedToken != nil; }
+  NSString *fresh = [self.provider accessTokenForAuthorization:authorization refresh:gave];
   @synchronized (self) {
     BOOL changed = fresh.length && ![fresh isEqualToString:_providedToken];
     _providedToken = [fresh copy];

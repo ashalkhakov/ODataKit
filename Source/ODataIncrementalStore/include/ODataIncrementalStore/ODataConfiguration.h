@@ -74,8 +74,10 @@ FOUNDATION_EXPORT NSString * const ODataIncrementalStoreCredentialProviderOption
 @protocol ODataCredentialProviding <NSObject>
 @optional
 // A bearer token: for OpenIDConnect, the OAuth2 flows, Http bearer (its
-// issuer and the scopes the service needs are in the authorization; nil
-// before $metadata is read). refresh: the last one was answered 401.
+// issuer and the scopes the service needs are in the authorization). With
+// no way known (none declared, or $metadata not read, as where it is behind
+// the sign-in), asked once the service refuses a request, authorization
+// nil. refresh: the last one it gave was answered 401.
 - (nullable NSString *)accessTokenForAuthorization:(nullable ODataSchemaAuthorization *)authorization refresh:(BOOL)refresh;
 // A user and password, for Http basic.
 - (nullable NSURLCredential *)credentialForAuthorization:(nullable ODataSchemaAuthorization *)authorization;

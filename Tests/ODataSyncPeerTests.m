@@ -252,6 +252,33 @@ static NSManagedObjectModel *OSPModel(void)
 }
 
 // The service's tokens: each device gets one for its certificate, and syncs
+// Peer tokens set after the service was asked about its sets (by a
+// server's own handlers, or ODataSyncService for a model whose entities
+// keep version vectors): PeerToken still declared, and answered.
+- (void)testPeerTokensSetAfterTheServiceWasAsked
+{
+  NSManagedObjectModel *model = OSPModel();
+  [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[self coordinatorWithModel:model]
+                                                                        serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  service.authenticator = [[OSPSignedIn alloc] init];
+  ODataSyncService *syncService = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil([service handlerForEntitySet:@"Assets"]);
+  XCTAssertFalse([[service metadataXMLForVersion:@"4.01"] containsString:@"PeerToken"]);
+  NSError *error = nil;
+  NSDictionary *signingKey = HSGenerateSigningKey(&error);
+  syncService.peerTokens = [[ODataSyncPeerTokenIssuer alloc] initWithIssuer:@"http://example.test/odata/" signingKey:signingKey];
+  XCTAssertTrue([[service metadataXMLForVersion:@"4.01"] containsString:@"Name=\"PeerToken\""]);
+  ODataSyncEngine *engine = [self device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:service.serviceRoot];
+  remote.transport = service;
+  [engine addRemote:remote];
+  ODataSyncPeerTrust *trust = [[ODataSyncPeerTrust alloc] initWithIdentity:[self identity:@"device A"] pairingsURL:nil];
+  NSDictionary *answer = [engine peerTokenFromRemote:remote thumbprint:trust.identity.thumbprint error:&error];
+  XCTAssertNotNil(answer, @"%@", error);
+  XCTAssertTrue([trust takePeerTokenAnswer:answer error:&error], @"%@", error);
+}
+
 // with a peer that shows one; not without, and not with another's.
 - (void)testPeersTrustedByTheServicesTokens
 {
