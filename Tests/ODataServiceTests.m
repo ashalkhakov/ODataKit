@@ -1229,6 +1229,32 @@
   XCTAssertTrue([[count header:@"Content-Type"] hasPrefix:@"text/plain"]);
 }
 
+// $top=0 is no rows (#20): the usual way to ask for a count alone.
+- (void)testTopZeroIsNoRows
+{
+  for (NSString *query in @[ @"Products?$top=0", @"Products?$top=0&$skip=2", @"Products?$top=0&$orderby=ProductName",
+                             @"Products?$top=0&$filter=UnitPrice gt 10", @"Categories(1)/Products?$top=0",
+                             @"Products?$top=0&$orderby=UnitPrice mul 2 desc",  // sorted here, every row then the page
+                             @"Products?$top=2&$skiptoken=2" ]) {
+    OISServiceResponse *response = [self get:query];
+    XCTAssertEqual(response.status, 200, @"%@: %@", query, response.text);
+    XCTAssertEqualObjects(response.json[@"value"], @[], @"%@", query);
+    XCTAssertNil(response.json[@"@odata.nextLink"], @"%@", query);
+  }
+  XCTAssertEqualObjects([self get:@"Products?$top=0&$count=true"].json[@"@odata.count"], @5);
+  XCTAssertEqualObjects([self get:@"Products?$top=0&$count=true&$filter=UnitPrice lt 20"].json[@"@odata.count"], @3);
+  XCTAssertEqualObjects([self get:@"Products?$top=0&$count=true&$orderby=UnitPrice mul 2"].json[@"@odata.count"], @5);
+  XCTAssertEqualObjects([self get:@"Products?$top=0&$count=true&$apply=filter(UnitPrice lt 20)"].json[@"value"], @[]);
+  // None read: the count is all the store is asked.
+  _service.explains = YES;
+  NSString *physical = [self get:@"$explain/Products?$top=0&$count=true"].json[@"physical"];
+  XCTAssertTrue([physical hasPrefix:@"Objects (0)"], @"%@", physical);
+  XCTAssertFalse([physical containsString:@"Store scan"], @"%@", physical);
+  for (NSDictionary *category in [self get:@"Categories?$expand=Products($top=0)"].json[@"value"]) {
+    XCTAssertEqualObjects(category[@"Products"], @[], @"%@", category);
+  }
+}
+
 - (void)testEntitiesPropertiesAndNavigation
 {
   OISServiceResponse *chai = [self get:@"Products(1)"];
