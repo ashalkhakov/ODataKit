@@ -246,7 +246,7 @@ static NSManagedObjectModel *OSTModel(void)
 {
   NSDictionary *entities = _device.managedObjectModel.entitiesByName;
   NSDictionary *expected = @{ @"ODSShadow": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ] },
-                              @"ODSOutboxEntry": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ] },
+                              @"ODSOutboxEntry": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ], @"bySequence": @[ @"sequence" ] },
                               @"ODSTombstone": @{ @"byObject": @[ @"entityType", @"keyText" ], @"byDeleted": @[ @"deleted" ] } };
   for (NSString *name in expected) {
     NSMutableDictionary *found = [NSMutableDictionary dictionary];

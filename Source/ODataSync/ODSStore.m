@@ -69,8 +69,9 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
                                   ODSAttribute(@"status", NSInteger32AttributeType), ODSAttribute(@"message", NSStringAttributeType),
                                   ODSAttribute(@"setAside", NSBooleanAttributeType), ODSAttribute(@"relayed", NSBooleanAttributeType) ]);
   // An object's change waiting for a remote (each local change); a
-  // remote's changes, by its first column (each upload).
-  outbox.indexes = @[ ODSIndex(outbox, @"byObject", @[ @"remote", @"entityType", @"keyText" ]) ];
+  // remote's changes, by its first column (each upload); the last
+  // sequence number, for the next entry's (each local change too).
+  outbox.indexes = @[ ODSIndex(outbox, @"byObject", @[ @"remote", @"entityType", @"keyText" ]), ODSIndex(outbox, @"bySequence", @[ @"sequence" ]) ];
   NSEntityDescription *shadow = ODSEntity(ODSShadowEntity, @[ ODSAttribute(@"remote", NSStringAttributeType), ODSAttribute(@"entityType", NSStringAttributeType),
                                   ODSAttribute(@"keyText", NSStringAttributeType), ODSAttribute(@"etag", NSStringAttributeType),
                                   ODSAttribute(@"values", NSBinaryDataAttributeType) ]);

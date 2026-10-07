@@ -209,6 +209,8 @@ jobs:
       # #63-65: migrations. Store metadata with options; a store comes
       # through a migration as the same store; a mapping model made in
       # Xcode is read and followed, its source expressions included.
+      # #67: momc keeps Xcode's Renaming IDs (elementID); inferred mappings
+      # follow them.
       # #68: fetch indexes (NSFetchIndexDescription), made by every store:
       # ODataSync's bookkeeping is indexed.
       FREECOREDATA_REF: 5b83123deb3ed227f506cee22e997e10bf679c03

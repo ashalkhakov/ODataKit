@@ -123,6 +123,23 @@ Added to the app's model by `+[ODataSyncEngine addBookkeepingToModel:]`
   its ETag, and its values (for a three-way merge, section 6). Only for
   `both` entities, and only their synced properties.
 
+Each is looked up a row at a time, as a sync moves each object, so each
+lookup has a fetch index: shadows and outbox entries by remote, entity
+and key (`byObject`), the outbox by `sequence` too (the next entry's
+number), tombstones by entity and key and by `deleted` (pruning). An
+app's own synced entities are looked up by their keys, so it should
+index those too (a fetch index on the key attributes). Unindexed, a sync
+reads a whole table per object, and takes the square of the objects it
+moves.
+
+**A store made before the indexes does not get them.** An index does not
+change an entity's version hash, so Core Data sees no change to migrate:
+Apple's SQLite store opens an older store as it is, with or without the
+migration options, and so do FreeCoreData's stores. Such a store works,
+but unindexed; to have the indexes, delete it and let the device sync
+again (a service's store, made again from its data). The same goes for
+an index an app adds to its own entities.
+
 ## 4. Down
 
 Per remote, per `down` and `both` entity set:
