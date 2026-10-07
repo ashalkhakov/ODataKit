@@ -359,7 +359,6 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
   // One more than the page, to know whether there is a next one.
   NSUInteger fetchLimit = 0;
   if (limit != NSUIntegerMax) fetchLimit = limit < remaining ? limit + 1 : limit;
-  if (limit == 0) fetchLimit = 1;
 
   OISPlanNode *root = scan;
   OISPlanNode *filtered = scan;
@@ -389,6 +388,13 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
     paged.top = fetchLimit ? @(fetchLimit) : nil;
     paged.pageSize = limit == NSUIntegerMax ? 0 : limit;
     root = paged;
+  }
+  // $top=0 (or a token at $top): no rows, and none read; the count still
+  // reads its own.
+  if (limit == 0) {
+    root = [OISPlanNode operator:OISPlanObjects input:nil];
+    root.objects = @[];
+    root.entity = self.entity;
   }
   plan.root = root;
   if (options.includeCount.boolValue && memory) {
