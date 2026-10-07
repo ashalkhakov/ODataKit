@@ -517,8 +517,9 @@ done on both sides; the rest is ❌ unless marked otherwise.
     error="insufficient_scope", scope="…"`) carries the scopes in
     `ODataErrorScopesKey`, and a recovery suggestion to ask the identity
     provider for them. A
-    service can let anyone read `$metadata` (`allowsAnonymousMetadata`) so
-    that a client learns how to sign in.
+    service can let anyone read `$metadata` (`allowsAnonymousMetadata`, or
+    the `AllowAnonymousMetadata` setting) so that a client learns how to
+    sign in.
 
 - ✅ **Capabilities** (40 terms): what a service allows, per set.
   - The server declares what it does (`ConformanceLevel` Intermediate,

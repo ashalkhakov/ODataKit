@@ -221,6 +221,10 @@ static void OISLoadBackendFor(NSString *type)
   }
   if (!service.authenticator) service.authenticator = application.authenticator;
   if (!service.metrics) service.metrics = application.metrics;
+  // Read here, not by ODataServerConfiguration, so that an application of
+  // its own settings (SN_ALLOW_ANONYMOUS_METADATA) has it too.
+  HSConfiguration *settings = application.configuration;
+  if ([settings setting:@"AllowAnonymousMetadata"]) service.allowsAnonymousMetadata = [settings flag:@"AllowAnonymousMetadata" otherwise:NO];
   // A Core Data that traces its stores' work (FreeCoreData; see
   // docs/observability.md) is handed a tracer of its own name: its spans
   // go under the service's store requests, current on the thread it works on.
@@ -259,7 +263,7 @@ static void OISLoadBackendFor(NSString *type)
   return [[super knownSettings] arrayByAddingObjectsFromArray:@[
     @"Model", @"StoreType", @"StoreURL", @"StoreOptions", @"ServiceRoot", @"MaxPageSize", @"MaxVersion", @"Namespace", @"Container",
     @"MaxURLLength", @"MaxExpandDepth", @"MaxBatchRequests", @"MaxRowsInMemory", @"MaxJSONDepth", @"MaxAsyncRequests",
-    @"ReplyTimeout", @"AsyncResultDuration", @"RepeatabilityDuration", @"HistoryRetention", @"AllowAnonymous", @"PrintMetadata" ]];
+    @"ReplyTimeout", @"AsyncResultDuration", @"RepeatabilityDuration", @"HistoryRetention", @"AllowAnonymous", @"AllowAnonymousMetadata", @"PrintMetadata" ]];
 }
 
 - (BOOL)printsMetadata

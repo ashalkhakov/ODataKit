@@ -68,7 +68,9 @@ NS_ASSUME_NONNULL_BEGIN
 // The service as an application's module: mounted at its service root's
 // path (ODataServiceHandler), its store a readiness check, the
 // application's authenticator its own (for $metadata, and for requests that
-// reach it otherwise), and the application's metrics its own. A Core Data
+// reach it otherwise), and the application's metrics its own. The
+// application's AllowAnonymousMetadata setting, when it has one, is the
+// service's allowsAnonymousMetadata, whatever its configuration's class. A Core Data
 // that traces (one with +[NSPersistentStoreCoordinator cd_setTracer:]) is
 // handed a tracer. An operation the service cannot declare stops the
 // server from starting.
@@ -96,6 +98,9 @@ NS_ASSUME_NONNULL_BEGIN
 //   MaxAsyncRequests, ReplyTimeout, AsyncResultDuration,
 //   RepeatabilityDuration, HistoryRetention   the service's (ODataService.h)
 //   AllowAnonymous  YES: a request that names no one is answered too
+//   AllowAnonymousMetadata  YES: the service document and $metadata are,
+//                 so that a client can read how to sign in (the
+//                 Authorization vocabulary) before it has
 //   PrintMetadata YES: write $metadata to standard output and exit
 @interface ODataServerConfiguration : HSConfiguration
 @property (nonatomic, readonly) BOOL printsMetadata;
