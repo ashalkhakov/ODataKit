@@ -190,7 +190,11 @@ jobs:
       # recipe hash the stack is cached under, so a moving branch would keep
       # serving a prefix built from patches that have since changed.
       # gnustep-patches #7: NSSortDescriptor sorts nil before every value.
-      GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
+      # 0b19ede: NSExpression's FUNCTION(receiver, "selector:") and FETCH,
+      # and a key path reached through something else, which FreeCoreData's
+      # migrations by mapping model need; libobjc2's stack-block-retain
+      # retired, fixed upstream. The ref FreeCoreData pins.
+      GNUSTEP_PATCHES_REF: 0b19ede3cd7ddc7e958130a856bea1a49e66c0f8
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
       # its momc keeps a model version's Identifier, which models generated
@@ -200,7 +204,10 @@ jobs:
       # #61: NULL sorts as Core Data sorts it, on every SQL backend.
       # #62: momc reads and writes "Preserve After Deletion" as Xcode spells
       # it (preserveAfterDeletion): the Catalog's keys carry it.
-      FREECOREDATA_REF: 65b3ebb409cf5a8d9f75f07df8056d173ce2ceeb
+      # #63-65: migrations. Store metadata with options; a store comes
+      # through a migration as the same store; a mapping model made in
+      # Xcode is read and followed, its source expressions included.
+      FREECOREDATA_REF: beb700578e92998fc953da22ac1e7fc654a14b43
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
