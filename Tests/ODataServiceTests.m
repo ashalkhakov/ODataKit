@@ -3927,6 +3927,24 @@ static NSComparisonPredicate *OISValidation(NSString *keyPath, NSPredicateOperat
   NSURLRequest *signed_ = transport.requests.lastObject;
   XCTAssertEqualObjects([signed_ valueForHTTPHeaderField:@"X-API-Key"], @"sesame");
   XCTAssertNil([signed_ valueForHTTPHeaderField:@"Authorization"]);
+
+  // $metadata behind the sign-in too, so no way is known: the provider
+  // asked once the service refuses.
+  _service.authenticator = jwt;
+  _service.allowsAnonymousMetadata = NO;
+  XCTAssertEqual([self get:@"$metadata"].status, 401);
+  provider = [[OISTokenProvider alloc] init];
+  provider.token = fixtures[@"tokens"][@"rs256"];
+  transport = [[OISRecordingTransport alloc] init];
+  transport.next = _service;
+  context = [self clientOver:transport options:@{ ODataIncrementalStoreCredentialProviderOption: provider } error:&error];
+  XCTAssertNotNil(context, @"%@", error);
+  rows = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Product"] error:&error];
+  XCTAssertEqual(rows.count, 5u, @"%@", error);
+  XCTAssertEqualObjects(provider.asked, (@[ @[ [NSNull null], @NO ] ]), @"asked once, with no way known");
+  signed_ = transport.requests.lastObject;
+  XCTAssertEqualObjects([signed_ valueForHTTPHeaderField:@"Authorization"],
+                        ([NSString stringWithFormat:@"Bearer %@", fixtures[@"tokens"][@"rs256"]]));
 }
 
 #pragma mark Capabilities

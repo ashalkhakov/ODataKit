@@ -55,6 +55,8 @@ typedef NS_ENUM(NSInteger, OISAccess) { OISAccessRead, OISAccessInsert, OISAcces
 // What configurationName could not say, one sentence each.
 @property (nonatomic, copy) NSArray<NSString *> *configurationProblems;
 @property (nonatomic) BOOL prepared;
+// A request has come: what changes $metadata now changes it under clients.
+@property (nonatomic) BOOL started;
 - (ODataEntitySetHandler *)handlerForEntity:(NSEntityDescription *)entity;
 - (BOOL)isComputedAttribute:(NSAttributeDescription *)attribute;
 - (BOOL)isImmutableAttribute:(NSAttributeDescription *)attribute;

@@ -5183,6 +5183,20 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   }
 }
 
+// Set after the service was prepared (by anything that asks it about its
+// sets, as an ODataSyncService does): prepared again at its next use, the
+// operations read, and $metadata written, anew.
+- (void)setServiceOperations:(id)serviceOperations
+{
+  @synchronized (self) {
+    _serviceOperations = serviceOperations;
+    if (!self.prepared) return;
+    if (self.started) NSLog(@"ODataService: serviceOperations set after the first request: $metadata changes under the clients that read it");
+    self.prepared = NO;
+    [self.metadataByVersion removeAllObjects];
+  }
+}
+
 - (void)setHandler:(ODataEntitySetHandler *)handler forEntitySet:(NSString *)entitySet
 {
   @synchronized (self) {
@@ -5766,6 +5780,7 @@ static NSDateFormatter *OISHTTPDateFormatter(void)
                   authenticated:(BOOL)authenticated principal:(HSPrincipal *)principal given:(BOOL)given
 {
   [self prepare];
+  self.started = YES;
   NSString *repeatabilityKey = nil, *repeatabilitySignature = nil;
   if (!shared && [self answeredRepeat:exchange key:&repeatabilityKey signature:&repeatabilitySignature]) return nil;
   OISServiceCall *call = [[OISServiceCall alloc] init];
