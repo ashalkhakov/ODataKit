@@ -17,6 +17,10 @@ FOUNDATION_EXPORT NSString * const ODSOutboxEntity;        // remote, entityType
 FOUNDATION_EXPORT NSString * const ODSShadowEntity;        // remote, entityType, keyText, etag, values (a row's JSON)
 FOUNDATION_EXPORT NSString * const ODSTombstoneEntity;     // entityType, keyText, deleted (a date), versions
 FOUNDATION_EXPORT NSEntityDescription *ODSTombstoneEntityDescription(void);
+// Each entity's key indexed (ODataSyncKey), its attributes in order: what
+// ODataSync looks an app's objects up by, one at a time. Not where an
+// index of the app's own begins with them. Before the model is used.
+FOUNDATION_EXPORT void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *entities);
 
 @interface ODSStore : NSObject
 // The engine's entities added to a model (and ODataSyncPeerConfiguration,

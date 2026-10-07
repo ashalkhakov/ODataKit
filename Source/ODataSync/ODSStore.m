@@ -45,6 +45,25 @@ static NSFetchIndexDescription *ODSIndex(NSEntityDescription *entity, NSString *
   return [[NSFetchIndexDescription alloc] initWithName:name elements:elements];
 }
 
+void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *entities)
+{
+  ODSModel *synced = [[ODSModel alloc] initWithModel:model];
+  for (NSEntityDescription *entity in entities) {
+    NSArray<NSString *> *key = [[synced keyAttributesOf:entity] valueForKey:@"name"];
+    if (!key.count) continue;
+    BOOL indexed = NO;
+    for (NSFetchIndexDescription *index in entity.indexes) {
+      NSArray *names = [index.elements valueForKeyPath:@"property.name"];
+      if (names.count >= key.count && [[names subarrayWithRange:NSMakeRange(0, key.count)] isEqualToArray:key]) indexed = YES;
+    }
+    if (indexed) continue;
+    // Apple's raises for an index the entity has already: let go, then all.
+    NSArray *indexes = [entity.indexes arrayByAddingObject:ODSIndex(entity, @"ODataSyncKey", key)];
+    entity.indexes = @[];
+    entity.indexes = indexes;
+  }
+}
+
 NSEntityDescription *ODSTombstoneEntityDescription(void)
 {
   NSEntityDescription *tombstone = ODSEntity(ODSTombstoneEntity, @[ ODSAttribute(@"entityType", NSStringAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
@@ -85,7 +104,13 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
     ODSTombstoneEntityDescription(),
   ];
   // What a peer server serves: the synced entities, with their sub-entities.
-  NSArray *synced = [[[ODSModel alloc] initWithModel:model] syncedEntities];
+  ODSModel *syncing = [[ODSModel alloc] initWithModel:model];
+  NSArray *synced = [syncing syncedEntities];
+  // Their objects looked up by key, each one a sync moves: indexed by it,
+  // at the root (a sub-entity's rows are its root's).
+  NSMutableOrderedSet *roots = [NSMutableOrderedSet orderedSet];
+  for (NSEntityDescription *entity in synced) [roots addObject:[syncing rootOf:entity]];
+  ODSIndexKeys(model, roots.array);
   model.entities = [model.entities arrayByAddingObjectsFromArray:added];
   [model setEntities:synced forConfiguration:ODataSyncPeerConfiguration];
   if (configuration) {
