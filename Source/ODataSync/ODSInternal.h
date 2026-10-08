@@ -181,6 +181,16 @@ FOUNDATION_EXPORT NSSet<NSString *> *ODSChangedNames(NSDictionary *_Nullable bef
                       context:(NSManagedObjectContext *)context error:(NSError **)error;
 @end
 
+// Merged attributes exchanged as deltas (ODSMerge.m; docs/offline-sync.md,
+// 14): the objects with a merge entry, after a batch.
+@interface ODSMergeExchange : NSObject
+- (instancetype)initWithEngine:(ODataSyncEngine *)engine remote:(ODataSyncRemote *)remote;
+// In the uploader's context (written as the remote's); NO, with the error,
+// when the remote did not answer. A remote that has no MergeAttributes
+// leaves merged attributes as they are.
+- (BOOL)exchangeIn:(NSManagedObjectContext *)context error:(NSError **)error;
+@end
+
 // Up: history into the outbox, and the outbox to the remote.
 @interface ODSUploader : NSObject
 - (instancetype)initWithEngine:(ODataSyncEngine *)engine remote:(ODataSyncRemote *)remote;

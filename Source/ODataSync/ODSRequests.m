@@ -150,11 +150,31 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
 }
 
 // Set?$filter=...&$select=...&$expand=to-one keys.
+// $select of a row without its merged attributes, which come as deltas
+// (docs/offline-sync.md, 14); nil (all) for an entity that has none, or
+// subentities (whose properties a $select would need to cast to).
+- (NSArray<ODataSelectItem *> *)selectWithoutMergedOf:(NSEntityDescription *)entity error:(NSError **)error
+{
+  if (![_model mergedAttributesOf:entity].count || entity.subentities.count) return nil;
+  NSMutableArray *items = [NSMutableArray array];
+  NSMutableOrderedSet *names = [NSMutableOrderedSet orderedSet];
+  for (NSAttributeDescription *attribute in [[_model keyAttributesOf:entity] arrayByAddingObjectsFromArray:[_model attributesOf:entity]]) {
+    [names addObject:[_model.mapper propertyForAttribute:attribute]];
+  }
+  for (NSString *name in names) {
+    ODataSelectItem *item = [ODataSelectItem itemWithPath:@[ name ] error:error];
+    if (!item) return nil;
+    [items addObject:item];
+  }
+  return items;
+}
+
 - (NSURL *)URLOfSet:(NSEntityDescription *)entity filter:(ODataExpression *)filter select:(NSArray *)select expand:(BOOL)expand
               error:(NSError **)error
 {
   ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
   options.filter = filter;
+  if (!select) select = [self selectWithoutMergedOf:entity error:NULL];
   if (select) options.select = select;
   if (expand) {
     options.expand = [self expandOfEntity:entity error:error];
@@ -187,6 +207,8 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
   options.expand = [self expandOfEntity:[_model rootOf:entity] error:error];
   if (!options.expand) return nil;
+  NSArray *select = [self selectWithoutMergedOf:[_model rootOf:entity] error:NULL];
+  if (select) options.select = select;
   return [self URLOfPath:[_codec pathOfEntity:entity key:key] options:options error:error];
 }
 

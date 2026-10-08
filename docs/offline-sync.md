@@ -833,3 +833,115 @@ one waits until the app is updated. ODataSync works by property names:
 - **Peers**: a peer server is an ODataService: an app sets its
   `upgradeBody` too, for peers on older versions.
 
+
+## 14. Merged attributes
+
+**Status: exists** (`ODataSyncMerging.h`, `ODSMerge.m`, `ODataSyncService`, the peer server; `Tests/ODataSyncMergeTests.m`).
+
+Some values are not settled by a rule but merged: a note's text written on
+two devices offline keeps both devices' typing. TopoTextSync does that
+today as a resolver (section 6), over the whole state: every change sends
+the text's whole state up, every read brings it whole down, and a state
+only grows, since what was deleted cannot be forgotten until every copy
+has seen it deleted, and no one knows when that is.
+
+A **merged attribute** is a Binary attribute whose value is a mergeable
+state (a CRDT): states merge in any order to the same result, a delta
+since a version is what a copy at that version lacks, and what every copy
+has seen can be collected. ODataSync moves deltas, not states, and keeps
+what each replica has seen, so the state can be collected.
+
+### 14.1 Declaring one
+
+```
+bodyText   Binary   ODataSync.merge   TopoText
+```
+
+`ODataSync.merge` names a **merger**, which the app registers on the
+engine, on the device and at the service alike:
+
+```objc
+@protocol ODataSyncMerging <NSObject>
+- (NSData *)versionOfState:(nullable NSData *)state;                         // nil: nothing seen
+- (NSData *)deltaOfState:(nullable NSData *)state sinceVersion:(nullable NSData *)version;
+- (nullable NSData *)stateByMerging:(NSData *)delta intoState:(nullable NSData *)state error:(NSError **)error;
+- (NSData *)versionMeeting:(NSData *)version andVersion:(NSData *)other;    // what both have seen
+- (nullable NSData *)stateByCollecting:(nullable NSData *)state seenBy:(NSData *)version;
+@end
+
+[engine setMerger:[[TTSyncMerger alloc] init] forName:@"TopoText"];
+```
+
+Versions and deltas are the merger's bytes; ODataSync only stores and
+moves them. The entity is a `both` entity.
+
+### 14.2 On the wire
+
+One action import, which the service's operations answer (as `PeerToken`,
+section 9 of peer-sync.md: an app with operations of its own adopts
+`ODataSyncActions` and forwards):
+
+```
+POST <root>MergeAttributes
+{ "Replica": "<the device's replica ID>",
+  "Items": [ { "EntitySet": "Notes", "Key": "<key text>", "Property": "BodyText",
+               "Version": "<base64: what the device has>",
+               "Delta": "<base64: what the service may lack>" }, ... ] }
+
+→ { "Items": [ { "Delta": "<base64: what the device lacks>",
+                 "Version": "<base64: the service's, after>",
+                 "SeenByAll": "<base64>" }, ... ] }
+```
+
+For each item the service finds the object as the request may see it
+(its set handler's visibility: a user merges into their own rows only),
+merges the delta in through the handler (none: a read), and answers what
+the device lacks: a delta since the device's version. An item it cannot
+answer (no such object, a delta that does not merge) has an `Error`
+instead; the others are answered. `Items` is `Edm.Untyped`: an app with
+operations of its own says so in `+ODataOperationTypes`.
+
+### 14.3 The device
+
+- **What is exchanged**: an object whose merged attribute changed here
+  (its history), and each row that came down of an entity with one, gets
+  an outbox entry of its own (`ODataSyncOperationMerge`, which the row's
+  entry, conflicts and the rest do not see). After the batch, the
+  uploader's exchange takes them, a hundred to a call.
+- **Two calls, nothing kept**: the first sends each object's version and
+  gets what the device lacks, and the remote's version; the device merges
+  it, and the second sends, for those that have more, a delta since that
+  version. The device stores no remote version (no bookkeeping to
+  migrate): the first call tells it.
+- **Rows** go up (`PATCH`) and come down (`$select`) without merged
+  attributes; a merged attribute is never compared in a conflict.
+- What comes back is written as the remote's (transaction author
+  `ODataSync.down.<remote>`): not sent back, passed on to peers.
+- A remote with no `MergeAttributes` (404, 405, 501: an older service)
+  leaves merged attributes as they are; the rest syncs.
+
+### 14.4 Collecting
+
+The service keeps, per object, attribute and replica, the version that
+replica has after an exchange (`ODSMergeSeen`, in the service's
+bookkeeping), with when. `SeenByAll` is the meet of the versions of the
+replicas heard from within `mergeRetention` (default: the tombstone
+retention, 30 days); a replica not heard from since is no longer waited
+for. The service collects its state with it, and so does the device when
+an answer carries it.
+
+The order matters: what the device lacks is computed **before** the
+service collects. Collecting then may forget a deletion this very device
+has not seen yet; it is in the delta it is answered with, and the device
+collects it in turn. (Computed after, the device would never hear of the
+deletion, and its next delta would bring the element back.)
+
+A peer server answers `MergeAttributes` as the service does, but keeps
+nothing of what peers have seen, and so collects nothing.
+
+### 14.5 Clients that send states
+
+A client that does not know merged attributes PATCHes the whole state:
+the set handler merges it in (a state is a delta since nothing) instead
+of storing it over what is there. Reads that do not `$select` it out get
+the state, as before.

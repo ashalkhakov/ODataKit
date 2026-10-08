@@ -5,6 +5,7 @@
 
 #pragma once
 #import "ODataSyncEngine.h"
+#import "ODataSyncMerging.h"
 #import "ODataSyncPeerServer.h"
 #import "ODataSyncService.h"
 #import "ODataSyncPeerTokens.h"

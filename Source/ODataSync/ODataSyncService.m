@@ -6,6 +6,7 @@
 // a deleted key judged by the histories.
 
 #import "ODataSyncService.h"
+#import "ODSService.h"
 #import "ODSInternal.h"
 #import <ODataKit/ODataError.h>
 
@@ -36,8 +37,37 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
   return key ? [codec keyTextOf:key entity:[model rootOf:self.entity]] : nil;
 }
 
+// Merged attributes merged into what the object has, never written over it
+// (docs/offline-sync.md, 14.5): a client that sends the whole state, and the
+// MergeAttributes action, which sends a delta. nil, the reply failed, for
+// one that does not merge.
+- (NSDictionary *)valuesMerging:(NSDictionary<NSString *, id> *)values into:(nullable NSManagedObject *)object reply:(ODataReply *)reply
+{
+  ODataSyncEngine *engine = self.engine;
+  NSArray<NSAttributeDescription *> *merged = [engine.model mergedAttributesOf:object ? object.entity : self.entity];
+  if (!merged.count) return values;
+  NSMutableDictionary *result = [values mutableCopy];
+  for (NSAttributeDescription *attribute in merged) {
+    id sent = values[attribute.name];
+    if (![sent isKindOfClass:[NSData class]]) continue;  // absent, or null: left to the store
+    id<ODataSyncMerging> merger = [engine mergerForName:[engine.model mergerNameOf:attribute]];
+    if (!merger) continue;  // no merger here: stored as sent, as before
+    NSError *error = nil;
+    NSData *state = [merger stateByMerging:sent intoState:object ? [object valueForKey:attribute.name] : nil error:&error];
+    if (!state) {
+      [reply failWithError:ODataServiceError(400, [NSString stringWithFormat:@"%@ does not merge: %@", attribute.name,
+                                                                                error.localizedDescription ?: @"not a state or delta"])];
+      return nil;
+    }
+    result[attribute.name] = state;
+  }
+  return result;
+}
+
 - (NSManagedObject *)insertObjectWithValues:(NSDictionary<NSString *, id> *)values request:(ODataRequest *)request reply:(ODataReply *)reply
 {
+  values = [self valuesMerging:values into:nil reply:reply];
+  if (!values) return nil;
   ODataSyncEngine *engine = self.engine;
   ODSCodec *codec = engine.codec;
   ODSModel *model = engine.model;
@@ -78,6 +108,8 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 - (NSManagedObject *)updateObject:(NSManagedObject *)object values:(NSDictionary<NSString *, id> *)values request:(ODataRequest *)request
                             reply:(ODataReply *)reply
 {
+  values = [self valuesMerging:values into:object reply:reply];
+  if (!values) return nil;
   [self writeAs:request values:values];
   return [super updateObject:object values:values request:request reply:reply];
 }
@@ -96,15 +128,159 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 
 @end
 
-// The service's operations when it has none of its own: PeerToken.
-@interface ODSPeerTokenOperations : NSObject <ODataSyncPeerTokenActions>
-@property (nonatomic, weak) ODataSyncService *sync;
-@end
+static NSString *ODSBase64Of(NSData *data)
+{
+  return [data base64EncodedStringWithOptions:0] ?: @"";
+}
 
-@implementation ODSPeerTokenOperations
+static NSData *ODSDataOfBase64(id text)
+{
+  return [text isKindOfClass:[NSString class]] ? [[NSData alloc] initWithBase64EncodedString:text options:0] : nil;
+}
+
+// What every replica heard from within retention has seen of an object's
+// merged attribute, this replica's version recorded first (record: the
+// service keeps them; a peer server does not, and so collects nothing).
+static NSData *ODSSeenByAll(NSManagedObjectContext *context, NSString *entityType, NSString *keyText, NSString *property,
+                            NSString *replica, NSData *version, id<ODataSyncMerging> merger, NSTimeInterval retention)
+{
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSMergeSeenEntity];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"entityType == %@ AND keyText == %@ AND property == %@", entityType, keyText, property];
+  NSArray *rows = [context executeFetchRequest:fetch error:NULL] ?: @[];
+  NSDate *now = [NSDate date], *since = retention > 0 ? [now dateByAddingTimeInterval:-retention] : nil;
+  NSManagedObject *mine = nil;
+  for (NSManagedObject *row in rows) {
+    if ([[row valueForKey:@"replica"] isEqual:replica]) mine = row;
+  }
+  if (replica.length) {
+    if (!mine) {
+      mine = [NSEntityDescription insertNewObjectForEntityForName:ODSMergeSeenEntity inManagedObjectContext:context];
+      [mine setValue:entityType forKey:@"entityType"];
+      [mine setValue:keyText forKey:@"keyText"];
+      [mine setValue:property forKey:@"property"];
+      [mine setValue:replica forKey:@"replica"];
+      rows = [rows arrayByAddingObject:mine];
+    }
+    [mine setValue:version forKey:@"version"];
+    [mine setValue:now forKey:@"seen"];
+  }
+  NSData *meet = nil;
+  for (NSManagedObject *row in rows) {
+    NSDate *seen = [row valueForKey:@"seen"];
+    if (since && [seen compare:since] == NSOrderedAscending) {
+      // Not heard from within retention: no longer waited for.
+      [context deleteObject:row];
+      continue;
+    }
+    NSData *theirs = [row valueForKey:@"version"];
+    if (!theirs) continue;
+    meet = meet ? [merger versionMeeting:meet andVersion:theirs] : theirs;
+  }
+  return meet;
+}
+
+NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replica, NSArray *items, ODataReply *reply, BOOL record,
+                                       NSTimeInterval retention)
+{
+  ODataRequest *request = reply.request;
+  ODataService *service = request.service;
+  NSManagedObjectContext *context = request.context;
+  if (![items isKindOfClass:[NSArray class]] || !service || !context) {
+    [reply failWithError:ODataServiceError(400, @"Items: a list of { EntitySet, Key, Property, Version, Delta }")];
+    return nil;
+  }
+  ODSCodec *codec = engine.codec;
+  NSMutableArray *answers = [NSMutableArray array];
+  for (NSDictionary *item in items) {
+    NSString *(^failed)(NSString *) = ^NSString *(NSString *why) {
+      [answers addObject:@{ @"Error": why }];
+      return nil;
+    };
+    if (![item isKindOfClass:[NSDictionary class]] || ![item[@"EntitySet"] isKindOfClass:[NSString class]] ||
+        ![item[@"Property"] isKindOfClass:[NSString class]] || ![item[@"Key"] isKindOfClass:[NSDictionary class]]) {
+      failed(@"An item names an EntitySet, a Key and a Property");
+      continue;
+    }
+    ODataEntitySetHandler *handler = [service handlerForEntitySet:item[@"EntitySet"]];
+    NSEntityDescription *entity = handler.entity;
+    NSDictionary *key = entity ? [codec keyFromJSON:item[@"Key"] entity:[engine.model rootOf:entity]] : nil;
+    if (!key) {
+      failed(@"No such entity set, or no key of it");
+      continue;
+    }
+    // As the request may see it: a user merges into their own only.
+    NSMutableArray *conditions = [NSMutableArray array];
+    for (NSString *name in key) [conditions addObject:[NSPredicate predicateWithFormat:@"%K == %@", name, key[name]]];
+    NSPredicate *visible = [handler predicateForVisibleObjectsInRequest:request];
+    if (visible) [conditions addObject:visible];
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:entity.name];
+    fetch.predicate = [NSCompoundPredicate andPredicateWithSubpredicates:conditions];
+    fetch.fetchLimit = 1;
+    NSManagedObject *object = [[context executeFetchRequest:fetch error:NULL] firstObject];
+    NSAttributeDescription *attribute = nil;
+    for (NSAttributeDescription *a in object ? [engine.model mergedAttributesOf:object.entity] : @[]) {
+      if ([[codec.mapper propertyForAttribute:a] isEqualToString:item[@"Property"]]) attribute = a;
+    }
+    id<ODataSyncMerging> merger = attribute ? [engine mergerForName:[engine.model mergerNameOf:attribute]] : nil;
+    if (!object || !merger) {
+      failed(object ? @"No merged attribute of that name" : @"No such object");
+      continue;
+    }
+    NSData *delta = ODSDataOfBase64(item[@"Delta"]);
+    if (delta.length) {
+      // Through the handler: merged, written as any update is.
+      if (![handler updateObject:object values:@{ attribute.name: delta } request:request reply:reply]) return nil;
+    }
+    NSData *state = [object valueForKey:attribute.name];
+    NSData *version = [merger versionOfState:state];
+    // What the device lacks, before anything is collected: what is collected
+    // now it has not seen yet, and is told (then collects it itself).
+    NSData *theirs = ODSDataOfBase64(item[@"Version"]);
+    NSData *lacks = [merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
+    NSString *keyText = [codec keyTextOf:key entity:[engine.model rootOf:entity]];
+    NSData *seen = record ? ODSSeenByAll(context, [engine.model rootOf:entity].name, keyText, attribute.name,
+                                         [replica isKindOfClass:[NSString class]] ? replica : nil, version, merger, retention)
+                          : nil;
+    if (seen.length) {
+      NSData *collected = [merger stateByCollecting:state seenBy:seen];
+      if (collected && ![collected isEqual:state]) {
+        [object setValue:collected forKey:attribute.name];
+        state = collected;
+      }
+    }
+    NSMutableDictionary *answer = [NSMutableDictionary dictionary];
+    answer[@"Delta"] = ODSBase64Of(lacks);
+    answer[@"Version"] = ODSBase64Of([merger versionOfState:state]);
+    if (seen.length) answer[@"SeenByAll"] = ODSBase64Of(seen);
+    [answers addObject:answer];
+  }
+  return @{ @"Items": answers };
+}
+
+// The service's operations when it has none of its own: PeerToken, and
+// MergeAttributes.
+@implementation ODSServiceOperations
+// Items is a list of objects: what the runtime cannot tell.
++ (NSDictionary *)ODataOperationTypes
+{
+  return @{ @"mergeAttributesWithReplica:items:reply:.items": @"Edm.Untyped" };
+}
+
 - (NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply
 {
-  return [self.sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
+  ODataSyncService *sync = self.sync;
+  if (!sync) {
+    [reply failWithError:ODataServiceError(501, @"This service issues no peer tokens")];
+    return nil;
+  }
+  return [sync peerTokenWithReplica:replica thumbprint:thumbprint reply:reply];
+}
+
+- (NSDictionary *)mergeAttributesWithReplica:(NSString *)replica items:(NSArray *)items reply:(ODataReply *)reply
+{
+  ODataSyncService *sync = self.sync;
+  if (sync) return [sync mergeAttributesWithReplica:replica items:items reply:reply];
+  return ODSAnswerMergeAttributes(self.engine, replica, items, reply, NO, 0);
 }
 @end
 
@@ -121,11 +297,11 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
     if (!entity.superentity && [synced versionsAttributeOf:entity]) [roots addObject:entity];
   }
   ODSIndexKeys(model, roots);
-  NSEntityDescription *tombstone = ODSTombstoneEntityDescription();
-  model.entities = [model.entities arrayByAddingObject:tombstone];
+  NSArray *added = @[ ODSTombstoneEntityDescription(), ODSMergeSeenEntityDescription() ];
+  model.entities = [model.entities arrayByAddingObjectsFromArray:added];
   if (configuration) {
     NSArray *entities = [model entitiesForConfiguration:configuration] ?: @[];
-    [model setEntities:[entities arrayByAddingObject:tombstone] forConfiguration:configuration];
+    [model setEntities:[entities arrayByAddingObjectsFromArray:added] forConfiguration:configuration];
   }
 }
 
@@ -154,7 +330,37 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
     [service setHandler:handler forEntitySet:set];
   }
   _uncheckedEntitySets = unchecked;
+  // Merged attributes are exchanged through MergeAttributes (14).
+  BOOL merges = NO;
+  for (NSEntityDescription *entity in service.model.entities) {
+    if ([model mergedAttributesOf:entity].count) merges = YES;
+  }
+  if (merges) [self installOperations];
   return self;
+}
+
+// ODataSync's operations, unless the app has its own (which then adopts
+// ODataSyncPeerTokenActions and ODataSyncMergeActions, and forwards).
+- (BOOL)installOperations
+{
+  id existing = _service.serviceOperations;
+  if ([existing isKindOfClass:[ODSServiceOperations class]]) return YES;
+  if (existing) return NO;
+  ODSServiceOperations *operations = [[ODSServiceOperations alloc] init];
+  operations.sync = self;
+  operations.engine = _engine;
+  _service.serviceOperations = operations;
+  return YES;
+}
+
+- (NSTimeInterval)mergeRetention
+{
+  return _mergeRetention > 0 ? _mergeRetention : self.tombstoneRetention;
+}
+
+- (NSDictionary *)mergeAttributesWithReplica:(NSString *)replica items:(NSArray *)items reply:(ODataReply *)reply
+{
+  return ODSAnswerMergeAttributes(_engine, replica, items, reply, YES, self.mergeRetention);
 }
 
 - (NSTimeInterval)tombstoneRetention
@@ -170,10 +376,8 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 - (void)setPeerTokens:(ODataSyncPeerTokenIssuer *)peerTokens
 {
   _peerTokens = peerTokens;
-  if (peerTokens && !_service.serviceOperations) {
-    ODSPeerTokenOperations *operations = [[ODSPeerTokenOperations alloc] init];
-    operations.sync = self;
-    _service.serviceOperations = operations;
+  if (peerTokens && [self installOperations]) {
+    // ODataSync's own operations answer it.
   } else if (peerTokens && ![_service.serviceOperations conformsToProtocol:@protocol(ODataSyncPeerTokenActions)]) {
     // The app's own operations, without PeerToken: no device can ask.
     NSLog(@"ODataSyncService: the service's operations do not adopt ODataSyncPeerTokenActions: no PeerToken action, no peer tokens");

@@ -225,6 +225,7 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODSCodec.m \
 	Source/ODataSync/ODSConflicts.m \
 	Source/ODataSync/ODSDownloader.m \
+	Source/ODataSync/ODSMerge.m \
 	Source/ODataSync/ODSModel.m \
 	Source/ODataSync/ODSRecorder.m \
 	Source/ODataSync/ODSRequests.m \
@@ -249,6 +250,7 @@ ODataSync_OBJC_FILES = \
 ODataSync_HEADER_FILES = \
 	ODataSync.h \
 	ODataSyncEngine.h \
+	ODataSyncMerging.h \
 	ODataSyncPeerServer.h \
 	ODataSyncPeerTokens.h \
 	ODataSyncService.h \

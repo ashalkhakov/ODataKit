@@ -41,6 +41,13 @@ FOUNDATION_EXPORT NSAttributeDescription *_Nullable ODSModifiedAttributeOf(NSEnt
 // The synced attributes (served, not computed, no dynamic bag) and to-one
 // relationships to synced entities; the key's attributes (the root's).
 - (NSArray<NSAttributeDescription *> *)attributesOf:(NSEntityDescription *)entity;
+// Merged attributes (ODataSync.merge: a merger's name; docs/offline-sync.md,
+// 14): Binary, served, not among attributesOf:, exchanged as deltas after a
+// row's own.
+- (NSArray<NSAttributeDescription *> *)mergedAttributesOf:(NSEntityDescription *)entity;
+- (nullable NSString *)mergerNameOf:(NSAttributeDescription *)attribute;
+// Whether the entity, or one derived from it, has a merged attribute.
+- (BOOL)mergesEntity:(NSEntityDescription *)entity;
 - (NSArray<NSRelationshipDescription *> *)toOnesOf:(NSEntityDescription *)entity;
 - (NSArray<NSAttributeDescription *> *)keyAttributesOf:(NSEntityDescription *)entity;
 

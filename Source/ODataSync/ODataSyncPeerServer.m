@@ -7,6 +7,7 @@
 
 #import "ODataSyncPeerServer.h"
 #import "ODataSyncService.h"
+#import "ODSService.h"
 #import "ODSInternal.h"
 #import <ODataKit/ODataError.h>
 #import <ODataService/ODataService.h>
@@ -167,6 +168,11 @@ static BOOL ODSIsReplica(NSString *text)
     handler.allowsUpsert = writes;
     [_service setHandler:handler forEntitySet:[_service.mapper entitySetForEntity:entity]];
   }
+  // Merged attributes, exchanged as with the service (docs/offline-sync.md,
+  // 14); nothing kept of what peers have seen.
+  ODSServiceOperations *operations = [[ODSServiceOperations alloc] init];
+  operations.engine = engine;
+  _service.serviceOperations = operations;
 }
 
 - (BOOL)start:(NSError **)error

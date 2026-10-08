@@ -47,7 +47,8 @@ static const NSInteger ODSConflictRounds = 3;
 - (NSSet<NSString *> *)syncedNamesOf:(NSArray<NSPropertyDescription *> *)properties entity:(NSEntityDescription *)entity
 {
   NSMutableSet *names = [NSMutableSet set];
-  NSSet *attributes = [NSSet setWithArray:[[_model attributesOf:entity] valueForKey:@"name"]];
+  NSSet *attributes = [NSSet setWithArray:[[[_model attributesOf:entity] arrayByAddingObjectsFromArray:[_model mergedAttributesOf:entity]]
+                                              valueForKey:@"name"]];
   NSSet *toOnes = [NSSet setWithArray:[[_model toOnesOf:entity] valueForKey:@"name"]];
   for (NSPropertyDescription *property in properties) {
     if ([attributes containsObject:property.name] || [toOnes containsObject:property.name]) [names addObject:property.name];
@@ -152,6 +153,8 @@ static const NSInteger ODSConflictRounds = 3;
         // Its key was not kept on deletion (preservesValueInHistoryOnDeletion): it cannot be named.
         if (!key) continue;
         [self fold:ODataSyncOperationDelete properties:nil entity:root key:key relayed:relayed context:context sequence:&sequence];
+        NSManagedObject *merge = [_engine.store mergeEntryOf:root.name keyText:[_codec keyTextOf:key entity:root] remote:_remote inContext:context];
+        if (merge) [context deleteObject:merge];
         continue;
       }
       // Gone since: its deletion comes later in history.
@@ -162,13 +165,21 @@ static const NSInteger ODSConflictRounds = 3;
       }
       NSDictionary *key = [_codec keyOfObject:object];
       if (key.count != [_codec.mapper keyAttributesForEntity:root].count) continue;
+      NSSet *merged = [NSSet setWithArray:[[_model mergedAttributesOf:entity] valueForKey:@"name"]];
       if (change.changeType == NSPersistentHistoryChangeTypeInsert) {
         [self fold:ODataSyncOperationInsert properties:nil entity:root key:key relayed:relayed context:context sequence:&sequence];
+        if (merged.count) [_engine.store noteMergeOf:root key:key remote:_remote context:context];
       } else {
         NSSet *names = [self syncedNamesOf:change.updatedProperties.allObjects entity:entity];
         // A change of nothing synced (an empty set: unknown, so all).
         if (!names && change.updatedProperties.count) continue;
-        [self fold:ODataSyncOperationUpdate properties:names entity:root key:key relayed:relayed context:context sequence:&sequence];
+        // Merged attributes go as deltas, in an entry of their own; the
+        // row's PATCH has the rest.
+        if (merged.count && (!names || [names intersectsSet:merged])) [_engine.store noteMergeOf:root key:key remote:_remote context:context];
+        NSMutableSet *rest = [names mutableCopy];
+        [rest minusSet:merged];
+        if (names && !rest.count) continue;
+        [self fold:ODataSyncOperationUpdate properties:names ? rest : nil entity:root key:key relayed:relayed context:context sequence:&sequence];
       }
     }
   }
@@ -220,6 +231,7 @@ static const NSInteger ODSConflictRounds = 3;
   }
   ODataSyncOperation operation = [[entry valueForKey:@"operation"] integerValue];
   if (operation == ODataSyncOperationRefresh) return nil;  // read, not sent (-refreshIn:)
+  if (operation == ODataSyncOperationMerge) return nil;    // exchanged after the batch (ODSMergeExchange)
   BOOL both = [self checksVersionsOf:entry];
   NSManagedObject *shadow = both ? [_engine.store shadowOf:root.name keyText:[entry valueForKey:@"keyText"] remote:_remote inContext:context make:NO] : nil;
   NSString *etag = [shadow valueForKey:@"etag"];
@@ -543,7 +555,8 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
   __block NSError *failure = nil;
   [context performBlockAndWait:^{
     NSError *e = nil;
-    ok = [self fillOutbox:context error:&e] && [self sendIn:context error:&e];
+    ok = [self fillOutbox:context error:&e] && [self sendIn:context error:&e] &&
+         [[[ODSMergeExchange alloc] initWithEngine:self->_engine remote:self->_remote] exchangeIn:context error:&e];
     failure = e;
   }];
   if (!ok && error) *error = failure;
