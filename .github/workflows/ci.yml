@@ -215,7 +215,9 @@ jobs:
       # ODataSync's bookkeeping is indexed.
       # #69: a model's copy keeps exactly its indexes (no index more per
       # attribute an index covers).
-      FREECOREDATA_REF: 591dfa6eb602929713fbd2e3eaaa828198a3cf1b
+      # #70: migratePersistentStore:toURL:options:withType:error: (a server
+      # can move from SQLite to PostgreSQL), ordered relationships in order.
+      FREECOREDATA_REF: fd6ae5318162137c6dd1a4a5a8c08ca5503dac5d
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
