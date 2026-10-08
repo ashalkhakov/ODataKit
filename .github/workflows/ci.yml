@@ -213,7 +213,9 @@ jobs:
       # follow them.
       # #68: fetch indexes (NSFetchIndexDescription), made by every store:
       # ODataSync's bookkeeping is indexed.
-      FREECOREDATA_REF: 5b83123deb3ed227f506cee22e997e10bf679c03
+      # #69: a model's copy keeps exactly its indexes (no index more per
+      # attribute an index covers).
+      FREECOREDATA_REF: 591dfa6eb602929713fbd2e3eaaa828198a3cf1b
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
