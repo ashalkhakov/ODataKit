@@ -40,6 +40,8 @@ NS_ASSUME_NONNULL_BEGIN
 // What the service keeps of deletions (a tombstone entity), added to the
 // model before a coordinator uses it, in the configuration its synced
 // entities' store has (nil: the default one). Not served: it has no key.
+// Indexed, and each synced entity (one that keeps a version vector) by its
+// key, as ODataSyncEngine's are.
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(nullable NSString *)configuration;
 // Installs ODataSyncSetHandler on each set of an entity that keeps a
 // version vector and has the default handler (a server's own handler of

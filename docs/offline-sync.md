@@ -123,6 +123,42 @@ Added to the app's model by `+[ODataSyncEngine addBookkeepingToModel:]`
   its ETag, and its values (for a three-way merge, section 6). Only for
   `both` entities, and only their synced properties.
 
+#### Indexes: ODataSync's part, and the app's
+
+A sync looks rows up one at a time, one or more per object it moves.
+Unindexed, each lookup reads a whole table, and a sync takes the square
+of the objects it moves. So every lookup ODataSync makes has a fetch
+index, made by `+addBookkeepingToModel:`:
+
+| Entity | Index | Looked up by it |
+|---|---|---|
+| ODSShadow | `byObject`: remote, entity, key | each object downloaded or sent |
+| ODSOutboxEntry | `byObject`: remote, entity, key | each local change; a remote's pending changes |
+| ODSOutboxEntry | `bySequence`: sequence | each local change (the next entry's number) |
+| ODSTombstone | `byObject`: entity, key; `byDeleted`: deleted | each deletion told, a key reused; pruning |
+| each synced entity (its root) | `ODataSyncKey`: its key attributes, in order | each object downloaded, sent, resolved as a to-one, or in conflict |
+
+The last is the app's own entities': ODataSync looks them up by key and
+nothing else. An index of the app's own that begins with the key's
+attributes takes its place (none is added then). A service's model gets
+the same from `+[ODataSyncService addBookkeepingToModel:]`, for its sets
+that keep version vectors, and the tombstones'.
+
+What ODataSync cannot know is the app's: whatever its own queries filter
+or sort by. A server that scopes each request by an attribute (an owner,
+a tenant) should index it, as should one whose devices sync with filters
+(`Region eq 'North'`: `region`), and so should the app for its own
+fetches and lists. A key's uniqueness is the app's too: a uniqueness
+constraint, where its store has them.
+
+**A store made before the indexes does not get them.** An index does not
+change an entity's version hash, so Core Data sees no change to migrate:
+Apple's SQLite store opens an older store as it is, with or without the
+migration options, and so do FreeCoreData's stores. Such a store works,
+but unindexed; to have the indexes, delete it and let the device sync
+again (a service's store, made again from its data). The same goes for
+an index an app adds to its own entities.
+
 ## 4. Down
 
 Per remote, per `down` and `both` entity set:
@@ -628,9 +664,10 @@ What ODataService needs, and what it has:
    store (FreeCoreData's history does not report an expired token, as
    Apple's does). A device offline longer than that reads its sets again.
 7. **Key uniqueness**: an upsert must find the one entity a key names; the
-   store's key attribute is indexed and unique (a uniqueness constraint in
-   the model). *Recommended in the docs; checked by the service at start,
-   with a warning when missing.*
+   store's key attribute is indexed and unique. *Indexed by
+   `+[ODataSyncService addBookkeepingToModel:]` for the synced sets (3.3);
+   uniqueness is the model's to declare (a uniqueness constraint), and is
+   not checked.*
 
 ## 10. Order of work
 

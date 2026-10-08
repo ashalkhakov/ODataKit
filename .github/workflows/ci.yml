@@ -193,8 +193,10 @@ jobs:
       # 0b19ede: NSExpression's FUNCTION(receiver, "selector:") and FETCH,
       # and a key path reached through something else, which FreeCoreData's
       # migrations by mapping model need; libobjc2's stack-block-retain
-      # retired, fixed upstream. The ref FreeCoreData pins.
-      GNUSTEP_PATCHES_REF: 0b19ede3cd7ddc7e958130a856bea1a49e66c0f8
+      # retired, fixed upstream.
+      # c03ea57: an NSExpression given for %@ is used as itself; a nil
+      # constant prints as nil (so it parses back). The ref FreeCoreData pins.
+      GNUSTEP_PATCHES_REF: c03ea57fed32203e4e431666116e7e38714e25d9
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
       # its momc keeps a model version's Identifier, which models generated
@@ -207,7 +209,11 @@ jobs:
       # #63-65: migrations. Store metadata with options; a store comes
       # through a migration as the same store; a mapping model made in
       # Xcode is read and followed, its source expressions included.
-      FREECOREDATA_REF: beb700578e92998fc953da22ac1e7fc654a14b43
+      # #67: momc keeps Xcode's Renaming IDs (elementID); inferred mappings
+      # follow them.
+      # #68: fetch indexes (NSFetchIndexDescription), made by every store:
+      # ODataSync's bookkeeping is indexed.
+      FREECOREDATA_REF: 5b83123deb3ed227f506cee22e997e10bf679c03
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source

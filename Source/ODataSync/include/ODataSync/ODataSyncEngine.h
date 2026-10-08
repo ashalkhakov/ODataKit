@@ -245,7 +245,11 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 // The engine's own entities, added to the model before a coordinator uses
 // it, in the configuration the synced entities' store has (nil: the
 // default one); and ODataSyncPeerConfiguration, listing the synced
-// entities, which a peer server serves.
+// entities, which a peer server serves. Each is indexed for the lookups a
+// sync makes, and each synced entity by its key (ODataSyncKey, unless an
+// index of the app's begins with it); what else the app's queries filter
+// or sort by is the app's to index (docs/offline-sync.md, 3.3). A store
+// made before an index does not get it.
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(nullable NSString *)configuration;
 
 // The coordinator's store (the one with the synced entities) must keep

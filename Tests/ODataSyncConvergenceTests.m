@@ -335,6 +335,21 @@ static NSDictionary *OSCExpected(OSCChange local, OSCChange remote, OSCRule rule
   XCTAssertEqual(again.uploaded + again.downloaded + again.removed + again.conflicts, 0u, @"%@: settled for good: %@", name, again);
 }
 
+// The service's synced sets (those that keep version vectors) indexed by
+// their keys: each object a device sends is looked up by it.
+- (void)testTheServicesSyncedSetsAreIndexedByKey
+{
+  NSManagedObjectModel *model = OSCModel(YES);
+  [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  for (NSString *name in @[ @"Inspection", @"Task" ]) {
+    NSFetchIndexDescription *index = [model.entitiesByName[name] indexes].firstObject;
+    XCTAssertEqualObjects(index.name, @"ODataSyncKey", @"%@", name);
+    XCTAssertEqualObjects([index.elements valueForKeyPath:@"property.name"], @[ @"id" ], @"%@", name);
+  }
+  XCTAssertEqual([model.entitiesByName[@"Asset"] indexes].count, 0u, @"keeps no versions: not synced at the service");
+  XCTAssertNotNil([self storeWithModel:model], @"and a store is made with them");
+}
+
 - (void)testEveryConflictUnderEveryRuleWithVersions
 {
   _versions = YES;

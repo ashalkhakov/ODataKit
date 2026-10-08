@@ -113,6 +113,14 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
 {
   if (model.entitiesByName[ODSTombstoneEntity]) return;
+  // The service's synced sets (those that keep version vectors): each
+  // object a device sends looked up by its key.
+  ODSModel *synced = [[ODSModel alloc] initWithModel:model];
+  NSMutableArray *roots = [NSMutableArray array];
+  for (NSEntityDescription *entity in model.entities) {
+    if (!entity.superentity && [synced versionsAttributeOf:entity]) [roots addObject:entity];
+  }
+  ODSIndexKeys(model, roots);
   NSEntityDescription *tombstone = ODSTombstoneEntityDescription();
   model.entities = [model.entities arrayByAddingObject:tombstone];
   if (configuration) {

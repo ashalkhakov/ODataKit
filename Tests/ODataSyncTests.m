@@ -241,6 +241,41 @@ static NSManagedObjectModel *OSTModel(void)
 
 #pragma mark Down
 
+// The bookkeeping is looked up an object at a time: each lookup indexed.
+- (void)testTheBookkeepingIsIndexed
+{
+  NSDictionary *entities = _device.managedObjectModel.entitiesByName;
+  NSDictionary *expected = @{ @"ODSShadow": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ] },
+                              @"ODSOutboxEntry": @{ @"byObject": @[ @"remote", @"entityType", @"keyText" ], @"bySequence": @[ @"sequence" ] },
+                              @"ODSTombstone": @{ @"byObject": @[ @"entityType", @"keyText" ], @"byDeleted": @[ @"deleted" ] },
+                              // The app's synced entities, by their keys.
+                              @"Asset": @{ @"ODataSyncKey": @[ @"id" ] }, @"Inspection": @{ @"ODataSyncKey": @[ @"id" ] },
+                              @"Task": @{ @"ODataSyncKey": @[ @"id" ] } };
+  for (NSString *name in expected) {
+    NSMutableDictionary *found = [NSMutableDictionary dictionary];
+    for (NSFetchIndexDescription *index in [entities[name] indexes]) {
+      found[index.name] = [index.elements valueForKeyPath:@"property.name"];
+    }
+    XCTAssertEqualObjects(found, expected[name], @"%@", name);
+  }
+  // The store made with them takes what a sync writes.
+  [self sync];
+  XCTAssertEqual([self values:@"name" of:@"Asset" in:_device].count, 3u);
+
+  // An app's own index that begins with the key is kept, and none added;
+  // one that does not, the key's added beside it.
+  NSManagedObjectModel *model = OSTModel();
+  NSEntityDescription *task = model.entitiesByName[@"Task"], *asset = model.entitiesByName[@"Asset"];
+  task.indexes = @[ [[NSFetchIndexDescription alloc] initWithName:@"byIDAndTitle" elements:@[
+    [[NSFetchIndexElementDescription alloc] initWithProperty:task.attributesByName[@"id"] collationType:NSFetchIndexElementTypeBinary],
+    [[NSFetchIndexElementDescription alloc] initWithProperty:task.attributesByName[@"title"] collationType:NSFetchIndexElementTypeBinary] ]] ];
+  asset.indexes = @[ [[NSFetchIndexDescription alloc] initWithName:@"byRegion" elements:@[
+    [[NSFetchIndexElementDescription alloc] initWithProperty:asset.attributesByName[@"region"] collationType:NSFetchIndexElementTypeBinary] ]] ];
+  [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  XCTAssertEqualObjects([task.indexes valueForKey:@"name"], @[ @"byIDAndTitle" ]);
+  XCTAssertEqualObjects([asset.indexes valueForKey:@"name"], (@[ @"byRegion", @"ODataSyncKey" ]));
+}
+
 - (void)testDownloadWholeThenByDeltaLink
 {
   [self sync];
