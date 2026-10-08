@@ -10,6 +10,9 @@
 
 // Items to an action call at most.
 static const NSUInteger ODSMergeBatch = 100;
+// Exchanges an object's merged attributes may fail before its entry is set
+// aside (an issue: the app retries or discards it).
+static const NSInteger ODSMergeAttempts = 3;
 
 static NSString *ODSBase64(NSData *data)
 {
@@ -29,6 +32,8 @@ static NSData *ODSFromBase64(id text)
 @property (nonatomic, strong) id<ODataSyncMerging> merger;
 @property (nonatomic, copy) NSDictionary *item;  // EntitySet, Key, Property
 @property (nonatomic) BOOL failed;
+@property (nonatomic, copy) NSString *message;    // why, when failed
+@property (nonatomic) BOOL changed;               // an answer changed it here
 @end
 
 @implementation ODSMergeSlot
@@ -130,22 +135,33 @@ static NSData *ODSFromBase64(id text)
 {
   if (![answer isKindOfClass:[NSDictionary class]] || answer[@"Error"]) {
     slot.failed = YES;
+    slot.message = [answer isKindOfClass:[NSDictionary class]] && [answer[@"Error"] isKindOfClass:[NSString class]] ? answer[@"Error"]
+                                                                                                                    : @"No answer for it";
     return nil;
   }
   NSData *state = [slot.object valueForKey:slot.attribute.name];
   NSData *merged = state;
-  NSData *delta = ODSFromBase64(answer[@"Delta"]);
-  if (delta.length) {
-    NSError *error = nil;
-    merged = [slot.merger stateByMerging:delta intoState:state error:&error];
-    if (!merged) {
-      slot.failed = YES;
-      return nil;
-    }
+  NSError *error = nil;
+  if ([answer[@"Reset"] boolValue]) {
+    // Behind what the remote collected (docs/offline-sync.md, 14.4): its
+    // state, with what this copy did since the horizon, and nothing older,
+    // which every other copy has seen, and which is gone there.
+    NSData *theirs = ODSFromBase64(answer[@"State"]), *horizon = ODSFromBase64(answer[@"Horizon"]);
+    NSData *since = [slot.merger deltaOfState:state sinceVersion:horizon.length ? horizon : nil];
+    merged = since.length ? [slot.merger stateByMerging:since intoState:theirs error:&error] : theirs;
+  } else {
+    NSData *delta = ODSFromBase64(answer[@"Delta"]);
+    if (delta.length) merged = [slot.merger stateByMerging:delta intoState:state error:&error];
+  }
+  if (!merged) {
+    slot.failed = YES;
+    slot.message = error.localizedDescription ?: @"What the remote sent does not merge";
+    return nil;
   }
   NSData *seen = ODSFromBase64(answer[@"SeenByAll"]);
   if (seen.length) merged = [slot.merger stateByCollecting:merged seenBy:seen] ?: merged;
   if (!(merged == state || [merged isEqual:state])) {
+    slot.changed = YES;
     [slot.object setValue:merged forKey:slot.attribute.name];
     if ([slot.merger respondsToSelector:@selector(mergedAttribute:ofObject:)]) [slot.merger mergedAttribute:slot.attribute ofObject:slot.object];
   }
@@ -186,10 +202,13 @@ static NSData *ODSFromBase64(id text)
       if (!theirs) continue;
       NSData *state = [slot.object valueForKey:slot.attribute.name];
       NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
-      if (!delta.length) continue;
+      // Nothing it lacks, and nothing changed here: done. Changed, it is told
+      // what this copy has now, for what it collects (what a copy says it
+      // has, never what it was sent).
+      if (!delta.length && !slot.changed) continue;
       NSMutableDictionary *item = [slot.item mutableCopy];
       item[@"Version"] = ODSBase64([slot.merger versionOfState:state]);
-      item[@"Delta"] = ODSBase64(delta);
+      if (delta.length) item[@"Delta"] = ODSBase64(delta);
       [ups addObject:item];
       [upSlots addObject:slot];
     }
@@ -201,15 +220,24 @@ static NSData *ODSFromBase64(id text)
       }
       for (NSUInteger i = 0; i < upSlots.count; i++) [self apply:upAnswers[i] to:upSlots[i]];
     }
-    // Done, but those that failed: again at the next sync.
-    NSMutableSet *failed = [NSMutableSet set];
+    // Done, but those that failed: again at the next sync, and set aside
+    // after a few (one that never merges holds up nothing else).
+    NSMutableDictionary<NSManagedObjectID *, ODSMergeSlot *> *failed = [NSMutableDictionary dictionary];
     for (ODSMergeSlot *slot in slots) {
-      if (slot.failed) [failed addObject:slot.entry.objectID];
+      if (slot.failed) failed[slot.entry.objectID] = slot;
     }
     for (NSManagedObject *entry in chunk) {
       if (entry.isDeleted) continue;
-      if ([failed containsObject:entry.objectID]) {
-        [entry setValue:@([[entry valueForKey:@"attempts"] integerValue] + 1) forKey:@"attempts"];
+      ODSMergeSlot *slot = failed[entry.objectID];
+      if (slot) {
+        NSInteger attempts = [[entry valueForKey:@"attempts"] integerValue] + 1;
+        [entry setValue:@(attempts) forKey:@"attempts"];
+        if (attempts >= ODSMergeAttempts) {
+          [entry setValue:@YES forKey:@"setAside"];
+          [entry setValue:@422 forKey:@"status"];
+          [entry setValue:slot.message forKey:@"message"];
+          [_engine setAside:[[ODataSyncIssue alloc] initWithEntry:entry objectID:slot.object.objectID]];
+        }
       } else {
         [context deleteObject:entry];
         [_engine count:@"merged" by:1];

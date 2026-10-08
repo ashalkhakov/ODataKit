@@ -144,6 +144,7 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
   if (sent.length && keyText) {
     ODSNoteSentDeletion(request.context, [[self.engine.model rootOf:self.entity].name stringByAppendingFormat:@" %@", keyText], sent);
   }
+  if (keyText) ODSForgetMerges(request.context, [self.engine.model rootOf:self.entity].name, keyText);
   [super deleteObject:object request:request reply:reply];
 }
 
@@ -159,45 +160,65 @@ static NSData *ODSDataOfBase64(id text)
   return [text isKindOfClass:[NSString class]] ? [[NSData alloc] initWithBase64EncodedString:text options:0] : nil;
 }
 
-// What every replica heard from within retention has seen of an object's
-// merged attribute, this replica's version recorded first (record: the
-// service keeps them; a peer server does not, and so collects nothing).
-static NSData *ODSSeenByAll(NSManagedObjectContext *context, NSString *entityType, NSString *keyText, NSString *property,
-                            NSString *replica, NSData *version, id<ODataSyncMerging> merger, NSTimeInterval retention)
+// The replica the horizon is kept under, among an object's ODSMergeSeen:
+// what its merged attribute was last collected with.
+static NSString * const ODSMergeHorizonReplica = @"ODataSync.collected";
+
+static NSArray<NSManagedObject *> *ODSMergeRows(NSManagedObjectContext *context, NSString *entityType, NSString *keyText, NSString *property)
 {
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSMergeSeenEntity];
-  fetch.predicate = [NSPredicate predicateWithFormat:@"entityType == %@ AND keyText == %@ AND property == %@", entityType, keyText, property];
-  NSArray *rows = [context executeFetchRequest:fetch error:NULL] ?: @[];
-  NSDate *now = [NSDate date], *since = retention > 0 ? [now dateByAddingTimeInterval:-retention] : nil;
-  NSManagedObject *mine = nil;
+  fetch.predicate = property ? [NSPredicate predicateWithFormat:@"entityType == %@ AND keyText == %@ AND property == %@", entityType, keyText, property]
+                             : [NSPredicate predicateWithFormat:@"entityType == %@ AND keyText == %@", entityType, keyText];
+  return [context executeFetchRequest:fetch error:NULL] ?: @[];
+}
+
+static NSManagedObject *ODSMergeRow(NSArray<NSManagedObject *> *rows, NSString *replica)
+{
   for (NSManagedObject *row in rows) {
-    if ([[row valueForKey:@"replica"] isEqual:replica]) mine = row;
+    if ([[row valueForKey:@"replica"] isEqual:replica]) return row;
   }
-  if (replica.length) {
-    if (!mine) {
-      mine = [NSEntityDescription insertNewObjectForEntityForName:ODSMergeSeenEntity inManagedObjectContext:context];
-      [mine setValue:entityType forKey:@"entityType"];
-      [mine setValue:keyText forKey:@"keyText"];
-      [mine setValue:property forKey:@"property"];
-      [mine setValue:replica forKey:@"replica"];
-      rows = [rows arrayByAddingObject:mine];
-    }
-    [mine setValue:version forKey:@"version"];
-    [mine setValue:now forKey:@"seen"];
-  }
-  NSData *meet = nil;
+  return nil;
+}
+
+static NSManagedObject *ODSMakeMergeRow(NSManagedObjectContext *context, NSString *entityType, NSString *keyText, NSString *property,
+                                        NSString *replica)
+{
+  NSManagedObject *row = [NSEntityDescription insertNewObjectForEntityForName:ODSMergeSeenEntity inManagedObjectContext:context];
+  [row setValue:entityType forKey:@"entityType"];
+  [row setValue:keyText forKey:@"keyText"];
+  [row setValue:property forKey:@"property"];
+  [row setValue:replica forKey:@"replica"];
+  return row;
+}
+
+// version has seen all horizon has: the merger's meet of the two is
+// horizon's own (versionMeeting: gives equal versions as equal bytes).
+static BOOL ODSCovers(id<ODataSyncMerging> merger, NSData *version, NSData *horizon)
+{
+  return [[merger versionMeeting:version andVersion:horizon] isEqual:[merger versionMeeting:horizon andVersion:horizon]];
+}
+
+// What every replica heard from within retention has seen of an object's
+// merged attribute, the service among them (what it has): the meet of what
+// each last said it has. A replica not heard from since is let go of.
+static NSData *ODSSeenByAll(NSManagedObjectContext *context, NSArray<NSManagedObject *> *rows, NSData *service,
+                            id<ODataSyncMerging> merger, NSTimeInterval retention)
+{
+  NSDate *since = retention > 0 ? [NSDate dateWithTimeIntervalSinceNow:-retention] : nil;
+  NSData *meet = service;
+  BOOL replicas = NO;
   for (NSManagedObject *row in rows) {
-    NSDate *seen = [row valueForKey:@"seen"];
-    if (since && [seen compare:since] == NSOrderedAscending) {
-      // Not heard from within retention: no longer waited for.
+    if (row.isDeleted || [[row valueForKey:@"replica"] isEqual:ODSMergeHorizonReplica]) continue;
+    if (since && [[row valueForKey:@"seen"] compare:since] == NSOrderedAscending) {
       [context deleteObject:row];
       continue;
     }
     NSData *theirs = [row valueForKey:@"version"];
     if (!theirs) continue;
-    meet = meet ? [merger versionMeeting:meet andVersion:theirs] : theirs;
+    meet = [merger versionMeeting:meet andVersion:theirs];
+    replicas = YES;
   }
-  return meet;
+  return replicas ? meet : nil;
 }
 
 NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replica, NSArray *items, ODataReply *reply, BOOL record,
@@ -210,6 +231,7 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     [reply failWithError:ODataServiceError(400, @"Items: a list of { EntitySet, Key, Property, Version, Delta }")];
     return nil;
   }
+  if (![replica isKindOfClass:[NSString class]] || [replica isEqual:ODSMergeHorizonReplica]) replica = nil;
   ODSCodec *codec = engine.codec;
   NSMutableArray *answers = [NSMutableArray array];
   for (NSDictionary *item in items) {
@@ -247,26 +269,65 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
       failed(object ? @"No merged attribute of that name" : @"No such object");
       continue;
     }
+    NSString *entityType = [engine.model rootOf:entity].name;
+    NSString *keyText = [codec keyTextOf:key entity:[engine.model rootOf:entity]];
+    NSArray *rows = record ? ODSMergeRows(context, entityType, keyText, attribute.name) : @[];
+    NSManagedObject *horizonRow = ODSMergeRow(rows, ODSMergeHorizonReplica);
+    NSData *horizon = [horizonRow valueForKey:@"version"];
+    NSData *theirs = ODSDataOfBase64(item[@"Version"]);
+    if (!theirs.length) theirs = [merger versionOfState:nil];
+    NSData *state = [object valueForKey:attribute.name];
+
+    // Behind what was collected (away longer than the retention, or only
+    // ever through peers): what it has cannot be merged, nor told what it
+    // lacks. It is answered the whole state and the horizon, and re-bases
+    // on them (docs/offline-sync.md, 14.4); nothing it sent is taken.
+    if (horizon.length && !ODSCovers(merger, theirs, horizon)) {
+      [answers addObject:@{ @"Reset": @YES, @"State": ODSBase64Of(state), @"Horizon": ODSBase64Of(horizon),
+                            @"Version": ODSBase64Of([merger versionOfState:state]) }];
+      continue;
+    }
     NSData *delta = ODSDataOfBase64(item[@"Delta"]);
+    // What every copy had seen when it was collected comes back no more.
+    if (delta.length && horizon.length) delta = [merger deltaOfState:delta sinceVersion:horizon];
     if (delta.length) {
+      // One that does not merge is this item's error, not the call's.
+      NSError *error = nil;
+      if (![merger stateByMerging:delta intoState:state error:&error]) {
+        failed([NSString stringWithFormat:@"%@ does not merge: %@", item[@"Property"], error.localizedDescription ?: @"not a state or delta"]);
+        continue;
+      }
       // Through the handler: merged, written as any update is.
       if (![handler updateObject:object values:@{ attribute.name: delta } request:request reply:reply]) return nil;
+      state = [object valueForKey:attribute.name];
     }
-    NSData *state = [object valueForKey:attribute.name];
-    NSData *version = [merger versionOfState:state];
     // What the device lacks, before anything is collected: what is collected
     // now it has not seen yet, and is told (then collects it itself).
-    NSData *theirs = ODSDataOfBase64(item[@"Version"]);
-    NSData *lacks = [merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
-    NSString *keyText = [codec keyTextOf:key entity:[engine.model rootOf:entity]];
-    NSData *seen = record ? ODSSeenByAll(context, [engine.model rootOf:entity].name, keyText, attribute.name,
-                                         [replica isKindOfClass:[NSString class]] ? replica : nil, version, merger, retention)
-                          : nil;
+    NSData *lacks = [merger deltaOfState:state sinceVersion:theirs];
+    NSData *seen = nil;
+    if (record) {
+      // What the replica says it has: not what it is answered, which it may
+      // never get (a lost answer), or fail to merge.
+      if (replica) {
+        NSManagedObject *mine = ODSMergeRow(rows, replica);
+        if (!mine) {
+          mine = ODSMakeMergeRow(context, entityType, keyText, attribute.name, replica);
+          rows = [rows arrayByAddingObject:mine];
+        }
+        [mine setValue:theirs forKey:@"version"];
+        [mine setValue:[NSDate date] forKey:@"seen"];
+      }
+      seen = ODSSeenByAll(context, rows, [merger versionOfState:state], merger, retention);
+    }
     if (seen.length) {
       NSData *collected = [merger stateByCollecting:state seenBy:seen];
       if (collected && ![collected isEqual:state]) {
         [object setValue:collected forKey:attribute.name];
         state = collected;
+        // A replica that has not seen all this is behind it from now on.
+        if (!horizonRow) horizonRow = ODSMakeMergeRow(context, entityType, keyText, attribute.name, ODSMergeHorizonReplica);
+        [horizonRow setValue:seen forKey:@"version"];
+        [horizonRow setValue:[NSDate date] forKey:@"seen"];
       }
     }
     NSMutableDictionary *answer = [NSMutableDictionary dictionary];
@@ -276,6 +337,14 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     [answers addObject:answer];
   }
   return @{ @"Items": answers };
+}
+
+// What the service kept of a deleted object's merged attributes, gone with it.
+void ODSForgetMerges(NSManagedObjectContext *context, NSString *entityType, NSString *keyText)
+{
+  // A peer server's (a device's model) keeps none.
+  if (!context.persistentStoreCoordinator.managedObjectModel.entitiesByName[ODSMergeSeenEntity]) return;
+  for (NSManagedObject *row in ODSMergeRows(context, entityType, keyText, nil)) [context deleteObject:row];
 }
 
 // The service's operations when it has none of its own: PeerToken, and

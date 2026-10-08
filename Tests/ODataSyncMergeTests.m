@@ -11,10 +11,13 @@
 #import <ODataIncrementalStore/ODataClient.h>
 #import <ODataIncrementalStore/ODataConfiguration.h>
 
-// A two-phase set, as the tests' mergeable state: {"add": [...], "del": [...]},
-// an element there when added and not deleted. Its version is the state
-// itself; a delta, what a version lacks; a meet, what both have; collecting
-// forgets an element deleted where every copy has seen it deleted.
+// A two-phase set, as the tests' mergeable state: {"add": [...], "del": [...],
+// "gone": [...]}, an element there when added and not deleted. Collecting
+// forgets an element deleted where every copy has seen it deleted, keeping
+// only its name in gone: a version still has seen it (as a version vector
+// keeps its counters), and a delta that brings it again merges it no more.
+// Its version is what it has seen; a delta, what a version lacks; a meet,
+// what both have. A delta with "poison" in it does not merge.
 @interface OSMTwoPhaseSet : NSObject <ODataSyncMerging>
 @property (atomic) NSUInteger collections;
 + (NSData *)stateAdding:(NSArray *)add deleting:(NSArray *)del;
@@ -24,17 +27,26 @@
 
 @implementation OSMTwoPhaseSet
 
++ (NSData *)stateAdding:(id)add deleting:(id)del gone:(id)gone
+{
+  NSArray *(^sorted)(id) = ^NSArray *(id items) {
+    return [[NSSet setWithArray:[items isKindOfClass:[NSSet class]] ? [items allObjects] : items ?: @[]].allObjects sortedArrayUsingSelector:@selector(compare:)];
+  };
+  NSMutableDictionary *json = [@{ @"add": sorted(add), @"del": sorted(del) } mutableCopy];
+  if ([gone count]) json[@"gone"] = sorted(gone);
+  return [NSJSONSerialization dataWithJSONObject:json options:NSJSONWritingSortedKeys error:NULL];
+}
+
 + (NSData *)stateAdding:(NSArray *)add deleting:(NSArray *)del
 {
-  NSArray *a = [[NSSet setWithArray:add].allObjects sortedArrayUsingSelector:@selector(compare:)];
-  NSArray *d = [[NSSet setWithArray:del].allObjects sortedArrayUsingSelector:@selector(compare:)];
-  return [NSJSONSerialization dataWithJSONObject:@{ @"add": a, @"del": d } options:NSJSONWritingSortedKeys error:NULL];
+  return [self stateAdding:add deleting:del gone:nil];
 }
 
 + (NSDictionary *)setsOf:(NSData *)state
 {
   NSDictionary *json = state.length ? [NSJSONSerialization JSONObjectWithData:state options:0 error:NULL] : nil;
-  return @{ @"add": [NSSet setWithArray:json[@"add"] ?: @[]], @"del": [NSSet setWithArray:json[@"del"] ?: @[]] };
+  return @{ @"add": [NSSet setWithArray:json[@"add"] ?: @[]], @"del": [NSSet setWithArray:json[@"del"] ?: @[]],
+            @"gone": [NSSet setWithArray:json[@"gone"] ?: @[]] };
 }
 
 + (NSArray *)elementsOf:(NSData *)state
@@ -48,7 +60,7 @@
 - (NSData *)versionOfState:(NSData *)state
 {
   NSDictionary *s = [OSMTwoPhaseSet setsOf:state];
-  return [OSMTwoPhaseSet stateAdding:[s[@"add"] allObjects] deleting:[s[@"del"] allObjects]];
+  return [OSMTwoPhaseSet stateAdding:[s[@"add"] setByAddingObjectsFromSet:s[@"gone"]] deleting:[s[@"del"] setByAddingObjectsFromSet:s[@"gone"]]];
 }
 
 - (NSData *)deltaOfState:(NSData *)state sinceVersion:(NSData *)version
@@ -64,13 +76,16 @@
 - (NSData *)stateByMerging:(NSData *)delta intoState:(NSData *)state error:(NSError **)error
 {
   id json = [NSJSONSerialization JSONObjectWithData:delta options:0 error:NULL];
-  if (![json isKindOfClass:[NSDictionary class]]) {
+  if (![json isKindOfClass:[NSDictionary class]] || [json[@"add"] containsObject:@"poison"]) {
     if (error) *error = [NSError errorWithDomain:@"OSM" code:1 userInfo:@{ NSLocalizedDescriptionKey: @"not a set" }];
     return nil;
   }
   NSDictionary *s = [OSMTwoPhaseSet setsOf:state], *d = [OSMTwoPhaseSet setsOf:delta];
-  return [OSMTwoPhaseSet stateAdding:[[s[@"add"] setByAddingObjectsFromSet:d[@"add"]] allObjects]
-                            deleting:[[s[@"del"] setByAddingObjectsFromSet:d[@"del"]] allObjects]];
+  NSSet *gone = [s[@"gone"] setByAddingObjectsFromSet:d[@"gone"]];
+  NSMutableSet *add = [[s[@"add"] setByAddingObjectsFromSet:d[@"add"]] mutableCopy], *del = [[s[@"del"] setByAddingObjectsFromSet:d[@"del"]] mutableCopy];
+  [add minusSet:gone];
+  [del minusSet:gone];
+  return [OSMTwoPhaseSet stateAdding:add deleting:del gone:gone];
 }
 
 - (NSData *)versionMeeting:(NSData *)version andVersion:(NSData *)other
@@ -99,7 +114,7 @@
   NSMutableSet *add = [s[@"add"] mutableCopy], *del = [s[@"del"] mutableCopy];
   [add minusSet:gone];
   [del minusSet:gone];
-  return [OSMTwoPhaseSet stateAdding:add.allObjects deleting:del.allObjects];
+  return [OSMTwoPhaseSet stateAdding:add deleting:del gone:[s[@"gone"] setByAddingObjectsFromSet:gone]];
 }
 
 @end
@@ -429,6 +444,121 @@ static NSManagedObjectModel *OSMModel(void)
   [self sync:b];
   [self sync:a];
   XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], all, @"passed on to the service");
+}
+
+// What a replica is answered may never reach it: what it says it has, not
+// what it was sent, is what the service collects by. B is answered (the
+// deletion with it) but never gets the answer; apple is not collected until
+// B says it has seen it deleted, and comes back nowhere.
+- (void)testALostAnswerCollectsNothing
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple", @"banana" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  [self edit:@"d1" in:a adding:@[] deleting:@[ @"apple" ]];
+  [self sync:a];
+  NSData *bVersion = [_merger versionOfState:[self stateOf:@"d1" in:b.coordinator]];
+  NSDictionary *body = @{ @"Replica": b.replicaID, @"Items": @[
+    @{ @"EntitySet": @"Docs", @"Key": @{ @"Id": @"d1" }, @"Property": @"Body", @"Version": [bVersion base64EncodedStringWithOptions:0] } ] };
+  NSError *error = nil;
+  XCTAssertNotNil([self send:@"POST" to:@"MergeAttributes" JSON:body error:&error], @"%@", error);  // its answer, lost
+  [self sync:a];
+  XCTAssertTrue([[OSMTwoPhaseSet setsOf:[self stateOf:@"d1" in:_server]][@"del"] containsObject:@"apple"], @"not collected: b has not said it saw it");
+  [self edit:@"d1" in:b adding:@[ @"cherry" ] deleting:nil];
+  [self sync:b];
+  [self sync:a];
+  NSArray *left = @[ @"banana", @"cherry" ];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], left);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], left);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], left);
+  XCTAssertTrue([[OSMTwoPhaseSet setsOf:[self stateOf:@"d1" in:_server]][@"gone"] containsObject:@"apple"], @"collected once b said so");
+}
+
+// A delta that does not merge is its item's error; the rest of the call is
+// answered, and merged.
+- (void)testAnItemThatDoesNotMergeIsAnErrorOfItsOwn
+{
+  ODataSyncEngine *a = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self edit:@"d2" in:a adding:@[ @"pear" ] deleting:nil];
+  [self sync:a];
+  NSString *bad = [[@"not a set" dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
+  NSString *good = [[OSMTwoPhaseSet stateAdding:@[ @"kiwi" ] deleting:@[]] base64EncodedStringWithOptions:0];
+  NSDictionary *body = @{ @"Replica": @"r1", @"Items": @[
+    @{ @"EntitySet": @"Docs", @"Key": @{ @"Id": @"d1" }, @"Property": @"Body", @"Version": @"", @"Delta": bad },
+    @{ @"EntitySet": @"Docs", @"Key": @{ @"Id": @"d2" }, @"Property": @"Body", @"Version": @"", @"Delta": good } ] };
+  NSError *error = nil;
+  ODataHTTPResponse *response = [self send:@"POST" to:@"MergeAttributes" JSON:body error:&error];
+  XCTAssertNotNil(response, @"%@", error);
+  id json = [response JSONWithError:NULL];
+  NSArray *items = ([json[@"value"] isKindOfClass:[NSDictionary class]] ? json[@"value"] : json)[@"Items"];
+  XCTAssertNotNil(items.firstObject[@"Error"]);
+  XCTAssertNil(items.lastObject[@"Error"]);
+  XCTAssertEqualObjects([self elementsOf:@"d2" in:_server], (@[ @"kiwi", @"pear" ]));
+}
+
+// One that never merges is set aside after a few syncs (an issue the app
+// sees), and holds up nothing else.
+- (void)testAnItemThatNeverMergesIsSetAside
+{
+  ODataSyncEngine *a = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  [self edit:@"d1" in:a adding:@[ @"poison" ] deleting:nil];
+  NSError *error = nil;
+  for (int i = 0; i < 4; i++) {
+    [self edit:@"d2" in:a adding:@[ [NSString stringWithFormat:@"pear%d", i] ] deleting:nil];
+    XCTAssertTrue([a syncWithError:&error], @"sync %d: %@", i, error);
+  }
+  XCTAssertEqual(a.issues.count, 1u, @"%@", a.issues);
+  XCTAssertTrue([a.issues.firstObject.message containsString:@"does not merge"], @"%@", a.issues.firstObject.message);
+  XCTAssertEqualObjects([self elementsOf:@"d2" in:_server], (@[ @"pear0", @"pear1", @"pear2", @"pear3" ]), @"the rest still syncs");
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple" ]));
+}
+
+// A replica not heard from within the retention is let go of, as a client
+// too far behind is kicked; when it comes back, it is behind what was
+// collected, and re-bases: the remote's state, with what it did since. What
+// was deleted while it was away comes back nowhere, and its own new edits
+// are kept.
+- (void)testAReplicaBehindWhatWasCollectedReBases
+{
+  _sync.mergeRetention = 1;
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple", @"banana" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  [NSThread sleepForTimeInterval:1.5];
+  [self edit:@"d1" in:a adding:@[] deleting:@[ @"apple" ]];
+  [self sync:a];
+  XCTAssertTrue([[OSMTwoPhaseSet setsOf:[self stateOf:@"d1" in:_server]][@"gone"] containsObject:@"apple"], @"b was let go of: collected");
+  [self edit:@"d1" in:b adding:@[ @"cherry" ] deleting:nil];
+  [self sync:b];
+  [self sync:a];
+  NSArray *left = @[ @"banana", @"cherry" ];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], left, @"re-based: apple gone, cherry kept");
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], left);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], left);
+}
+
+// What the service kept of an object's merged attributes goes with it.
+- (void)testADeletedObjectsMergesAreForgotten
+{
+  ODataSyncEngine *a = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  NSUInteger (^kept)(void) = ^NSUInteger {
+    __block NSUInteger count = 0;
+    [self in:self->_server do:^(NSManagedObjectContext *context) {
+      count = [context countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"ODSMergeSeen"] error:NULL];
+    }];
+    return count;
+  };
+  XCTAssertGreaterThan(kept(), 0u);
+  NSError *error = nil;
+  XCTAssertNotNil([self send:@"DELETE" to:@"Docs('d1')" JSON:@{} error:&error], @"%@", error);
+  XCTAssertEqual(kept(), 0u);
 }
 
 @end

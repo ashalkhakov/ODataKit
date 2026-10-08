@@ -24,4 +24,8 @@ NS_ASSUME_NONNULL_BEGIN
 FOUNDATION_EXPORT NSDictionary *_Nullable ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *_Nullable replica, NSArray *items,
                                                                    ODataReply *reply, BOOL record, NSTimeInterval retention);
 
+// What the service kept of a deleted object's merged attributes (what
+// replicas have seen, the horizon), forgotten.
+FOUNDATION_EXPORT void ODSForgetMerges(NSManagedObjectContext *context, NSString *entityType, NSString *keyText);
+
 NS_ASSUME_NONNULL_END

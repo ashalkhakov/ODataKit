@@ -77,10 +77,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, nullable) ODataSyncPeerTokenIssuer *peerTokens;
 // Merged attributes (an attribute's ODataSync.merge, its merger registered
 // on engine): each a delta merged through its set's handler, as the request
-// may see it, and what the device lacks answered. What each replica last
-// had is kept, and what all heard from within mergeRetention have seen is
-// collected and told (docs/offline-sync.md, 14.4). Default retention: the
-// tombstone retention.
+// may see it, and what the device lacks answered. What each replica says
+// it has is kept, and what all heard from within mergeRetention have seen
+// is collected and told (docs/offline-sync.md, 14.4); a replica back after
+// longer is behind what was collected, and is answered Reset, to re-base.
+// Default retention: the tombstone retention (30 days); longer is fine.
 @property (nonatomic) NSTimeInterval mergeRetention;
 - (nullable NSDictionary *)mergeAttributesWithReplica:(NSString *)replica items:(NSArray *)items reply:(ODataReply *)reply;
 - (nullable NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply;

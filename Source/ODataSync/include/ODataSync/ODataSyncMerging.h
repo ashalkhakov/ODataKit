@@ -17,6 +17,12 @@
 // attribute never makes a conflict. The service keeps what each replica
 // has seen, so what all have seen can be collected (a state's tombstones).
 // Versions and deltas are the merger's bytes; ODataSync only moves them.
+//
+// For collecting, a version never forgets: a collected state's version
+// has still seen what was collected (a version vector keeps its counters),
+// and merging a delta that brings it back adds nothing. And equal versions
+// are equal bytes from -versionMeeting:andVersion:, by which ODataSync
+// tells whether one version has seen all another has.
 
 #pragma once
 #import <Foundation/Foundation.h>
@@ -35,7 +41,7 @@ FOUNDATION_EXPORT NSString * const ODataSyncMergeKey;   // @"ODataSync.merge"
 // A delta (or a whole state) merged in; nil and the error for one that does
 // not merge (not the merger's, or made for a copy that had seen more).
 - (nullable NSData *)stateByMerging:(NSData *)delta intoState:(nullable NSData *)state error:(NSError **)error;
-// What both versions have seen.
+// What both versions have seen; equal versions as equal bytes.
 - (NSData *)versionMeeting:(NSData *)version andVersion:(NSData *)other;
 // State without what every copy has seen deleted (version: what all have
 // seen); state itself when there is nothing to collect.

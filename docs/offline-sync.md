@@ -875,13 +875,22 @@ engine, on the device and at the service alike:
 ```
 
 Versions and deltas are the merger's bytes; ODataSync only stores and
-moves them. The entity is a `both` entity.
+moves them. The entity is a `both` entity. Two things are asked of a
+merger beyond merging, for collecting (14.4):
+
+- **A version never forgets.** Collecting forgets elements, not that they
+  were seen: the version of a collected state has still seen them (a
+  version vector keeps its counters), and a delta that brings one back is
+  merged as nothing new.
+- **Equal versions are equal bytes** from `-versionMeeting:andVersion:`,
+  so whether one version has seen all another has can be told:
+  `meet(a, b) == meet(b, b)`.
 
 ### 14.2 On the wire
 
 One action import, which the service's operations answer (as `PeerToken`,
 section 9 of peer-sync.md: an app with operations of its own adopts
-`ODataSyncActions` and forwards):
+`ODataSyncMergeActions` and forwards):
 
 ```
 POST <root>MergeAttributes
@@ -892,7 +901,10 @@ POST <root>MergeAttributes
 
 → { "Items": [ { "Delta": "<base64: what the device lacks>",
                  "Version": "<base64: the service's, after>",
-                 "SeenByAll": "<base64>" }, ... ] }
+                 "SeenByAll": "<base64>" },
+               { "Error": "Body does not merge: ..." },
+               { "Reset": true, "State": "<base64: the service's whole state>",
+                 "Horizon": "<base64>", "Version": "<base64>" }, ... ] }
 ```
 
 For each item the service finds the object as the request may see it
@@ -900,8 +912,10 @@ For each item the service finds the object as the request may see it
 merges the delta in through the handler (none: a read), and answers what
 the device lacks: a delta since the device's version. An item it cannot
 answer (no such object, a delta that does not merge) has an `Error`
-instead; the others are answered. `Items` is `Edm.Untyped`: an app with
-operations of its own says so in `+ODataOperationTypes`.
+instead, and the others are answered and merged: one bad item holds up
+no other. An item from a replica behind what was collected is answered
+`Reset` (14.4). `Items` is `Edm.Untyped`: an app with operations of its
+own says so in `+ODataOperationTypes`.
 
 ### 14.3 The device
 
@@ -913,8 +927,13 @@ operations of its own says so in `+ODataOperationTypes`.
 - **Two calls, nothing kept**: the first sends each object's version and
   gets what the device lacks, and the remote's version; the device merges
   it, and the second sends, for those that have more, a delta since that
-  version. The device stores no remote version (no bookkeeping to
-  migrate): the first call tells it.
+  version, and for those the first changed, the version it has now (what
+  the service collects by, 14.4). The device stores no remote version (no
+  bookkeeping to migrate): the first call tells it.
+- **An item that fails** (an `Error`, or an answer that does not merge
+  here) is exchanged again at the next sync, and after three is set aside:
+  an issue (`issues`), which the app retries or discards as it does a
+  row's. It holds up nothing else.
 - **Rows** go up (`PATCH`) and come down (`$select`) without merged
   attributes; a merged attribute is never compared in a conflict.
 - What comes back is written as the remote's (transaction author
@@ -925,12 +944,34 @@ operations of its own says so in `+ODataOperationTypes`.
 ### 14.4 Collecting
 
 The service keeps, per object, attribute and replica, the version that
-replica has after an exchange (`ODSMergeSeen`, in the service's
-bookkeeping), with when. `SeenByAll` is the meet of the versions of the
-replicas heard from within `mergeRetention` (default: the tombstone
-retention, 30 days); a replica not heard from since is no longer waited
-for. The service collects its state with it, and so does the device when
-an answer carries it.
+replica **says it has** (`ODSMergeSeen`, in the service's bookkeeping),
+with when: what it sent as `Version`, never what it was answered, which
+it may not get (a lost answer) or fail to merge. `SeenByAll` is the meet
+of the versions of the replicas heard from within `mergeRetention`
+(default: the tombstone retention, 30 days; it can be set longer), and of
+the service's own: what nobody lacks. The service collects its state
+with it, and so does the device when an answer carries it. A replica's
+seeing a deletion is known one exchange later than it happens (the
+device's second call tells it), so collecting lags by as much.
+
+**Kicked, and back.** A replica not heard from within the retention is
+let go of, as a game server kicks a client too far behind: it is no
+longer waited for, and what everyone else has seen deleted is collected.
+The service keeps what it last collected with, the **horizon** (an
+`ODSMergeSeen` row of its own). When such a replica comes back, its
+version does not cover the horizon, and the service answers it `Reset`
+instead of merging what it sent: its whole state and the horizon. The
+device re-bases: what it did since the horizon
+(`deltaOfState:mine sinceVersion:horizon`), merged into that state, is
+its state now, and its second call sends those edits. What was deleted
+while it was away comes back nowhere, and its own new edits are kept.
+Whatever a delta brings that the horizon has seen is dropped before it is
+merged, so a stale copy cannot bring collected elements back either.
+
+The same takes in a device that only ever met peers (the service never
+heard from it, so never waited for it) and two devices with one replica
+ID (one restored from another's backup): when they reach the service,
+they are behind its horizon, and re-base.
 
 The order matters: what the device lacks is computed **before** the
 service collects. Collecting then may forget a deletion this very device
@@ -939,7 +980,12 @@ collects it in turn. (Computed after, the device would never hear of the
 deletion, and its next delta would bring the element back.)
 
 A peer server answers `MergeAttributes` as the service does, but keeps
-nothing of what peers have seen, and so collects nothing.
+nothing of what peers have seen, and so collects nothing, and keeps no
+horizon: a device that collected what the service told it serves a
+peer that missed a deletion a state without it, so that peer keeps the
+element until it reaches the service, and re-bases there. It cannot bring
+the element back meanwhile: a delta it sends lacks what the device's
+version has seen.
 
 ### 14.5 Clients that send states
 
