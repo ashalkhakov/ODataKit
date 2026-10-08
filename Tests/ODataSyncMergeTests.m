@@ -317,7 +317,9 @@ static NSManagedObjectModel *OSMModel(void)
 
   [self edit:@"d1" in:a adding:@[ @"banana" ] deleting:nil];
   [self edit:@"d1" in:b adding:@[ @"cherry" ] deleting:nil];
+  XCTAssertEqual(a.pendingChanges.count, 1u, @"one change waiting: its row's and its body's, one: %@", a.pendingChanges);
   [self sync:a];
+  XCTAssertEqual(a.pendingChanges.count, 0u, @"%@", a.pendingChanges);
   [self sync:b];
   [self sync:a];
   NSArray *all = @[ @"apple", @"banana", @"cherry" ];

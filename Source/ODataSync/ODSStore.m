@@ -355,7 +355,18 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
     NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
     fetch.predicate = predicate;
     fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"sequence" ascending:YES] ];
-    for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
+    NSArray *entries = [context executeFetchRequest:fetch error:NULL] ?: @[];
+    // One change an object: its merged attributes' entry is part of its
+    // row's, when it has one (docs/offline-sync.md, 14.3).
+    NSMutableSet *rows = [NSMutableSet set];
+    for (NSManagedObject *entry in entries) {
+      if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge) continue;
+      [rows addObject:@[ [entry valueForKey:@"remote"] ?: @"", [entry valueForKey:@"entityType"] ?: @"", [entry valueForKey:@"keyText"] ?: @"" ]];
+    }
+    for (NSManagedObject *entry in entries) {
+      if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge &&
+          [rows containsObject:@[ [entry valueForKey:@"remote"] ?: @"", [entry valueForKey:@"entityType"] ?: @"", [entry valueForKey:@"keyText"] ?: @"" ]])
+        continue;
       NSEntityDescription *entity = self.coordinator.managedObjectModel.entitiesByName[[entry valueForKey:@"entityType"]];
       NSDictionary *key = ODSUnarchive([entry valueForKey:@"key"]);
       NSManagedObject *object = entity && key ? [self->_codec objectOfEntity:entity key:key inContext:context] : nil;
