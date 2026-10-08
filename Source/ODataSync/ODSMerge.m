@@ -145,7 +145,10 @@ static NSData *ODSFromBase64(id text)
   }
   NSData *seen = ODSFromBase64(answer[@"SeenByAll"]);
   if (seen.length) merged = [slot.merger stateByCollecting:merged seenBy:seen] ?: merged;
-  if (!(merged == state || [merged isEqual:state])) [slot.object setValue:merged forKey:slot.attribute.name];
+  if (!(merged == state || [merged isEqual:state])) {
+    [slot.object setValue:merged forKey:slot.attribute.name];
+    if ([slot.merger respondsToSelector:@selector(mergedAttribute:ofObject:)]) [slot.merger mergedAttribute:slot.attribute ofObject:slot.object];
+  }
   return ODSFromBase64(answer[@"Version"]) ?: [NSData data];
 }
 

@@ -64,7 +64,26 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
   return result;
 }
 
+// What is derived from the merged attributes a write merged, set again
+// (the merger's -mergedAttribute:ofObject:).
+- (void)mergedAttributesIn:(NSDictionary *)values ofObject:(NSManagedObject *)object
+{
+  ODataSyncEngine *engine = self.engine;
+  for (NSAttributeDescription *attribute in object ? [engine.model mergedAttributesOf:object.entity] : @[]) {
+    if (![values[attribute.name] isKindOfClass:[NSData class]]) continue;
+    id<ODataSyncMerging> merger = [engine mergerForName:[engine.model mergerNameOf:attribute]];
+    if ([merger respondsToSelector:@selector(mergedAttribute:ofObject:)]) [merger mergedAttribute:attribute ofObject:object];
+  }
+}
+
 - (NSManagedObject *)insertObjectWithValues:(NSDictionary<NSString *, id> *)values request:(ODataRequest *)request reply:(ODataReply *)reply
+{
+  NSManagedObject *made = [self insertMergingValues:values request:request reply:reply];
+  [self mergedAttributesIn:values ofObject:made];
+  return made;
+}
+
+- (NSManagedObject *)insertMergingValues:(NSDictionary<NSString *, id> *)values request:(ODataRequest *)request reply:(ODataReply *)reply
 {
   values = [self valuesMerging:values into:nil reply:reply];
   if (!values) return nil;
@@ -108,10 +127,12 @@ NSString * const ODSClientAuthor = @"ODataSync.client";
 - (NSManagedObject *)updateObject:(NSManagedObject *)object values:(NSDictionary<NSString *, id> *)values request:(ODataRequest *)request
                             reply:(ODataReply *)reply
 {
-  values = [self valuesMerging:values into:object reply:reply];
-  if (!values) return nil;
-  [self writeAs:request values:values];
-  return [super updateObject:object values:values request:request reply:reply];
+  NSDictionary *merged = [self valuesMerging:values into:object reply:reply];
+  if (!merged) return nil;
+  [self writeAs:request values:merged];
+  NSManagedObject *updated = [super updateObject:object values:merged request:request reply:reply];
+  [self mergedAttributesIn:values ofObject:updated];
+  return updated;
 }
 
 - (void)deleteObject:(NSManagedObject *)object request:(ODataRequest *)request reply:(ODataReply *)reply

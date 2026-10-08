@@ -867,6 +867,8 @@ engine, on the device and at the service alike:
 - (nullable NSData *)stateByMerging:(NSData *)delta intoState:(nullable NSData *)state error:(NSError **)error;
 - (NSData *)versionMeeting:(NSData *)version andVersion:(NSData *)other;    // what both have seen
 - (nullable NSData *)stateByCollecting:(nullable NSData *)state seenBy:(NSData *)version;
+@optional
+- (void)mergedAttribute:(NSAttributeDescription *)attribute ofObject:(NSManagedObject *)object;  // a copy derived from it, set again
 @end
 
 [engine setMerger:[[TTSyncMerger alloc] init] forName:@"TopoText"];

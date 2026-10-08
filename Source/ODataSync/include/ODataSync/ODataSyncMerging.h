@@ -20,6 +20,7 @@
 
 #pragma once
 #import <Foundation/Foundation.h>
+#import <CoreData/CoreData.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,6 +40,12 @@ FOUNDATION_EXPORT NSString * const ODataSyncMergeKey;   // @"ODataSync.merge"
 // State without what every copy has seen deleted (version: what all have
 // seen); state itself when there is nothing to collect.
 - (nullable NSData *)stateByCollecting:(nullable NSData *)state seenBy:(NSData *)version;
+@optional
+// After a merge changed the attribute's value on object (on the device, the
+// exchange; at the service, a delta or a state merged in), in its context:
+// what is derived from it set again (a plain-text copy, a title). What it
+// sets is written as the merge is (on the device, as the remote's).
+- (void)mergedAttribute:(NSAttributeDescription *)attribute ofObject:(NSManagedObject *)object;
 @end
 
 NS_ASSUME_NONNULL_END

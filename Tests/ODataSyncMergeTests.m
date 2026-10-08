@@ -82,6 +82,13 @@
   return [OSMTwoPhaseSet stateAdding:add.allObjects deleting:del.allObjects];
 }
 
+// The title, what the body's elements are (as a note's title is its text's
+// first line): set again after a merge.
+- (void)mergedAttribute:(NSAttributeDescription *)attribute ofObject:(NSManagedObject *)object
+{
+  [object setValue:[[OSMTwoPhaseSet elementsOf:[object valueForKey:attribute.name]] componentsJoinedByString:@" "] forKey:@"title"];
+}
+
 - (NSData *)stateByCollecting:(NSData *)state seenBy:(NSData *)version
 {
   NSDictionary *s = [OSMTwoPhaseSet setsOf:state], *v = [OSMTwoPhaseSet setsOf:version];
@@ -317,6 +324,12 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], all);
   XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], all);
   XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], all, @"and the service");
+  // What is derived from it, set again after each merge: here and there.
+  __block NSString *titleAtB = nil, *titleAtService = nil;
+  [self in:b.coordinator do:^(NSManagedObjectContext *context) { titleAtB = [[self doc:@"d1" in:context] valueForKey:@"title"]; }];
+  [self in:_server do:^(NSManagedObjectContext *context) { titleAtService = [[self doc:@"d1" in:context] valueForKey:@"title"]; }];
+  XCTAssertEqualObjects(titleAtB, @"apple banana cherry");
+  XCTAssertEqualObjects(titleAtService, @"apple banana cherry");
 
   // The rows never carried the body; the deltas did.
   NSString *batch = [[self bodiesSentTo:@"$batch" method:@"POST"] componentsJoinedByString:@"\n"];
