@@ -26,6 +26,17 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// MergeAttributes(Replica, Items), an unbound action (docs/offline-sync.md,
+// 14.2): merged attributes exchanged as deltas. A server app whose
+// serviceOperations object is its own adopts this, and answers with
+// -[ODataSyncService mergeAttributesWithReplica:items:reply:]; one with none
+// gets one that does. Items is Edm.Untyped (a list of objects), which such
+// a class says in +ODataOperationTypes:
+//   @{ @"mergeAttributesWithReplica:items:reply:.items": @"Edm.Untyped" }
+@protocol ODataSyncMergeActions <ODataActions>
+- (nullable NSDictionary *)mergeAttributesWithReplica:(NSString *)replica items:(NSArray *)items reply:(ODataReply *)reply;
+@end
+
 // A synced set's handler that keeps deletions and compares histories. A
 // server's own handler for such a set subclasses it.
 @interface ODataSyncSetHandler : ODataEntitySetHandler
@@ -64,6 +75,15 @@ NS_ASSUME_NONNULL_BEGIN
 // -peerTokenWithReplica:thumbprint:reply:). Before the first request, as
 // serviceOperations.
 @property (nonatomic, strong, nullable) ODataSyncPeerTokenIssuer *peerTokens;
+// Merged attributes (an attribute's ODataSync.merge, its merger registered
+// on engine): each a delta merged through its set's handler, as the request
+// may see it, and what the device lacks answered. What each replica says
+// it has is kept, and what all heard from within mergeRetention have seen
+// is collected and told (docs/offline-sync.md, 14.4); a replica back after
+// longer is behind what was collected, and is answered Reset, to re-base.
+// Default retention: the tombstone retention (30 days); longer is fine.
+@property (nonatomic) NSTimeInterval mergeRetention;
+- (nullable NSDictionary *)mergeAttributesWithReplica:(NSString *)replica items:(NSArray *)items reply:(ODataReply *)reply;
 - (nullable NSDictionary *)peerTokenWithReplica:(NSString *)replica thumbprint:(NSString *)thumbprint reply:(ODataReply *)reply;
 @end
 

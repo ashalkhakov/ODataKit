@@ -40,6 +40,7 @@ id ODSUnarchive(NSData *data)
   NSLock *_running;
   NSMutableDictionary<NSString *, NSNumber *> *_tally;
   NSMutableDictionary<NSString *, id<ODataSyncResolving>> *_resolvers;
+  NSMutableDictionary<NSString *, id<ODataSyncMerging>> *_mergers;
   ODSRecorder *_recorder;
 }
 
@@ -73,6 +74,7 @@ id ODSUnarchive(NSData *data)
   _tally = [NSMutableDictionary dictionary];
   _tracer = [OTTracer tracerNamed:@"ODataSync" version:nil];
   _resolvers = [NSMutableDictionary dictionary];
+  _mergers = [NSMutableDictionary dictionary];
   _tombstoneRetention = 30 * 24 * 3600;
   // Its version identifiers (Xcode's Core Data Model Identifier), the
   // empty one left out: none, no version.
@@ -129,6 +131,22 @@ id ODSUnarchive(NSData *data)
 {
   @synchronized (_resolvers) {
     return _resolvers[entityName];
+  }
+}
+
+- (void)setMerger:(id<ODataSyncMerging>)merger forName:(NSString *)name
+{
+  @synchronized (_mergers) {
+    if (merger) _mergers[name] = merger;
+    else [_mergers removeObjectForKey:name];
+  }
+}
+
+- (id<ODataSyncMerging>)mergerForName:(NSString *)name
+{
+  if (!name) return nil;
+  @synchronized (_mergers) {
+    return _mergers[name];
   }
 }
 

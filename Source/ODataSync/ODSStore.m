@@ -7,6 +7,7 @@ NSString * const ODSRemoteStateEntity = @"ODSRemoteState";
 NSString * const ODSOutboxEntity = @"ODSOutboxEntry";
 NSString * const ODSShadowEntity = @"ODSShadow";
 NSString * const ODSTombstoneEntity = @"ODSTombstone";
+NSString * const ODSMergeSeenEntity = @"ODSMergeSeen";
 NSString * const ODataSyncPeerConfiguration = @"ODataSync.peer";
 
 static NSAttributeDescription *ODSAttribute(NSString *name, NSAttributeType type)
@@ -62,6 +63,16 @@ void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *e
     entity.indexes = @[];
     entity.indexes = indexes;
   }
+}
+
+NSEntityDescription *ODSMergeSeenEntityDescription(void)
+{
+  NSEntityDescription *seen = ODSEntity(ODSMergeSeenEntity, @[ ODSAttribute(@"entityType", NSStringAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
+                                                              ODSAttribute(@"property", NSStringAttributeType), ODSAttribute(@"replica", NSStringAttributeType),
+                                                              ODSAttribute(@"version", NSBinaryDataAttributeType), ODSAttribute(@"seen", NSDateAttributeType) ]);
+  // An object's replicas (each exchange), and by age (forgetting).
+  seen.indexes = @[ ODSIndex(seen, @"byObject", @[ @"entityType", @"keyText", @"property" ]), ODSIndex(seen, @"bySeen", @[ @"seen" ]) ];
+  return seen;
 }
 
 NSEntityDescription *ODSTombstoneEntityDescription(void)
@@ -156,9 +167,36 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
                    inContext:(NSManagedObjectContext *)context
 {
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
-  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND entityType == %@ AND keyText == %@", remote.identifier, entityName, keyText];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND entityType == %@ AND keyText == %@ AND operation != %d",
+                                                     remote.identifier, entityName, keyText, (int)ODataSyncOperationMerge];
   fetch.fetchLimit = 1;
   return [[context executeFetchRequest:fetch error:NULL] firstObject];
+}
+
+- (NSManagedObject *)mergeEntryOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
+                        inContext:(NSManagedObjectContext *)context
+{
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND entityType == %@ AND keyText == %@ AND operation == %d",
+                                                     remote.identifier, entityName, keyText, (int)ODataSyncOperationMerge];
+  fetch.fetchLimit = 1;
+  return [[context executeFetchRequest:fetch error:NULL] firstObject];
+}
+
+- (NSArray<NSManagedObject *> *)mergeEntriesFor:(ODataSyncRemote *)remote inContext:(NSManagedObjectContext *)context
+{
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND operation == %d AND setAside != YES", remote.identifier,
+                                                     (int)ODataSyncOperationMerge];
+  fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"sequence" ascending:YES] ];
+  return [context executeFetchRequest:fetch error:NULL] ?: @[];
+}
+
+- (NSManagedObject *)noteMergeOf:(NSEntityDescription *)root key:(NSDictionary *)key remote:(ODataSyncRemote *)remote
+                         context:(NSManagedObjectContext *)context
+{
+  NSManagedObject *entry = [self mergeEntryOf:root.name keyText:[_codec keyTextOf:key entity:root] remote:remote inContext:context];
+  return entry ?: [self newEntryOf:root key:key operation:ODataSyncOperationMerge remote:remote context:context];
 }
 
 - (NSManagedObject *)shadowOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
@@ -317,7 +355,18 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
     NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
     fetch.predicate = predicate;
     fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"sequence" ascending:YES] ];
-    for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
+    NSArray *entries = [context executeFetchRequest:fetch error:NULL] ?: @[];
+    // One change an object: its merged attributes' entry is part of its
+    // row's, when it has one (docs/offline-sync.md, 14.3).
+    NSMutableSet *rows = [NSMutableSet set];
+    for (NSManagedObject *entry in entries) {
+      if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge) continue;
+      [rows addObject:@[ [entry valueForKey:@"remote"] ?: @"", [entry valueForKey:@"entityType"] ?: @"", [entry valueForKey:@"keyText"] ?: @"" ]];
+    }
+    for (NSManagedObject *entry in entries) {
+      if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge &&
+          [rows containsObject:@[ [entry valueForKey:@"remote"] ?: @"", [entry valueForKey:@"entityType"] ?: @"", [entry valueForKey:@"keyText"] ?: @"" ]])
+        continue;
       NSEntityDescription *entity = self.coordinator.managedObjectModel.entitiesByName[[entry valueForKey:@"entityType"]];
       NSDictionary *key = ODSUnarchive([entry valueForKey:@"key"]);
       NSManagedObject *object = entity && key ? [self->_codec objectOfEntity:entity key:key inContext:context] : nil;

@@ -186,6 +186,8 @@ static const NSInteger ODSGone = 410;
 {
   NSMutableArray *pairs = [NSMutableArray array];
   BOOL onlyMissing = _remote.peer && [_model directionOfEntity:entity] == ODataSyncDirectionDown;
+  // Merged attributes come after, as deltas: each row that came, exchanged.
+  BOOL merges = !onlyMissing && [_model mergesEntity:entity];
   NSAttributeDescription *version = onlyMissing ? [_model versionAttributeOf:entity] : nil;
   NSString *versionProperty = version ? [_codec.mapper propertyForAttribute:version] : nil;
   for (NSDictionary *row in rows) {
@@ -193,6 +195,7 @@ static const NSInteger ODSGone = 410;
     NSDictionary *key = [_codec keyFromJSON:row entity:entity];
     if (!key) continue;
     [seen addObject:[_codec keyTextOf:key entity:entity]];
+    if (merges) [_engine.store noteMergeOf:entity key:key remote:_remote context:context];
     NSString *etag = [row[@"@odata.etag"] isKindOfClass:[NSString class]] ? row[@"@odata.etag"] : nil;
     NSAttributeDescription *stamp = [_model modifiedAttributeOf:entity];
     if (stamp) [_engine.clock witness:row[[_codec.mapper propertyForAttribute:stamp]]];

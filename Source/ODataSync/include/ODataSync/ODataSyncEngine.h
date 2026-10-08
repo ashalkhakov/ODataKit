@@ -50,6 +50,7 @@
 // service, the service's to a peer), but not back to where it came from.
 
 #pragma once
+#import <ODataSync/ODataSyncMerging.h>
 #import <Foundation/Foundation.h>
 #import <ODataKit/OISCoreData.h>
 #import <ODataKit/ODataTransport.h>
@@ -126,6 +127,7 @@ typedef NS_ENUM(NSInteger, ODataSyncOperation) {
   ODataSyncOperationUpdate,
   ODataSyncOperationDelete,
   ODataSyncOperationRefresh,  // the remote's version read again (a conflict discarded)
+  ODataSyncOperationMerge,    // merged attributes to exchange (docs/offline-sync.md, 14)
 };
 
 // A both object changed here and at the remote since the version both last
@@ -270,6 +272,11 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 // it cannot bring the object back (its insert refused, 410). Default: 30
 // days; 0: for ever. A peer that comes back after longer may.
 @property (nonatomic) NSTimeInterval tombstoneRetention;
+// Merged attributes (ODataSync.merge in an attribute's userInfo, naming a
+// merger; docs/offline-sync.md, 14): the merger of that name. Registered
+// before a sync, on the device and at the service alike.
+- (void)setMerger:(nullable id<ODataSyncMerging>)merger forName:(NSString *)name;
+- (nullable id<ODataSyncMerging>)mergerForName:(NSString *)name;
 // The version of the model's schema, named in every request
 // ($schemaversion, OData 4.01's schema versioning; a service's $metadata
 // says its own, Core.SchemaVersion), so that a service on a newer version

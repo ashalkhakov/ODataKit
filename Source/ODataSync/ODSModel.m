@@ -13,6 +13,7 @@ NSString * const ODataSyncDirectionKey = @"ODataSync.direction";
 NSString * const ODataSyncConflictsKey = @"ODataSync.conflicts";
 NSString * const ODataSyncModifiedKey = @"ODataSync.modified";
 NSString * const ODataSyncVersionsKey = @"ODataSync.versions";
+NSString * const ODataSyncMergeKey = @"ODataSync.merge";
 
 // An attribute an entity (or one it derives from) names in its userInfo,
 // when it is a String.
@@ -140,12 +141,39 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
   for (NSString *name in [entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
     NSAttributeDescription *attribute = entity.attributesByName[name];
     if (attribute.isTransient || attribute == bag || ![self.mapper servesProperty:attribute]) continue;
+    // Merged: exchanged as deltas, never in a row (docs/offline-sync.md, 14).
+    if ([self mergerNameOf:attribute]) continue;
     [attributes addObject:attribute];
   }
   @synchronized (_attributes) {
     _attributes[entity.name] = attributes;
   }
   return attributes;
+}
+
+- (NSString *)mergerNameOf:(NSAttributeDescription *)attribute
+{
+  id name = attribute.userInfo[ODataSyncMergeKey];
+  return attribute.attributeType == NSBinaryDataAttributeType && [name isKindOfClass:[NSString class]] && [name length] ? name : nil;
+}
+
+- (BOOL)mergesEntity:(NSEntityDescription *)entity
+{
+  if ([self mergedAttributesOf:entity].count) return YES;
+  for (NSEntityDescription *sub in entity.subentities) {
+    if ([self mergesEntity:sub]) return YES;
+  }
+  return NO;
+}
+
+- (NSArray<NSAttributeDescription *> *)mergedAttributesOf:(NSEntityDescription *)entity
+{
+  NSMutableArray *merged = [NSMutableArray array];
+  for (NSString *name in [entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    NSAttributeDescription *attribute = entity.attributesByName[name];
+    if (!attribute.isTransient && [self mergerNameOf:attribute] && [self.mapper servesProperty:attribute]) [merged addObject:attribute];
+  }
+  return merged;
 }
 
 - (NSArray<NSRelationshipDescription *> *)toOnesOf:(NSEntityDescription *)entity

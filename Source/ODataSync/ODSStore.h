@@ -16,7 +16,11 @@ FOUNDATION_EXPORT NSString * const ODSRemoteStateEntity;   // remote, deltaLinks
 FOUNDATION_EXPORT NSString * const ODSOutboxEntity;        // remote, entityType, key, keyText, operation, properties, sequence, ...
 FOUNDATION_EXPORT NSString * const ODSShadowEntity;        // remote, entityType, keyText, etag, values (a row's JSON)
 FOUNDATION_EXPORT NSString * const ODSTombstoneEntity;     // entityType, keyText, deleted (a date), versions
+// The service's: per object, merged attribute and replica, the version that
+// replica last said it has, and when (docs/offline-sync.md, 14.4).
+FOUNDATION_EXPORT NSString * const ODSMergeSeenEntity;     // entityType, keyText, property, replica, version, seen (a date)
 FOUNDATION_EXPORT NSEntityDescription *ODSTombstoneEntityDescription(void);
+FOUNDATION_EXPORT NSEntityDescription *ODSMergeSeenEntityDescription(void);
 // Each entity's key indexed (ODataSyncKey), its attributes in order: what
 // ODataSync looks an app's objects up by, one at a time. Not where an
 // index of the app's own begins with them. Before the model is used.
@@ -43,6 +47,14 @@ FOUNDATION_EXPORT void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntit
 - (nullable NSManagedObject *)shadowOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
                              inContext:(NSManagedObjectContext *)context make:(BOOL)make;
 // A new outbox entry, last in line; the next place in line.
+// An object's merged attributes to exchange with the remote (an entry of
+// its own, ODataSyncOperationMerge, which -entryOf: does not find): made
+// when there is none; the remote's, all of them.
+- (NSManagedObject *)noteMergeOf:(NSEntityDescription *)root key:(NSDictionary *)key remote:(ODataSyncRemote *)remote
+                         context:(NSManagedObjectContext *)context;
+- (nullable NSManagedObject *)mergeEntryOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
+                                 inContext:(NSManagedObjectContext *)context;
+- (NSArray<NSManagedObject *> *)mergeEntriesFor:(ODataSyncRemote *)remote inContext:(NSManagedObjectContext *)context;
 - (NSManagedObject *)newEntryOf:(NSEntityDescription *)root key:(NSDictionary *)key operation:(ODataSyncOperation)operation
                          remote:(ODataSyncRemote *)remote context:(NSManagedObjectContext *)context;
 - (int64_t)nextSequenceIn:(NSManagedObjectContext *)context;

@@ -40,6 +40,7 @@ ODataIncrementalStoreTests_OBJC_FILES = \
 	ODataPredicatePairTests.m \
 	OTelKitTests.m \
 	ODataSyncTests.m \
+	ODataSyncMergeTests.m \
 	ODataSyncConvergenceTests.m \
 	ODataSyncPeerTests.m \
 	linux/OSPSystem.m \
