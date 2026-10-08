@@ -142,18 +142,23 @@ static NSData *ODSFromBase64(id text)
   NSData *state = [slot.object valueForKey:slot.attribute.name];
   NSData *merged = state;
   NSError *error = nil;
+  // Failed only where a merge was tried and gave nothing: a copy with no
+  // state yet (a body not come, or none) answered nothing is not one.
+  BOOL tried = NO;
   if ([answer[@"Reset"] boolValue]) {
     // Behind what the remote collected (docs/offline-sync.md, 14.4): its
     // state, with what this copy did since the horizon, and nothing older,
     // which every other copy has seen, and which is gone there.
     NSData *theirs = ODSFromBase64(answer[@"State"]), *horizon = ODSFromBase64(answer[@"Horizon"]);
     NSData *since = [slot.merger deltaOfState:state sinceVersion:horizon.length ? horizon : nil];
-    merged = since.length ? [slot.merger stateByMerging:since intoState:theirs error:&error] : theirs;
+    tried = since.length > 0;
+    merged = tried ? [slot.merger stateByMerging:since intoState:theirs error:&error] : theirs;
   } else {
     NSData *delta = ODSFromBase64(answer[@"Delta"]);
-    if (delta.length) merged = [slot.merger stateByMerging:delta intoState:state error:&error];
+    tried = delta.length > 0;
+    if (tried) merged = [slot.merger stateByMerging:delta intoState:state error:&error];
   }
-  if (!merged) {
+  if (tried && !merged) {
     slot.failed = YES;
     slot.message = error.localizedDescription ?: @"What the remote sent does not merge";
     return nil;

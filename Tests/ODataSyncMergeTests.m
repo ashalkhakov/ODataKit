@@ -561,4 +561,29 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqual(kept(), 0u);
 }
 
+// A doc with no body (none written yet): nothing to merge either way, and
+// no failure: it syncs as any other, sync after sync.
+- (void)testADocWithNoBodySyncs
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self in:a.coordinator do:^(NSManagedObjectContext *context) {
+    NSManagedObject *doc = [NSEntityDescription insertNewObjectForEntityForName:@"Doc" inManagedObjectContext:context];
+    [doc setValue:@"d1" forKey:@"id"];
+    [doc setValue:@"Empty" forKey:@"title"];
+  }];
+  for (int i = 0; i < 3; i++) {
+    [self sync:a];
+    [self sync:b];
+  }
+  XCTAssertEqual(a.pendingChanges.count, 0u, @"%@", a.pendingChanges);
+  XCTAssertEqual(b.pendingChanges.count, 0u, @"%@", b.pendingChanges);
+  __block NSString *title = nil;
+  [self in:b.coordinator do:^(NSManagedObjectContext *context) { title = [[self doc:@"d1" in:context] valueForKey:@"title"]; }];
+  XCTAssertEqualObjects(title, @"Empty");
+  [self edit:@"d1" in:b adding:@[ @"apple" ] deleting:nil];
+  [self sync:b];
+  [self sync:a];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], (@[ @"apple" ]), @"and its first body comes as any other");
+}
+
 @end
