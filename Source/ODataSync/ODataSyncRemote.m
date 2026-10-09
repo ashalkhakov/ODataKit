@@ -28,6 +28,7 @@
   _configuration = [[ODataConfiguration alloc] initWithURL:serviceRoot options:nil];
   _filters = @{};
   _batchSize = 50;
+  _batchBytes = 8 * 1024 * 1024;
   return self;
 }
 

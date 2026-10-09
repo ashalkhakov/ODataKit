@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODSInternal.h"
+#import "ODSSystem.h"
+#import <objc/runtime.h>
 
 // What the engine tells of its outbox and of a sync: a change waiting, one
 // set aside (an issue), what a sync did.
@@ -89,6 +91,68 @@
   NSArray *phases = @[ @"receiving", @"sending", @"merging" ];
   return [NSString stringWithFormat:@"<ODataSyncProgress %@ %@ %lu of %lu>", _remote.identifier, phases[(NSUInteger)_phase],
                                     (unsigned long)_completed, (unsigned long)_total];
+}
+
+@end
+
+const NSUInteger ODataSyncShadowDigestBytes = 1024;
+
+// The SHA-256 of data, taken once: kept on the data itself, as long as it
+// lives, so that a file compared again and again is read once (with its
+// length, should the data be mutable and have changed since).
+static char ODSSHA256Key;
+
+static NSData *ODSSHA256Once(NSData *data)
+{
+  NSArray *known = objc_getAssociatedObject(data, &ODSSHA256Key);
+  if (known && [known[1] unsignedIntegerValue] == data.length) return known[0];
+  NSData *sha = ODSSystemSHA256(data);
+  objc_setAssociatedObject(data, &ODSSHA256Key, @[ sha, @(data.length) ], OBJC_ASSOCIATION_RETAIN);
+  return sha;
+}
+
+@implementation ODataSyncDigest
+
+- (instancetype)initWithSHA256:(NSData *)sha256 length:(NSUInteger)length
+{
+  self = [super init];
+  if (!self) return nil;
+  _SHA256 = [sha256 copy];
+  _length = length;
+  return self;
+}
+
++ (instancetype)digestOfData:(NSData *)data
+{
+  return [[self alloc] initWithSHA256:ODSSHA256Once(data) length:data.length];
+}
+
+- (BOOL)isDigestOfData:(NSData *)data
+{
+  return [data isKindOfClass:[NSData class]] && data.length == _length && [ODSSHA256Once(data) isEqualToData:_SHA256];
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+  return self;
+}
+
+// Equal to another digest of the same; to data, see -isDigestOfData:.
+- (BOOL)isEqual:(id)other
+{
+  if (other == self) return YES;
+  return [other isKindOfClass:[ODataSyncDigest class]] && ((ODataSyncDigest *)other).length == _length &&
+         [((ODataSyncDigest *)other).SHA256 isEqualToData:_SHA256];
+}
+
+- (NSUInteger)hash
+{
+  return _SHA256.hash;
+}
+
+- (NSString *)description
+{
+  return [NSString stringWithFormat:@"<ODataSyncDigest %lu bytes, SHA-256 %@>", (unsigned long)_length, [_SHA256 base64EncodedStringWithOptions:0]];
 }
 
 @end

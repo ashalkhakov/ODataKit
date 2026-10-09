@@ -120,7 +120,17 @@ static const NSInteger ODSConflictRounds = 3;
   NSSet *bookkeeping = [NSSet setWithObjects:ODSRemoteStateEntity, ODSOutboxEntity, ODSShadowEntity, ODSTombstoneEntity, nil];
   // Made and gone within what is read now: its deletion is nothing to send.
   NSMutableSet<NSManagedObjectID *> *fleeting = [NSMutableSet set];
+  // Every few hundred changes, what is folded is saved and the context
+  // emptied: each change's object is read (for its key), whole, files and
+  // all, and kept, they would add up to every object changed. Within a
+  // transaction too: an import saved at once is one. (The history token is
+  // saved only at the end: a pass that stops is folded again, into the same
+  // entries.)
+  NSUInteger unsaved = 0;
+  NSError *failure = nil;
+  BOOL failed = NO;
   for (NSPersistentHistoryTransaction *transaction in result.result) @autoreleasepool {
+    if (failed) break;
     last = transaction.token ?: last;
     BOOL relayed = NO, fromPeer = NO;
     if ([transaction.author hasPrefix:@"ODataSync."]) {
@@ -135,7 +145,20 @@ static const NSInteger ODSConflictRounds = 3;
       if (!_remote.peer && !fromPeer) continue;
       relayed = YES;
     }
-    for (NSPersistentHistoryChange *change in transaction.changes) {
+    for (NSPersistentHistoryChange *change in transaction.changes) @autoreleasepool {
+      if (unsaved >= 500) {
+        NSError *e = nil;
+        if (![context save:&e]) {
+          failure = e;
+          failed = YES;
+          break;
+        }
+        [context reset];
+        state = [_engine.store stateOf:_remote inContext:context];
+        [_engine.store indexOutboxOf:_remote inContext:context];
+        unsaved = 0;
+      }
+      unsaved++;
       NSEntityDescription *entity = change.changedObjectID.entity;
       if ([bookkeeping containsObject:entity.name]) continue;
       ODataSyncDirection direction = [_model directionOfEntity:entity];
@@ -187,6 +210,10 @@ static const NSInteger ODSConflictRounds = 3;
     }
   }
   [_engine.store endOutboxIndex];
+  if (failed) {
+    if (error) *error = failure;
+    return NO;
+  }
   if (last) [state setValue:[NSKeyedArchiver archivedDataWithRootObject:last requiringSecureCoding:YES error:NULL] forKey:@"historyToken"];
   return [context save:error];
 }
@@ -258,14 +285,20 @@ static const NSInteger ODSConflictRounds = 3;
                                           : [ours isKindOfClass:[NSString class]] && [theirs isKindOfClass:[NSString class]] && [ours compare:theirs] == NSOrderedAscending;
     if (older) {
       // Older than the remote's (a copy that came round late): sent, it
-      // would put an older version over a newer one. The remote's is taken.
+      // would put an older version over a newer one. The remote's is taken:
+      // the version agreed on, or, when it keeps a file only as its digest,
+      // read again from the remote (-refreshIn:, at the next sync).
+      if ([_codec shadowHasDigests:agreed entity:root]) {
+        [entry setValue:@(ODataSyncOperationRefresh) forKey:@"operation"];
+        return nil;
+      }
       [_codec applyJSON:agreed toObject:object];
       [context deleteObject:entry];
       return nil;
     }
     // What the remote has already (passed on there by another way, or come
     // from it): not sent again.
-    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromJSON:agreed entity:root]);
+    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromShadow:agreed entity:root]);
     if (!differ.count) {
       [context deleteObject:entry];
       return nil;
@@ -476,17 +509,64 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
   return YES;
 }
 
+// The bytes a string takes as JSON, at most: its UTF-8, quoted, with what
+// NSJSONSerialization escapes (a quote, a backslash, a slash: base64 is
+// full of them; a control character, as \n or \u00XX). Read a chunk at a
+// time: a file's base64 is not copied to be measured.
+static NSUInteger ODSJSONStringSize(NSString *string)
+{
+  NSUInteger n = 2, length = string.length;
+  unichar chunk[1024];
+  for (NSUInteger at = 0; at < length; at += 1024) {
+    NSUInteger count = MIN(1024u, length - at);
+    [string getCharacters:chunk range:NSMakeRange(at, count)];
+    for (NSUInteger i = 0; i < count; i++) {
+      unichar c = chunk[i];
+      if (c == '"' || c == '\\' || c == '/') n += 2;
+      else if (c < 0x20) n += (c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') ? 2 : 6;
+      else if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xD800 && c <= 0xDFFF) n += 2;  // a surrogate: four for the pair
+      else n += 3;
+    }
+  }
+  return n;
+}
+
+// About how many bytes a value takes as JSON.
+static NSUInteger ODSJSONSize(id value)
+{
+  if ([value isKindOfClass:[NSString class]]) return ODSJSONStringSize(value);
+  if ([value isKindOfClass:[NSDictionary class]]) {
+    NSUInteger n = 2;
+    for (id key in value) n += ODSJSONSize(key) + ODSJSONSize([value objectForKey:key]) + 2;
+    return n;
+  }
+  if ([value isKindOfClass:[NSArray class]]) {
+    NSUInteger n = 2;
+    for (id item in value) n += ODSJSONSize(item) + 1;
+    return n;
+  }
+  return 16;
+}
+
 // One batch of what waits, sent and saved: 1 more to send, 2 done (nothing
 // waits, or the remote said stop), 0 failed.
 - (NSInteger)sendBatchIn:(NSManagedObjectContext *)context size:(NSUInteger)size error:(NSError **)error
 {
   NSMutableArray *entries = [NSMutableArray array];
   NSMutableArray *requests = [NSMutableArray array];
+  // The batch's own: {"requests":[...]}, and each request's "id" and comma.
+  NSUInteger bytes = 16, budget = MAX(_remote.batchBytes, 1u);
   for (NSManagedObject *entry in [self pendingIn:context]) {
     NSDictionary *request = [self requestOf:entry context:context];
     if (!request) continue;
+    // Not past the budget: the next batch takes it (the first goes alone).
+    NSUInteger more = ODSJSONSize(request) + 16;
+    if (requests.count && bytes + more > budget) break;
     [entries addObject:entry];
     [requests addObject:request];
+    bytes += more;
     if (requests.count == size) break;
   }
   if (!requests.count) return [context save:error] ? 2 : 0;
