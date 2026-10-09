@@ -217,7 +217,9 @@ jobs:
       # attribute an index covers).
       # #70: migratePersistentStore:toURL:options:withType:error: (a server
       # can move from SQLite to PostgreSQL), ordered relationships in order.
-      FREECOREDATA_REF: fd6ae5318162137c6dd1a4a5a8c08ca5503dac5d
+      # #71: an object and its context let go of what they held (a server
+      # no longer keeps every row a request read).
+      FREECOREDATA_REF: 338bc7b7f8aba8f2fe596ffa103a4dfb05cea53a
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
