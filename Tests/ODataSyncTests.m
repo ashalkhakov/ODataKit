@@ -852,6 +852,23 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertFalse([digest isDigestOfData:[file subdataWithRange:NSMakeRange(0, 100)]]);
 }
 
+// The same file saved again (an app that sets every field it shows) is
+// no change: nothing stamped, nothing sent.
+- (void)testTheSameFileSavedAgainSendsNothing
+{
+  NSMutableData *file = [NSMutableData dataWithLength:8192];
+  for (NSUInteger i = 0; i < file.length; i++) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i * 11);
+  NSString *task = [self makeTask:@"Read the manual"];
+  [self set:@{ @"attachment": file } onTask:task in:_device];
+  [self sync];
+  NSArray *stamped = [self values:@"modified" of:@"Task" in:_device];
+  [self set:@{ @"attachment": [file copy], @"title": @"Read the manual" } onTask:task in:_device];
+  XCTAssertEqualObjects([self values:@"modified" of:@"Task" in:_device], stamped, @"not stamped: nothing changed");
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"%@", _engine.lastResult);
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+}
+
 // A resolution that names the attachment by the base's digest: the side
 // whose bytes those are is written; when neither side has them any more,
 // there is nothing to write, and the conflict is set aside.
