@@ -170,6 +170,7 @@ HTTPServerKit_OBJC_FILES = \
 	Source/HTTPServerKit/HSServer.m \
 	Source/HTTPServerKit/HSSignature.m \
 	Source/HTTPServerKit/linux/HSSignatureSystem.m \
+	Source/HTTPServerKit/linux/HSMemorySystem.m \
 	Source/HTTPServerKit/HSStages.m \
 	$(GCDWebServer_OBJC_FILES)
 

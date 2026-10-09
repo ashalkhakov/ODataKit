@@ -69,6 +69,7 @@
 @implementation HSServer {
   GCDWebServer *_server;
   NSUInteger _inFlight;
+  NSUInteger _answered;
 }
 
 - (NSUInteger)requestsInFlight
@@ -78,10 +79,18 @@
   }
 }
 
+- (NSUInteger)requestsAnswered
+{
+  @synchronized (self) {
+    return _answered;
+  }
+}
+
 - (void)requestDidFinish
 {
   @synchronized (self) {
     if (_inFlight) _inFlight--;
+    _answered++;
   }
 }
 

@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <signal.h>
 #include <stdlib.h>
+#import "HSMemorySystem.h"
 
 
 static NSError *HSServerError(NSString *message)
@@ -742,9 +743,22 @@ static volatile sig_atomic_t HSStopSignal;
   // The main thread runs its run loop (and so the main queue) until a
   // signal comes; a timer keeps the loop from finding nothing to wait for.
   NSTimer *keeper = [NSTimer scheduledTimerWithTimeInterval:3600 target:self selector:@selector(description) userInfo:nil repeats:YES];
+  // Quiet a minute after requests came: what they freed given back to the
+  // system (glibc keeps it otherwise, and a server that once answered a
+  // large sync would look that size for ever).
+  NSUInteger answered = 0;
+  NSDate *checked = [NSDate date];
   while (!HSStopSignal) {
     @autoreleasepool {
       [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+      if (-checked.timeIntervalSinceNow >= 60) {
+        checked = [NSDate date];
+        NSUInteger now = self.server.requestsAnswered;
+        if (now != answered && !self.server.requestsInFlight) {
+          answered = now;
+          HSSystemReturnFreedMemory();
+        }
+      }
     }
   }
   [keeper invalidate];
@@ -769,6 +783,8 @@ static volatile sig_atomic_t HSStopSignal;
 
 int HSMain(int argc, const char *argv[], Class applicationClass)
 {
+  // Before any thread: as few allocator arenas as a server needs.
+  HSSystemLimitArenas();
   @autoreleasepool {
     NSString *name = [NSProcessInfo processInfo].processName;
     NSError *error = nil;

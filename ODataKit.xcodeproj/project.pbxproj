@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		019F2FE4184E3D44F418F5BB /* ODataSyncConvergenceTests.m in Sources */ = {isa = PBXBuildFile; fileRef = BCAADA83AA4BE588A085AC78 /* ODataSyncConvergenceTests.m */; };
 		02B28F94F74085A175EE3D34 /* HSSignatureSystem.m in Sources */ = {isa = PBXBuildFile; fileRef = 95389F1E982414B21C40B2AE /* HSSignatureSystem.m */; };
+		7D1C85A3043F3314B9CA04A8 /* HSMemorySystem.m in Sources */ = {isa = PBXBuildFile; fileRef = 3E8480980985E3CE61325B8E /* HSMemorySystem.m */; };
 		0764B59AB34FABA43E0C5FFC /* OTHTTP.h in Headers */ = {isa = PBXBuildFile; fileRef = E567AC5265AC911C9E45BC03 /* OTHTTP.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		09C9FFDCE81B569F2F98DE3F /* ODSRecorder.m in Sources */ = {isa = PBXBuildFile; fileRef = 97699403561A03184B7A1668 /* ODSRecorder.m */; };
 		09EA057834C08904575041C2 /* OTTrace.h in Headers */ = {isa = PBXBuildFile; fileRef = FDCADC09FF8297C9A29BEEB5 /* OTTrace.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -412,6 +413,8 @@
 		902FA7310D882EB49FFEAABF /* ODataSyncPeerTransport.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ODataSyncPeerTransport.m; sourceTree = "<group>"; };
 		90FCE2461D61CBF3C23FD3C4 /* GCDWebServer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = GCDWebServer.h; sourceTree = "<group>"; };
 		95389F1E982414B21C40B2AE /* HSSignatureSystem.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = HSSignatureSystem.m; sourceTree = "<group>"; };
+		3E8480980985E3CE61325B8E /* HSMemorySystem.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = HSMemorySystem.m; sourceTree = "<group>"; };
+		CEEFEB470C45B5D33A54229D /* HSMemorySystem.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = HSMemorySystem.h; sourceTree = "<group>"; };
 		95941D51CC3C0E82B1E5CAB8 /* GCDWebServerFileResponse.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = GCDWebServerFileResponse.m; sourceTree = "<group>"; };
 		969BD550CC122D1CD9CE5062 /* OTelKitTests.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = OTelKitTests.m; sourceTree = "<group>"; };
 		97699403561A03184B7A1668 /* ODSRecorder.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ODSRecorder.m; sourceTree = "<group>"; };
@@ -688,6 +691,7 @@
 				A9E277C8D37FF8D217EBAE42 /* HSStages.m */,
 				F7F18E1218DE4C847B1A8D88 /* HSLog.m */,
 				C5A6641496A0AD80186C4822 /* HSSignatureSystem.h */,
+				CEEFEB470C45B5D33A54229D /* HSMemorySystem.h */,
 				FC60712C98470BCB875BDA7A /* apple */,
 			);
 			name = HTTPServerKit;
@@ -1105,6 +1109,7 @@
 			isa = PBXGroup;
 			children = (
 				95389F1E982414B21C40B2AE /* HSSignatureSystem.m */,
+				3E8480980985E3CE61325B8E /* HSMemorySystem.m */,
 			);
 			name = apple;
 			path = apple;
@@ -1502,6 +1507,7 @@
 				75BC07BE66565A6DA54974DD /* GCDWebServerStreamedResponse.m in Sources */,
 				A89712A4A53B0576A14B3B7F /* HSLog.m in Sources */,
 				02B28F94F74085A175EE3D34 /* HSSignatureSystem.m in Sources */,
+				7D1C85A3043F3314B9CA04A8 /* HSMemorySystem.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

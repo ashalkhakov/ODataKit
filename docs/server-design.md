@@ -357,7 +357,7 @@ next links begin with), `Port`, `Localhost`, `MaxPageSize`, `MaxVersion`,
 `Namespace`, `Container`, and `Bundles`; and the limits below
 (`MaxBodySize`, `MaxURLLength`, `MaxExpandDepth`, `MaxBatchRequests`,
 `MaxRowsInMemory`, `MaxJSONDepth`, `MaxAsyncRequests`, `ReplyTimeout`,
-`AsyncResultDuration`, `RepeatabilityDuration`). A bundle's principal class that
+`AsyncResultDuration`, `RepeatabilityDuration`, `RepeatabilityMemory`). A bundle's principal class that
 conforms to `ODataServiceConfiguring` is sent `+configureService:` before
 the first request: that is where an application registers its handlers.
 `-PrintMetadata YES` prints `$metadata` and exits.

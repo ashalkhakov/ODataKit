@@ -465,6 +465,13 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // 400, Repeatability-Result: rejected. An answer 5xx is not remembered.
 // 0 turns it off. Default: 3600 seconds.
 @property (nonatomic) NSTimeInterval repeatabilityDuration;
+// How much of the answers it keeps for that (bytes, their bodies): past it
+// the oldest are let go, and an answer larger than it is not kept (a
+// repeat of either is answered by doing it again, as one without the
+// header would be). A sync of many changes sends many large answers
+// (each $batch's): kept whole for the duration, they would add up to
+// much of a server's memory. Default: 32 MB.
+@property (nonatomic) NSUInteger repeatabilityMemory;
 // Asynchronous requests (Part 1 sections 8.2.8.8 and 11.6). A request that
 // prefers respond-async and is not answered at once (a handler or the
 // authenticator defers, for longer than Prefer: wait=N allows) is answered

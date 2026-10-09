@@ -96,7 +96,7 @@ NS_ASSUME_NONNULL_BEGIN
 //   MaxPageSize, MaxVersion, Namespace, Container, MaxURLLength,
 //   MaxExpandDepth, MaxBatchRequests, MaxRowsInMemory, MaxJSONDepth,
 //   MaxAsyncRequests, ReplyTimeout, AsyncResultDuration,
-//   RepeatabilityDuration, HistoryRetention   the service's (ODataService.h)
+//   RepeatabilityDuration, RepeatabilityMemory, HistoryRetention   the service's (ODataService.h)
 //   AllowAnonymous  YES: a request that names no one is answered too
 //   AllowAnonymousMetadata  YES: the service document and $metadata are,
 //                 so that a client can read how to sign in (the

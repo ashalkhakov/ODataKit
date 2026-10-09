@@ -4090,6 +4090,33 @@ static NSString *OISHTTPDate(NSDate *date)
   return [formatter stringFromDate:date];
 }
 
+// Remembered answers take no more memory than repeatabilityMemory: past
+// it the oldest go (a repeat of one is done again), the newest stay.
+- (void)testRepeatableAnswersKeepToTheirMemory
+{
+  NSDictionary *(^headers)(NSString *) = ^NSDictionary *(NSString *requestID) {
+    return @{ @"Repeatability-Request-ID": requestID, @"Repeatability-First-Sent": OISHTTPDate([NSDate date]) };
+  };
+  OISServiceResponse *one = [self send:@"POST" path:@"Categories" headers:headers(@"m1") body:@{ @"CategoryName": @"One" }];
+  // Room for about two answers like it.
+  _service.repeatabilityMemory = 2 * (one.data.length + 256) + 64;
+  [self send:@"POST" path:@"Categories" headers:headers(@"m2") body:@{ @"CategoryName": @"Two" }];
+  OISServiceResponse *three = [self send:@"POST" path:@"Categories" headers:headers(@"m3") body:@{ @"CategoryName": @"Three" }];
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, @"5");
+  OISServiceResponse *threeAgain = [self send:@"POST" path:@"Categories" headers:headers(@"m3") body:@{ @"CategoryName": @"Three" }];
+  XCTAssertEqualObjects(threeAgain.json[@"CategoryID"], three.json[@"CategoryID"], @"the newest, remembered");
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, @"5");
+  OISServiceResponse *oneAgain = [self send:@"POST" path:@"Categories" headers:headers(@"m1") body:@{ @"CategoryName": @"One" }];
+  XCTAssertEqual(oneAgain.status, 201);
+  XCTAssertNotEqualObjects(oneAgain.json[@"CategoryID"], one.json[@"CategoryID"], @"the oldest, let go of: done again");
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, @"6");
+  // An answer larger than all of it is not kept at all.
+  _service.repeatabilityMemory = 0;
+  OISServiceResponse *four = [self send:@"POST" path:@"Categories" headers:headers(@"m4") body:@{ @"CategoryName": @"Four" }];
+  OISServiceResponse *fourAgain = [self send:@"POST" path:@"Categories" headers:headers(@"m4") body:@{ @"CategoryName": @"Four" }];
+  XCTAssertNotEqualObjects(fourAgain.json[@"CategoryID"], four.json[@"CategoryID"]);
+}
+
 // Repeatable requests: the same request again is the same answer, not the
 // same change twice.
 - (void)testRepeatableRequests

@@ -173,82 +173,111 @@ static NSData *ODSFromBase64(id text)
   return ODSFromBase64(answer[@"Version"]) ?: [NSData data];
 }
 
+// One batch of entries (by ID) exchanged and saved: 1 done, 0 failed, -1
+// the remote has no such action (an older one: merged attributes stay as
+// they are, the rest syncs).
+- (NSInteger)exchangeBatch:(NSArray<NSManagedObjectID *> *)ids context:(NSManagedObjectContext *)context error:(NSError **)error
+{
+  NSMutableArray *chunk = [NSMutableArray array];
+  for (NSManagedObjectID *objectID in ids) {
+    NSManagedObject *entry = [context existingObjectWithID:objectID error:NULL];
+    if (entry) [chunk addObject:entry];
+  }
+  NSArray<ODSMergeSlot *> *slots = [self slotsOf:chunk context:context];
+  if (!slots.count) return [context save:error] ? 1 : 0;
+  // Down: what each has, for what it lacks (and the remote's version).
+  NSMutableArray *items = [NSMutableArray array];
+  for (ODSMergeSlot *slot in slots) {
+    NSMutableDictionary *item = [slot.item mutableCopy];
+    item[@"Version"] = ODSBase64([slot.merger versionOfState:[slot.object valueForKey:slot.attribute.name]]);
+    [items addObject:item];
+  }
+  BOOL unsupported = NO;
+  NSArray *answers = [self call:items unsupported:&unsupported error:error];
+  if (!answers) {
+    if (unsupported) {
+      if (error) *error = nil;
+      return [context save:error] ? -1 : 0;
+    }
+    [context save:NULL];
+    return 0;
+  }
+  // Up: what the remote lacks, since its version.
+  NSMutableArray *ups = [NSMutableArray array];
+  NSMutableArray<ODSMergeSlot *> *upSlots = [NSMutableArray array];
+  for (NSUInteger i = 0; i < slots.count; i++) {
+    ODSMergeSlot *slot = slots[i];
+    NSData *theirs = [self apply:answers[i] to:slot];
+    if (!theirs) continue;
+    NSData *state = [slot.object valueForKey:slot.attribute.name];
+    NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
+    // Nothing it lacks, and nothing changed here: done. Changed, it is told
+    // what this copy has now, for what it collects (what a copy says it
+    // has, never what it was sent).
+    if (!delta.length && !slot.changed) continue;
+    NSMutableDictionary *item = [slot.item mutableCopy];
+    item[@"Version"] = ODSBase64([slot.merger versionOfState:state]);
+    if (delta.length) item[@"Delta"] = ODSBase64(delta);
+    [ups addObject:item];
+    [upSlots addObject:slot];
+  }
+  if (ups.count) {
+    NSArray *upAnswers = [self call:ups unsupported:NULL error:error];
+    if (!upAnswers) {
+      [context save:NULL];
+      return 0;
+    }
+    for (NSUInteger i = 0; i < upSlots.count; i++) [self apply:upAnswers[i] to:upSlots[i]];
+  }
+  // Done, but those that failed: again at the next sync, and set aside
+  // after a few (one that never merges holds up nothing else).
+  NSMutableDictionary<NSManagedObjectID *, ODSMergeSlot *> *failed = [NSMutableDictionary dictionary];
+  for (ODSMergeSlot *slot in slots) {
+    if (slot.failed) failed[slot.entry.objectID] = slot;
+  }
+  for (NSManagedObject *entry in chunk) {
+    if (entry.isDeleted) continue;
+    ODSMergeSlot *slot = failed[entry.objectID];
+    if (slot) {
+      NSInteger attempts = [[entry valueForKey:@"attempts"] integerValue] + 1;
+      [entry setValue:@(attempts) forKey:@"attempts"];
+      if (attempts >= ODSMergeAttempts) {
+        [entry setValue:@YES forKey:@"setAside"];
+        [entry setValue:@422 forKey:@"status"];
+        [entry setValue:slot.message forKey:@"message"];
+        [_engine setAside:[[ODataSyncIssue alloc] initWithEntry:entry objectID:slot.object.objectID]];
+      }
+    } else {
+      [context deleteObject:entry];
+      [_engine count:@"merged" by:1];
+    }
+  }
+  return [context save:error] ? 1 : 0;
+}
+
 - (BOOL)exchangeIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
-  NSArray *entries = [_engine.store mergeEntriesFor:_remote inContext:context];
-  for (NSUInteger start = 0; start < entries.count; start += ODSMergeBatch) {
-    NSArray *chunk = [entries subarrayWithRange:NSMakeRange(start, MIN(ODSMergeBatch, entries.count - start))];
-    NSArray<ODSMergeSlot *> *slots = [self slotsOf:chunk context:context];
-    if (!slots.count) continue;
-    // Down: what each has, for what it lacks (and the remote's version).
-    NSMutableArray *items = [NSMutableArray array];
-    for (ODSMergeSlot *slot in slots) {
-      NSMutableDictionary *item = [slot.item mutableCopy];
-      item[@"Version"] = ODSBase64([slot.merger versionOfState:[slot.object valueForKey:slot.attribute.name]]);
-      [items addObject:item];
+  // By ID: each batch saved and let go of (the context emptied), so that
+  // as many objects as there are go in the memory of a batch.
+  NSArray<NSManagedObjectID *> *ids = [[_engine.store mergeEntriesFor:_remote inContext:context] valueForKey:@"objectID"];
+  if (ids.count) [_engine beginPhase:ODataSyncPhaseMerging remote:_remote total:ids.count];
+  for (NSUInteger start = 0; start < ids.count; start += ODSMergeBatch) {
+    NSInteger done;
+    NSError *failure = nil;
+    @autoreleasepool {
+      NSError *e = nil;
+      done = [self exchangeBatch:[ids subarrayWithRange:NSMakeRange(start, MIN(ODSMergeBatch, ids.count - start))] context:context error:&e];
+      failure = e;
+      [context reset];
     }
-    BOOL unsupported = NO;
-    NSArray *answers = [self call:items unsupported:&unsupported error:error];
-    if (!answers) {
-      // An older remote: merged attributes stay as they are, the rest syncs.
-      if (unsupported) {
-        if (error) *error = nil;
-        return [context save:error];
-      }
-      [context save:NULL];
+    if (done < 0) return YES;
+    if (!done) {
+      if (error) *error = failure;
       return NO;
     }
-    // Up: what the remote lacks, since its version.
-    NSMutableArray *ups = [NSMutableArray array];
-    NSMutableArray<ODSMergeSlot *> *upSlots = [NSMutableArray array];
-    for (NSUInteger i = 0; i < slots.count; i++) {
-      ODSMergeSlot *slot = slots[i];
-      NSData *theirs = [self apply:answers[i] to:slot];
-      if (!theirs) continue;
-      NSData *state = [slot.object valueForKey:slot.attribute.name];
-      NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
-      // Nothing it lacks, and nothing changed here: done. Changed, it is told
-      // what this copy has now, for what it collects (what a copy says it
-      // has, never what it was sent).
-      if (!delta.length && !slot.changed) continue;
-      NSMutableDictionary *item = [slot.item mutableCopy];
-      item[@"Version"] = ODSBase64([slot.merger versionOfState:state]);
-      if (delta.length) item[@"Delta"] = ODSBase64(delta);
-      [ups addObject:item];
-      [upSlots addObject:slot];
-    }
-    if (ups.count) {
-      NSArray *upAnswers = [self call:ups unsupported:NULL error:error];
-      if (!upAnswers) {
-        [context save:NULL];
-        return NO;
-      }
-      for (NSUInteger i = 0; i < upSlots.count; i++) [self apply:upAnswers[i] to:upSlots[i]];
-    }
-    // Done, but those that failed: again at the next sync, and set aside
-    // after a few (one that never merges holds up nothing else).
-    NSMutableDictionary<NSManagedObjectID *, ODSMergeSlot *> *failed = [NSMutableDictionary dictionary];
-    for (ODSMergeSlot *slot in slots) {
-      if (slot.failed) failed[slot.entry.objectID] = slot;
-    }
-    for (NSManagedObject *entry in chunk) {
-      if (entry.isDeleted) continue;
-      ODSMergeSlot *slot = failed[entry.objectID];
-      if (slot) {
-        NSInteger attempts = [[entry valueForKey:@"attempts"] integerValue] + 1;
-        [entry setValue:@(attempts) forKey:@"attempts"];
-        if (attempts >= ODSMergeAttempts) {
-          [entry setValue:@YES forKey:@"setAside"];
-          [entry setValue:@422 forKey:@"status"];
-          [entry setValue:slot.message forKey:@"message"];
-          [_engine setAside:[[ODataSyncIssue alloc] initWithEntry:entry objectID:slot.object.objectID]];
-        }
-      } else {
-        [context deleteObject:entry];
-        [_engine count:@"merged" by:1];
-      }
-    }
-    if (![context save:error]) return NO;
+    // This batch's entries settled for this sync: exchanged, failed (again
+    // at the next), set aside, or with nothing here.
+    [_engine phaseDone:MIN(start + ODSMergeBatch, ids.count)];
   }
   return YES;
 }

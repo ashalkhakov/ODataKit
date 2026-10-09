@@ -59,6 +59,18 @@ FOUNDATION_EXPORT void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntit
                          remote:(ODataSyncRemote *)remote context:(NSManagedObjectContext *)context;
 - (int64_t)nextSequenceIn:(NSManagedObjectContext *)context;
 
+// A pass over many objects (history into the outbox, a set's rows down):
+// the remote's outbox entries read once, in a dictionary, and found there
+// (-entryOf:..., -mergeEntryOf:..., -noteMergeOf:...) rather than by a
+// fetch each, which looks through every entry the pass made and has not
+// saved: as many objects as there are, in time and memory that grow with
+// them, not with their square. Entries made in the pass are added
+// (-newEntryOf:, -indexEntry:), and the place in line is counted here. Read
+// again after the context is reset; over at -endOutboxIndex.
+- (void)indexOutboxOf:(ODataSyncRemote *)remote inContext:(NSManagedObjectContext *)context;
+- (void)indexEntry:(NSManagedObject *)entry;
+- (void)endOutboxIndex;
+
 // Deletions remembered: whether an object (by root entity name and key
 // text) was deleted here and not made again since; the deleted version's
 // vector (empty: none kept, or not deleted); the deletion forgotten (made

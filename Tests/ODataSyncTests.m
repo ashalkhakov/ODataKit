@@ -42,6 +42,7 @@
 @interface OSTDelegate : NSObject <ODataSyncDelegate>
 @property (atomic, strong) NSMutableArray *setAside;
 @property (atomic, strong) NSMutableArray *ignored;
+@property (atomic, strong) NSMutableArray<ODataSyncProgress *> *progress;
 @end
 
 @implementation OSTDelegate
@@ -50,7 +51,14 @@
   self = [super init];
   _setAside = [NSMutableArray array];
   _ignored = [NSMutableArray array];
+  _progress = [NSMutableArray array];
   return self;
+}
+- (void)syncEngine:(ODataSyncEngine *)engine didProgress:(ODataSyncProgress *)progress
+{
+  @synchronized (self) {
+    [self.progress addObject:progress];
+  }
 }
 - (void)syncEngine:(ODataSyncEngine *)engine didSetAside:(ODataSyncIssue *)issue
 {
@@ -276,6 +284,50 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqualObjects([asset.indexes valueForKey:@"name"], (@[ @"byRegion", @"ODataSyncKey" ]));
 }
 
+// Many rows, a few at a time: pages read and batches sent, each saved and
+// the context emptied between them (the outbox's index read again): all of
+// them, read whole, sent, and changed and deleted by the delta link.
+- (void)testManyRowsAFewAtATime
+{
+  _service.maxPageSize = 3;
+  _remote.batchSize = 2;
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 4; i <= 11; i++) {
+      NSManagedObject *asset = [NSEntityDescription insertNewObjectForEntityForName:@"Asset" inManagedObjectContext:context];
+      [asset setValue:@(i) forKey:@"id"];
+      [asset setValue:[NSString stringWithFormat:@"Asset %d", i] forKey:@"name"];
+      [asset setValue:@1 forKey:@"version"];
+    }
+  }];
+  for (int i = 0; i < 11; i++) [self makeTask:[NSString stringWithFormat:@"Task %02d", i]];
+  [self sync];
+  XCTAssertEqual([self values:@"name" of:@"Asset" in:_device].count, 11u, @"read whole, in four pages");
+  NSArray *titles = [[self values:@"title" of:@"Task" in:_server] sortedArrayUsingSelector:@selector(compare:)];
+  XCTAssertEqual(titles.count, 11u, @"sent, in six batches: %@", titles);
+  XCTAssertEqualObjects(titles.lastObject, @"Task 10");
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+  ODataSyncProgress *last = nil;
+  for (ODataSyncProgress *p in _delegate.progress) if (p.phase == ODataSyncPhaseSending) last = p;
+  XCTAssertEqual(last.completed, 11u, @"%@", _delegate.progress);
+  XCTAssertEqual(last.total, 11u);
+
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 1; i <= 7; i++) {
+      NSManagedObject *asset = [self object:@"Asset" id:@(i) in:context];
+      [asset setValue:[NSString stringWithFormat:@"Renamed %d", i] forKey:@"name"];
+      [asset setValue:@2 forKey:@"version"];
+    }
+    for (int i = 10; i <= 11; i++) [context deleteObject:[self object:@"Asset" id:@(i) in:context]];
+  }];
+  [self sync];
+  NSArray *names = [self values:@"name" of:@"Asset" in:_device];
+  XCTAssertEqual(names.count, 9u, @"two deleted, by the delta link's pages: %@", names);
+  XCTAssertEqualObjects([names subarrayWithRange:NSMakeRange(0, 7)],
+                        (@[ @"Renamed 1", @"Renamed 2", @"Renamed 3", @"Renamed 4", @"Renamed 5", @"Renamed 6", @"Renamed 7" ]));
+  XCTAssertEqualObjects([names subarrayWithRange:NSMakeRange(7, 2)], (@[ @"Asset 8", @"Asset 9" ]));
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+}
+
 - (void)testDownloadWholeThenByDeltaLink
 {
   [self sync];
@@ -477,6 +529,32 @@ static NSManagedObjectModel *OSTModel(void)
   }];
   [self sync];
   XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"%@", _engine.lastResult);
+}
+
+// How far a sync is: each phase told as it begins, sending with what
+// waits, and its last told when all is done (whatever the throttle).
+- (void)testProgressIsToldAsASyncGoes
+{
+  [self sync];
+  XCTAssertEqual(_delegate.progress.firstObject.phase, ODataSyncPhaseReceiving);
+  XCTAssertEqual(_delegate.progress.firstObject.total, 0u, @"how much is to come is not known");
+  XCTAssertTrue(_delegate.progress.firstObject.remote == _remote);
+  for (NSUInteger i = 0; i < 120; i++) [self makeTask:[NSString stringWithFormat:@"Task %lu", (unsigned long)i]];
+  [_delegate.progress removeAllObjects];
+  [self sync];
+  NSArray *phases = [_delegate.progress valueForKey:@"phase"];
+  XCTAssertEqualObjects(phases.firstObject, @(ODataSyncPhaseReceiving));
+  NSUInteger sending = [phases indexOfObject:@(ODataSyncPhaseSending)];
+  XCTAssertNotEqual(sending, NSNotFound, @"%@", _delegate.progress);
+  ODataSyncProgress *began = _delegate.progress[sending];
+  XCTAssertEqual(began.completed, 0u);
+  XCTAssertEqual(began.total, 120u);
+  ODataSyncProgress *last = _delegate.progress.lastObject;
+  XCTAssertEqual(last.phase, ODataSyncPhaseSending);
+  XCTAssertEqual(last.completed, 120u, @"%@", _delegate.progress);
+  XCTAssertEqual(last.total, 120u);
+  for (ODataSyncProgress *p in [_delegate.progress subarrayWithRange:NSMakeRange(sending, _delegate.progress.count - sending)])
+    XCTAssertLessThanOrEqual(p.completed, p.total);
 }
 
 - (void)testSendingAgainIsHarmless
