@@ -5025,6 +5025,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   // Repeatable requests: by client and request ID, what was answered.
   NSMutableDictionary<NSString *, NSDictionary *> *_remembered;
   NSLock *_rememberedLock;
+  NSUInteger _rememberedBytes;
   // Asynchronous requests, by status monitor.
   NSMutableDictionary<NSString *, OISAsyncJob *> *_jobs;
   NSLock *_jobsLock;
@@ -5052,6 +5053,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   _replyTimeout = 60;
   _tracer = [OTTracer tracerNamed:@"ODataService" version:nil];
   _repeatabilityDuration = 3600;
+  _repeatabilityMemory = 32 * 1024 * 1024;
   _asyncResultDuration = 600;
   _maxAsyncRequests = 1000;
   _maxURLLength = 8192;
@@ -5739,7 +5741,7 @@ static NSDateFormatter *OISHTTPDateFormatter(void)
   [_rememberedLock lock];
   // What is too old to be repeated any more is let go.
   for (NSString *old in _remembered.allKeys) {
-    if (-[_remembered[old][@"date"] timeIntervalSinceNow] > self.repeatabilityDuration) [_remembered removeObjectForKey:old];
+    if (-[_remembered[old][@"date"] timeIntervalSinceNow] > self.repeatabilityDuration) [self forgetAnswer:old];
   }
   NSDictionary *entry = _remembered[key];
   if (!entry) _remembered[key] = @{ @"date": [NSDate date], @"signature": signature, @"pending": @YES };
@@ -5759,19 +5761,40 @@ static NSDateFormatter *OISHTTPDateFormatter(void)
   return YES;
 }
 
+// An answer no longer kept (under the lock).
+- (void)forgetAnswer:(NSString *)key
+{
+  NSUInteger bytes = [_remembered[key][@"bytes"] unsignedIntegerValue];
+  _rememberedBytes = _rememberedBytes > bytes ? _rememberedBytes - bytes : 0;
+  [_remembered removeObjectForKey:key];
+}
+
 - (void)rememberAnswer:(NSInteger)status headers:(NSDictionary *)headers body:(NSData *)body
                 forKey:(NSString *)key signature:(NSString *)signature
 {
+  // Its body, and a little for the rest.
+  NSUInteger bytes = body.length + 256;
+  NSUInteger memory = self.repeatabilityMemory;
   [_rememberedLock lock];
-  // A failure of the service's own is not the answer: the request may be tried again.
-  if (status >= 500) [_remembered removeObjectForKey:key];
-  else _remembered[key] = @{ @"date": [NSDate date], @"signature": signature ?: @"", @"status": @(status), @"headers": headers, @"body": body };
-  // Not without end: past 10000 answers, the oldest are let go.
-  if (_remembered.count > 10000) {
+  [self forgetAnswer:key];
+  // A failure of the service's own is not the answer: the request may be
+  // tried again. One larger than all that is kept: done again if repeated.
+  if (status < 500 && bytes <= memory) {
+    _remembered[key] = @{ @"date": [NSDate date], @"signature": signature ?: @"", @"status": @(status), @"headers": headers, @"body": body,
+                          @"bytes": @(bytes) };
+    _rememberedBytes += bytes;
+  }
+  // Not without end: past 10000 answers, or their memory, the oldest are
+  // let go (those under way stay: they have no answer yet).
+  if (_remembered.count > 10000 || _rememberedBytes > memory) {
     NSArray *oldest = [_remembered keysSortedByValueUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
       return [a[@"date"] compare:b[@"date"]];
     }];
-    [_remembered removeObjectsForKeys:[oldest subarrayWithRange:NSMakeRange(0, _remembered.count - 10000)]];
+    for (NSString *old in oldest) {
+      if (_remembered.count <= 10000 && _rememberedBytes <= memory) break;
+      if ([_remembered[old][@"pending"] boolValue]) continue;
+      [self forgetAnswer:old];
+    }
   }
   [_rememberedLock unlock];
 }

@@ -84,9 +84,29 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
   return tombstone;
 }
 
+// The remote's outbox entries in a pass, by entity and key text.
+@interface ODSOutboxIndex : NSObject {
+ @public
+  NSManagedObjectContext *_context;
+  NSString *_remote;
+  NSMutableDictionary<NSString *, NSManagedObject *> *_rows;
+  NSMutableDictionary<NSString *, NSManagedObject *> *_merges;
+  int64_t _next;
+}
+@end
+
+@implementation ODSOutboxIndex
+@end
+
+static NSString *ODSIndexKey(NSString *entityName, NSString *keyText)
+{
+  return [NSString stringWithFormat:@"%@\x1f%@", entityName, keyText];
+}
+
 @implementation ODSStore {
   ODSCodec *_codec;
   NSString *_replicaID;
+  ODSOutboxIndex *_index;
 }
 
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
@@ -163,9 +183,70 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
   return state;
 }
 
+// The pass going (another thread's context, a peer server's, is none of it).
+- (ODSOutboxIndex *)currentIndex
+{
+  @synchronized (self) {
+    return _index;
+  }
+}
+
+- (ODSOutboxIndex *)indexFor:(ODataSyncRemote *)remote context:(NSManagedObjectContext *)context
+{
+  ODSOutboxIndex *index = [self currentIndex];
+  return index && index->_context == context && [index->_remote isEqualToString:remote.identifier] ? index : nil;
+}
+
+- (void)indexOutboxOf:(ODataSyncRemote *)remote inContext:(NSManagedObjectContext *)context
+{
+  ODSOutboxIndex *index = [[ODSOutboxIndex alloc] init];
+  index->_context = context;
+  index->_remote = [remote.identifier copy];
+  index->_rows = [NSMutableDictionary dictionary];
+  index->_merges = [NSMutableDictionary dictionary];
+  [self endOutboxIndex];
+  index->_next = [self nextSequenceIn:context];
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@", remote.identifier];
+  fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"sequence" ascending:YES] ];
+  for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
+    BOOL merge = [[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge;
+    NSMutableDictionary *into = merge ? index->_merges : index->_rows;
+    NSString *key = ODSIndexKey([entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"]);
+    // The first in line, as a fetch with a limit of one finds.
+    if (!into[key]) into[key] = entry;
+  }
+  @synchronized (self) {
+    _index = index;
+  }
+}
+
+- (void)indexEntry:(NSManagedObject *)entry
+{
+  ODSOutboxIndex *index = [self currentIndex];
+  if (!index || entry.managedObjectContext != index->_context || ![[entry valueForKey:@"remote"] isEqual:index->_remote]) return;
+  BOOL merge = [[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationMerge;
+  (merge ? index->_merges : index->_rows)[ODSIndexKey([entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"])] = entry;
+}
+
+- (void)endOutboxIndex
+{
+  @synchronized (self) {
+    _index = nil;
+  }
+}
+
+/* An entry the index has, unless deleted since. */
+static NSManagedObject *ODSLive(NSManagedObject *entry)
+{
+  return entry.isDeleted || !entry.managedObjectContext ? nil : entry;
+}
+
 - (NSManagedObject *)entryOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
                    inContext:(NSManagedObjectContext *)context
 {
+  ODSOutboxIndex *index = [self indexFor:remote context:context];
+  if (index) return ODSLive(index->_rows[ODSIndexKey(entityName, keyText)]);
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
   fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND entityType == %@ AND keyText == %@ AND operation != %d",
                                                      remote.identifier, entityName, keyText, (int)ODataSyncOperationMerge];
@@ -176,6 +257,8 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
 - (NSManagedObject *)mergeEntryOf:(NSString *)entityName keyText:(NSString *)keyText remote:(ODataSyncRemote *)remote
                         inContext:(NSManagedObjectContext *)context
 {
+  ODSOutboxIndex *index = [self indexFor:remote context:context];
+  if (index) return ODSLive(index->_merges[ODSIndexKey(entityName, keyText)]);
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
   fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND entityType == %@ AND keyText == %@ AND operation == %d",
                                                      remote.identifier, entityName, keyText, (int)ODataSyncOperationMerge];
@@ -217,6 +300,9 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
 
 - (int64_t)nextSequenceIn:(NSManagedObjectContext *)context
 {
+  // In a pass: counted here (every entry it makes takes its place).
+  ODSOutboxIndex *index = [self currentIndex];
+  if (index && index->_context == context) return index->_next++;
   NSFetchRequest *last = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
   last.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"sequence" ascending:NO] ];
   last.fetchLimit = 1;
@@ -234,6 +320,7 @@ NSEntityDescription *ODSTombstoneEntityDescription(void)
   [entry setValue:[_codec keyTextOf:key entity:root] forKey:@"keyText"];
   [entry setValue:@(operation) forKey:@"operation"];
   [entry setValue:@(sequence) forKey:@"sequence"];
+  [self indexEntry:entry];
   return entry;
 }
 

@@ -257,16 +257,74 @@ static const NSInteger ODSGone = 410;
 
 #pragma mark Reading
 
+// The pages of a read, each applied and saved as it comes, the context
+// emptied after (and the outbox's index read again): as many rows as there
+// are, in the memory of a page. A delta's removed entries remove; every
+// row's key into seen. The delta link the last page gave (saved by the
+// caller, with the state, once all of them are in: a read that stops part
+// way is read again, its rows applied again by key).
+- (BOOL)applyPagesAt:(NSURL *)url prefer:(NSString *)prefer entity:(NSEntityDescription *)entity context:(NSManagedObjectContext *)context
+                seen:(NSMutableSet *)seen deltaLink:(NSString **)deltaLink status:(NSInteger *)status error:(NSError **)error
+{
+  NSURL *next = url;
+  NSString *link = nil;
+  NSError *failure = nil;
+  BOOL ok = YES;
+  while (next && ok) {
+    @autoreleasepool {
+      NSError *e = nil;
+      NSDictionary *page = [self JSONAt:next prefer:prefer status:status error:&e];
+      if (!page) {
+        failure = e;
+        ok = NO;
+        continue;
+      }
+      NSMutableArray *rows = [NSMutableArray array];
+      for (NSDictionary *entry in [page[@"value"] isKindOfClass:[NSArray class]] ? page[@"value"] : @[]) {
+        if (![entry isKindOfClass:[NSDictionary class]]) continue;
+        BOOL removed = entry[@"@odata.removed"] != nil || [entry[@"@odata.context"] hasSuffix:@"$deletedEntity"];
+        if (!removed) {
+          [rows addObject:entry];
+          continue;
+        }
+        NSString *identifier = entry[@"@odata.id"] ?: entry[@"id"];
+        NSDictionary *key = [identifier isKindOfClass:[NSString class]] ? [_codec keyFromID:identifier entity:NULL among:@[ entity ]] : nil;
+        if (key) [self removeObjectOfEntity:entity key:key context:context];
+      }
+      [self applyRows:rows entity:entity context:context seen:seen];
+      NSString *nextLink = [page[@"@odata.nextLink"] isKindOfClass:[NSString class]] ? page[@"@odata.nextLink"] : nil;
+      NSString *delta = [page[@"@odata.deltaLink"] isKindOfClass:[NSString class]] ? page[@"@odata.deltaLink"] : nil;
+      if (delta) link = [_requests URLOfLink:delta relativeTo:url].absoluteString;
+      next = nextLink ? [_requests URLOfLink:nextLink relativeTo:next] : nil;
+      // More to come: this page saved, and let go of.
+      if (next) {
+        if (![context save:&e]) {
+          failure = e;
+          ok = NO;
+          continue;
+        }
+        [context reset];
+        [_engine.store indexOutboxOf:_remote inContext:context];
+      }
+    }
+  }
+  if (!ok) {
+    if (error) *error = failure;
+    return NO;
+  }
+  if (deltaLink) *deltaLink = link;
+  return YES;
+}
+
 // Whole: every row, by key; what the remote no longer has, gone.
 - (BOOL)readWhole:(NSEntityDescription *)entity context:(NSManagedObjectContext *)context deltaLink:(NSString **)deltaLink
             error:(NSError **)error
 {
   NSURL *url = [_requests URLOfSet:entity keysOnly:NO error:error];
   if (!url) return NO;
-  NSArray *rows = [self rowsAt:url prefer:@"odata.track-changes" deltaLink:deltaLink status:NULL error:error];
-  if (!rows) return NO;
   NSMutableSet *seen = [NSMutableSet set];
-  [self applyRows:rows entity:entity context:context seen:seen];
+  if (![self applyPagesAt:url prefer:@"odata.track-changes" entity:entity context:context seen:seen deltaLink:deltaLink status:NULL error:error])
+    return NO;
   [self sweep:entity keeping:seen context:context];
   return YES;
 }
@@ -278,25 +336,12 @@ static const NSInteger ODSGone = 410;
 {
   NSInteger status = 0;
   NSError *failure = nil;
-  NSArray *entries = [self rowsAt:[_requests URLOfLink:link relativeTo:nil] prefer:nil deltaLink:deltaLink status:&status error:&failure];
-  if (!entries) {
+  if (![self applyPagesAt:[_requests URLOfLink:link relativeTo:nil] prefer:nil entity:entity context:context seen:[NSMutableSet set]
+                deltaLink:deltaLink status:&status error:&failure]) {
     *gone = status == ODSGone;
     if (!*gone && error) *error = failure;
     return NO;
   }
-  NSMutableArray *rows = [NSMutableArray array];
-  for (NSDictionary *entry in entries) {
-    if (![entry isKindOfClass:[NSDictionary class]]) continue;
-    BOOL removed = entry[@"@odata.removed"] != nil || [entry[@"@odata.context"] hasSuffix:@"$deletedEntity"];
-    if (!removed) {
-      [rows addObject:entry];
-      continue;
-    }
-    NSString *identifier = entry[@"@odata.id"] ?: entry[@"id"];
-    NSDictionary *key = [identifier isKindOfClass:[NSString class]] ? [_codec keyFromID:identifier entity:NULL among:@[ entity ]] : nil;
-    if (key) [self removeObjectOfEntity:entity key:key context:context];
-  }
-  [self applyRows:rows entity:entity context:context seen:[NSMutableSet set]];
   return YES;
 }
 
@@ -325,6 +370,8 @@ static const NSInteger ODSGone = 410;
     [span end];
     return NO;
   }
+  // Read again: the context was emptied between pages.
+  state = [_engine.store stateOf:_remote inContext:context];
   if (next) links[entity.name] = next; else [links removeObjectForKey:entity.name];
   if (filter) filters[entity.name] = filter; else [filters removeObjectForKey:entity.name];
   [state setValue:ODSArchive(links) forKey:@"deltaLinks"];
@@ -341,15 +388,17 @@ static const NSInteger ODSGone = 410;
   __block BOOL ok = YES;
   __block NSError *failure = nil;
   [context performBlockAndWait:^{
+    [self->_engine.store indexOutboxOf:self->_remote inContext:context];
     for (NSEntityDescription *entity in [self entities]) {
       NSError *e = nil;
       if (![self downloadEntity:entity context:context error:&e]) {
         failure = e;
         ok = NO;
         [context rollback];
-        return;
+        break;
       }
     }
+    [self->_engine.store endOutboxIndex];
   }];
   if (!ok && error) *error = failure;
   return ok;

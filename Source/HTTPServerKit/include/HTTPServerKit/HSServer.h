@@ -52,6 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSUInteger port;
 // Requests received and not yet answered: what a graceful stop waits for.
 @property (atomic, readonly) NSUInteger requestsInFlight;
+// Requests answered since it started.
+@property (atomic, readonly) NSUInteger requestsAnswered;
 
 @end
 

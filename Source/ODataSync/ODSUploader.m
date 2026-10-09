@@ -59,7 +59,7 @@ static const NSInteger ODSConflictRounds = 3;
 // A change into the entry of its object. Relayed: it came from another
 // remote, and so is no authority's (-checksVersionsOf:).
 - (void)fold:(ODataSyncOperation)operation properties:(NSSet<NSString *> *)properties entity:(NSEntityDescription *)root
-         key:(NSDictionary *)key relayed:(BOOL)relayed context:(NSManagedObjectContext *)context sequence:(int64_t *)sequence
+         key:(NSDictionary *)key relayed:(BOOL)relayed context:(NSManagedObjectContext *)context
 {
   NSString *keyText = [_codec keyTextOf:key entity:root];
   NSManagedObject *entry = [_engine.store entryOf:root.name keyText:keyText remote:_remote inContext:context];
@@ -71,8 +71,9 @@ static const NSInteger ODSConflictRounds = 3;
     [entry setValue:keyText forKey:@"keyText"];
     [entry setValue:@(operation) forKey:@"operation"];
     [entry setValue:ODSArchive(properties.allObjects) forKey:@"properties"];
-    [entry setValue:@((*sequence)++) forKey:@"sequence"];
+    [entry setValue:@([_engine.store nextSequenceIn:context]) forKey:@"sequence"];
     [entry setValue:@(relayed) forKey:@"relayed"];
+    [_engine.store indexEntry:entry];
     return;
   }
   // A change made here is this device's to send, whatever else came.
@@ -112,12 +113,14 @@ static const NSInteger ODSConflictRounds = 3;
   request.resultType = NSPersistentHistoryResultTypeTransactionsAndChanges;
   NSPersistentHistoryResult *result = (NSPersistentHistoryResult *)[context executeRequest:request error:error];
   if (!result) return NO;
-  int64_t sequence = [_engine.store nextSequenceIn:context];
+  // Each object's entry found in an index of the outbox, not by a fetch
+  // each (which looks through every entry made in this pass).
+  [_engine.store indexOutboxOf:_remote inContext:context];
   NSPersistentHistoryToken *last = token;
   NSSet *bookkeeping = [NSSet setWithObjects:ODSRemoteStateEntity, ODSOutboxEntity, ODSShadowEntity, ODSTombstoneEntity, nil];
   // Made and gone within what is read now: its deletion is nothing to send.
   NSMutableSet<NSManagedObjectID *> *fleeting = [NSMutableSet set];
-  for (NSPersistentHistoryTransaction *transaction in result.result) {
+  for (NSPersistentHistoryTransaction *transaction in result.result) @autoreleasepool {
     last = transaction.token ?: last;
     BOOL relayed = NO, fromPeer = NO;
     if ([transaction.author hasPrefix:@"ODataSync."]) {
@@ -152,7 +155,7 @@ static const NSInteger ODSConflictRounds = 3;
         NSDictionary *key = [_codec keyFromValues:change.tombstone ?: @{} entity:root];
         // Its key was not kept on deletion (preservesValueInHistoryOnDeletion): it cannot be named.
         if (!key) continue;
-        [self fold:ODataSyncOperationDelete properties:nil entity:root key:key relayed:relayed context:context sequence:&sequence];
+        [self fold:ODataSyncOperationDelete properties:nil entity:root key:key relayed:relayed context:context];
         NSManagedObject *merge = [_engine.store mergeEntryOf:root.name keyText:[_codec keyTextOf:key entity:root] remote:_remote inContext:context];
         if (merge) [context deleteObject:merge];
         continue;
@@ -167,7 +170,7 @@ static const NSInteger ODSConflictRounds = 3;
       if (key.count != [_codec.mapper keyAttributesForEntity:root].count) continue;
       NSSet *merged = [NSSet setWithArray:[[_model mergedAttributesOf:entity] valueForKey:@"name"]];
       if (change.changeType == NSPersistentHistoryChangeTypeInsert) {
-        [self fold:ODataSyncOperationInsert properties:nil entity:root key:key relayed:relayed context:context sequence:&sequence];
+        [self fold:ODataSyncOperationInsert properties:nil entity:root key:key relayed:relayed context:context];
         if (merged.count) [_engine.store noteMergeOf:root key:key remote:_remote context:context];
       } else {
         NSSet *names = [self syncedNamesOf:change.updatedProperties.allObjects entity:entity];
@@ -179,10 +182,11 @@ static const NSInteger ODSConflictRounds = 3;
         NSMutableSet *rest = [names mutableCopy];
         [rest minusSet:merged];
         if (names && !rest.count) continue;
-        [self fold:ODataSyncOperationUpdate properties:names ? rest : nil entity:root key:key relayed:relayed context:context sequence:&sequence];
+        [self fold:ODataSyncOperationUpdate properties:names ? rest : nil entity:root key:key relayed:relayed context:context];
       }
     }
   }
+  [_engine.store endOutboxIndex];
   if (last) [state setValue:[NSKeyedArchiver archivedDataWithRootObject:last requiringSecureCoding:YES error:NULL] forKey:@"historyToken"];
   return [context save:error];
 }
@@ -472,63 +476,84 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
   return YES;
 }
 
+// One batch of what waits, sent and saved: 1 more to send, 2 done (nothing
+// waits, or the remote said stop), 0 failed.
+- (NSInteger)sendBatchIn:(NSManagedObjectContext *)context size:(NSUInteger)size error:(NSError **)error
+{
+  NSMutableArray *entries = [NSMutableArray array];
+  NSMutableArray *requests = [NSMutableArray array];
+  for (NSManagedObject *entry in [self pendingIn:context]) {
+    NSDictionary *request = [self requestOf:entry context:context];
+    if (!request) continue;
+    [entries addObject:entry];
+    [requests addObject:request];
+    if (requests.count == size) break;
+  }
+  if (!requests.count) return [context save:error] ? 2 : 0;
+  OTSpan *span = [_engine.tracer startSpanNamed:@"upload batch" attributes:@{ @"odatasync.changes": @(requests.count) }];
+  NSInteger batchStatus = 0;
+  NSError *failure = nil;
+  NSDictionary<NSString *, ODataBatchPart *> *parts = _batchUnsupported ? nil : [self sendBatch:requests status:&batchStatus error:&failure];
+  if (!parts && (_batchUnsupported || batchStatus == 400 || batchStatus == 404 || batchStatus == 405 || batchStatus == 415 || batchStatus == 501)) {
+    // No JSON $batch there: one at a time.
+    _batchUnsupported = YES;
+    failure = nil;
+  } else if (!parts) {
+    [span end];
+    [context save:NULL];
+    if (error) *error = batchStatus == 401 ? ODSError(401, failure.localizedDescription ?: @"Not signed in") : failure;
+    return 0;
+  }
+  BOOL stop = NO;
+  for (NSUInteger i = 0; i < entries.count && !stop; i++) {
+    NSInteger status;
+    NSDictionary *headers;
+    NSData *body;
+    if (parts) {
+      ODataBatchPart *part = parts[[NSString stringWithFormat:@"%lu", (unsigned long)i + 1]];
+      status = part ? part.status : 0;
+      headers = part.headers ?: @{};
+      body = part.body;
+    } else {
+      status = [self sendAlone:requests[i] headers:&headers body:&body error:&failure];
+      if (!status) {
+        [span end];
+        [context save:NULL];
+        if (error) *error = failure;
+        return 0;
+      }
+    }
+    if (![self take:status headers:headers body:body of:entries[i] context:context stop:&stop error:error]) {
+      [span end];
+      [context save:NULL];
+      return 0;
+    }
+  }
+  [span end];
+  if (![context save:error]) return 0;
+  return stop ? 2 : 1;
+}
+
 - (BOOL)sendIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
   if (![self refreshIn:context error:error]) return NO;
   NSUInteger size = MAX(_remote.batchSize, 1u);
+  // A batch at a time, each saved and let go of (the context emptied): as
+  // many changes as there are, in the memory of a batch.
   for (;;) {
-    NSMutableArray *entries = [NSMutableArray array];
-    NSMutableArray *requests = [NSMutableArray array];
-    for (NSManagedObject *entry in [self pendingIn:context]) {
-      NSDictionary *request = [self requestOf:entry context:context];
-      if (!request) continue;
-      [entries addObject:entry];
-      [requests addObject:request];
-      if (requests.count == size) break;
-    }
-    if (!requests.count) return [context save:error];
-    OTSpan *span = [_engine.tracer startSpanNamed:@"upload batch" attributes:@{ @"odatasync.changes": @(requests.count) }];
-    NSInteger batchStatus = 0;
+    NSInteger sent;
     NSError *failure = nil;
-    NSDictionary<NSString *, ODataBatchPart *> *parts = _batchUnsupported ? nil : [self sendBatch:requests status:&batchStatus error:&failure];
-    if (!parts && (_batchUnsupported || batchStatus == 400 || batchStatus == 404 || batchStatus == 405 || batchStatus == 415 || batchStatus == 501)) {
-      // No JSON $batch there: one at a time.
-      _batchUnsupported = YES;
-      failure = nil;
-    } else if (!parts) {
-      [span end];
-      [context save:NULL];
-      if (error) *error = batchStatus == 401 ? ODSError(401, failure.localizedDescription ?: @"Not signed in") : failure;
+    @autoreleasepool {
+      NSError *e = nil;
+      sent = [self sendBatchIn:context size:size error:&e];
+      failure = e;
+      [context reset];
+    }
+    if (!sent) {
+      if (error) *error = failure;
       return NO;
     }
-    BOOL stop = NO;
-    for (NSUInteger i = 0; i < entries.count && !stop; i++) {
-      NSInteger status;
-      NSDictionary *headers;
-      NSData *body;
-      if (parts) {
-        ODataBatchPart *part = parts[[NSString stringWithFormat:@"%lu", (unsigned long)i + 1]];
-        status = part ? part.status : 0;
-        headers = part.headers ?: @{};
-        body = part.body;
-      } else {
-        status = [self sendAlone:requests[i] headers:&headers body:&body error:&failure];
-        if (!status) {
-          [span end];
-          [context save:NULL];
-          if (error) *error = failure;
-          return NO;
-        }
-      }
-      if (![self take:status headers:headers body:body of:entries[i] context:context stop:&stop error:error]) {
-        [span end];
-        [context save:NULL];
-        return NO;
-      }
-    }
-    [span end];
-    if (![context save:error]) return NO;
-    if (stop) return YES;
+    if (sent == 2) return YES;
   }
 }
 
