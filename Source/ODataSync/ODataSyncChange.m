@@ -3,6 +3,7 @@
 
 #import "ODSInternal.h"
 #import "ODSSystem.h"
+#import <objc/runtime.h>
 
 // What the engine tells of its outbox and of a sync: a change waiting, one
 // set aside (an issue), what a sync did.
@@ -96,6 +97,20 @@
 
 const NSUInteger ODataSyncShadowDigestBytes = 1024;
 
+// The SHA-256 of data, taken once: kept on the data itself, as long as it
+// lives, so that a file compared again and again is read once (with its
+// length, should the data be mutable and have changed since).
+static char ODSSHA256Key;
+
+static NSData *ODSSHA256Once(NSData *data)
+{
+  NSArray *known = objc_getAssociatedObject(data, &ODSSHA256Key);
+  if (known && [known[1] unsignedIntegerValue] == data.length) return known[0];
+  NSData *sha = ODSSystemSHA256(data);
+  objc_setAssociatedObject(data, &ODSSHA256Key, @[ sha, @(data.length) ], OBJC_ASSOCIATION_RETAIN);
+  return sha;
+}
+
 @implementation ODataSyncDigest
 
 - (instancetype)initWithSHA256:(NSData *)sha256 length:(NSUInteger)length
@@ -109,7 +124,12 @@ const NSUInteger ODataSyncShadowDigestBytes = 1024;
 
 + (instancetype)digestOfData:(NSData *)data
 {
-  return [[self alloc] initWithSHA256:ODSSystemSHA256(data) length:data.length];
+  return [[self alloc] initWithSHA256:ODSSHA256Once(data) length:data.length];
+}
+
+- (BOOL)isDigestOfData:(NSData *)data
+{
+  return [data isKindOfClass:[NSData class]] && data.length == _length && [ODSSHA256Once(data) isEqualToData:_SHA256];
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -117,15 +137,12 @@ const NSUInteger ODataSyncShadowDigestBytes = 1024;
   return self;
 }
 
+// Equal to another digest of the same; to data, see -isDigestOfData:.
 - (BOOL)isEqual:(id)other
 {
   if (other == self) return YES;
-  if ([other isKindOfClass:[ODataSyncDigest class]])
-    return ((ODataSyncDigest *)other).length == _length && [((ODataSyncDigest *)other).SHA256 isEqualToData:_SHA256];
-  // Data: the same, when its digest is.
-  if ([other isKindOfClass:[NSData class]])
-    return ((NSData *)other).length == _length && [ODSSystemSHA256(other) isEqualToData:_SHA256];
-  return NO;
+  return [other isKindOfClass:[ODataSyncDigest class]] && ((ODataSyncDigest *)other).length == _length &&
+         [((ODataSyncDigest *)other).SHA256 isEqualToData:_SHA256];
 }
 
 - (NSUInteger)hash

@@ -349,7 +349,24 @@ static NSString *ODSFingerprint(NSDictionary *values)
   ODataSyncResolution *resolution = [[self resolverFor:root remote:remote] resolveConflict:conflict] ?: [ODataSyncResolution takeRemote];
   [self count:@"conflicts" by:1];
   NSDictionary *remoteWhole = row ? [codec valuesFromJSON:row entity:root] : nil;
-  switch (resolution.kind) {
+  // A merge that names a file by its digest (the base's): that side's
+  // bytes; neither side's, and there are none to write - set aside.
+  ODataSyncResolutionKind kind = resolution.kind;
+  NSMutableDictionary *mergedValues = [resolution.values mutableCopy] ?: [NSMutableDictionary dictionary];
+  NSString *deferred = @"Changed here and at the service: a conflict to settle";
+  if (kind == ODataSyncMerge) {
+    for (NSString *name in [mergedValues allKeys]) {
+      ODataSyncDigest *digest = mergedValues[name];
+      if (![digest isKindOfClass:[ODataSyncDigest class]]) continue;
+      if ([digest isDigestOfData:local[name]]) [mergedValues removeObjectForKey:name];
+      else if ([digest isDigestOfData:remoteValues[name]]) mergedValues[name] = remoteValues[name];
+      else {
+        kind = ODataSyncDefer;
+        deferred = [NSString stringWithFormat:@"The resolution kept %@ as agreed, which is known only by its digest: a conflict to settle", name];
+      }
+    }
+  }
+  switch (kind) {
     case ODataSyncTakeRemote:
       if (row) {
         object = [self objectToWrite:root key:key context:context];
@@ -380,8 +397,8 @@ static NSString *ODSFingerprint(NSDictionary *values)
       break;
     case ODataSyncMerge: {
       object = [self objectToWrite:root key:key context:context];
-      [codec applyValues:resolution.values ?: @{} toObject:object];
-      if (stamp && [resolution.values objectForKey:stamp.name] == nil) [object setValue:[self.clock tick] forKey:stamp.name];
+      [codec applyValues:mergedValues toObject:object];
+      if (stamp && [mergedValues objectForKey:stamp.name] == nil) [object setValue:[self.clock tick] forKey:stamp.name];
       if (known || versionsAttribute) {
         NSMutableDictionary *now = [[codec valuesOfObject:object] mutableCopy];
         if (versionsAttribute) [now removeObjectForKey:versionsAttribute.name];
@@ -399,7 +416,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
       if (object && known) [self setVersionsOf:object seen:localVersions and:remoteVersions changed:NO];
       [entry setValue:@YES forKey:@"setAside"];
       [entry setValue:@409 forKey:@"status"];
-      [entry setValue:@"Changed here and at the service: a conflict to settle" forKey:@"message"];
+      [entry setValue:deferred forKey:@"message"];
       [self setAside:[[ODataSyncIssue alloc] initWithEntry:entry objectID:object.objectID]];
       break;
   }

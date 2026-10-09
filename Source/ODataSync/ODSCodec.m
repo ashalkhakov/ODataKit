@@ -124,8 +124,10 @@
 
 static BOOL ODSSame(id a, id b)
 {
-  // A digest (a shadow's large binary) says whether data is its own.
-  if ([b isKindOfClass:[ODataSyncDigest class]]) return [b isEqual:a];
+  // A digest (a shadow's large binary) says whether data is its own,
+  // whichever side it is on.
+  if ([a isKindOfClass:[ODataSyncDigest class]] && [b isKindOfClass:[NSData class]]) return [a isDigestOfData:b];
+  if ([b isKindOfClass:[ODataSyncDigest class]] && [a isKindOfClass:[NSData class]]) return [b isDigestOfData:a];
   return a == b || [a isEqual:b];
 }
 

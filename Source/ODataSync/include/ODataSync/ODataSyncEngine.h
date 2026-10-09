@@ -133,10 +133,11 @@ typedef NS_ENUM(NSInteger, ODataSyncOperation) {
 // A binary value of the version last agreed on (a shadow) larger than
 // ODataSyncShadowDigestBytes is kept as its SHA-256 alone: a file in a row
 // would otherwise be kept twice (and a third larger, as JSON's base64).
-// What stands for it in a conflict's base: equal to any NSData whose
-// SHA-256 it is, and to another digest of the same, so what each side
-// changed is known all the same; a resolver that needs the bytes themselves
-// has the local and remote values.
+// What stands for it in a conflict's base: what each side changed is known
+// all the same (-isDigestOfData:), and a resolver that needs the bytes has
+// the local and remote values. A resolution may name it only where it is
+// one side's (the engine then writes that side's bytes); otherwise there
+// are no bytes to write, and the conflict is set aside.
 FOUNDATION_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
 
 @interface ODataSyncDigest : NSObject <NSCopying>
@@ -144,6 +145,9 @@ FOUNDATION_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
 - (instancetype)init NS_UNAVAILABLE;
 // Of data, as a shadow keeps it.
 + (instancetype)digestOfData:(NSData *)data;
+// Whether data is what it was taken of (its length and SHA-256). Equal
+// (-isEqual:) only to another digest of the same.
+- (BOOL)isDigestOfData:(NSData *)data;
 @property (nonatomic, readonly, copy) NSData *SHA256;
 @property (nonatomic, readonly) NSUInteger length;
 @end
