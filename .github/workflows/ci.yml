@@ -226,7 +226,10 @@ jobs:
       # 3e15e53: gnustep-patches 1eda55d. #72: a context that related
       # objects is let go of (a server no longer leaks each child row it
       # upserts, attachments and all).
-      FREECOREDATA_REF: eaf7072e19205e209bd2be95e0f89e67b9f00bc7
+      # #73: objects tell their context of their changes, and changedValues
+      # leaves out a property set to what it was (hasPersistentChangedValues
+      # too); a fetch reads its rows at once.
+      FREECOREDATA_REF: 524709592bf8670dab363d4c00d70eff4aa51e55
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
