@@ -198,8 +198,8 @@ jobs:
       # constant prints as nil (so it parses back).
       # 1eda55d: six libs-base fixes retired, merged upstream; one of them
       # (constant-expression-copy) no longer applied to libs-base master,
-      # which broke every build of the stack from scratch. Ahead of the ref
-      # FreeCoreData pins (c03ea57), which builds the same stack less those.
+      # which broke every build of the stack from scratch. The ref
+      # FreeCoreData pins.
       GNUSTEP_PATCHES_REF: 1eda55d84efa24990a54b67bbbd6e3b785fc1ba9
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
@@ -223,7 +223,10 @@ jobs:
       # can move from SQLite to PostgreSQL), ordered relationships in order.
       # #71: an object and its context let go of what they held (a server
       # no longer keeps every row a request read).
-      FREECOREDATA_REF: 338bc7b7f8aba8f2fe596ffa103a4dfb05cea53a
+      # 3e15e53: gnustep-patches 1eda55d. #72: a context that related
+      # objects is let go of (a server no longer leaks each child row it
+      # upserts, attachments and all).
+      FREECOREDATA_REF: eaf7072e19205e209bd2be95e0f89e67b9f00bc7
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
