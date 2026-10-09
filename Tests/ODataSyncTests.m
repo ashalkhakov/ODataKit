@@ -592,6 +592,18 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertGreaterThanOrEqual(sent, 3u, @"twelve rows of 1 KB, in batches of 4 KB at most");
   XCTAssertLessThanOrEqual(sent, 6u);
 
+  // What goes is within the budget, as sent: escapes counted (a slash is
+  // two bytes, and base64 is full of them), and the batch's own JSON.
+  [counting.requests removeAllObjects];
+  _remote.batchBytes = 5000;
+  NSString *slashes = [@"" stringByPaddingToLength:1000 withString:@"/" startingAtIndex:0];
+  for (NSUInteger i = 0; i < 6; i++) [self makeTask:[slashes stringByAppendingFormat:@"%lu", (unsigned long)i]];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 6u, @"%@", _engine.lastResult);
+  NSArray *sentBatches = [counting.requests filteredArrayUsingPredicate:batches];
+  XCTAssertGreaterThanOrEqual(sentBatches.count, 3u, @"two rows of 2 KB as JSON to a batch, at most");
+  for (NSURLRequest *batch in sentBatches) XCTAssertLessThanOrEqual(batch.HTTPBody.length, 5000u, @"a batch past its budget");
+
   _remote.batchBytes = 10;
   [counting.requests removeAllObjects];
   [self makeTask:large];
@@ -599,6 +611,31 @@ static NSManagedObjectModel *OSTModel(void)
   [self sync];
   XCTAssertEqual(_engine.lastResult.uploaded, 2u);
   XCTAssertEqual([counting.requests filteredArrayUsingPredicate:batches].count, 2u, @"each larger than the budget: alone");
+}
+
+// History folded into the outbox a few hundred changes at a time, saved
+// and the context emptied between: within one transaction (an import
+// saved at once) and across many, nothing lost, nothing left.
+- (void)testHistoryIsFoldedAFewHundredAtATime
+{
+  [self sync];
+  NSUInteger before = [self values:@"title" of:@"Task" in:_server].count;
+  [self onDevice:^(NSManagedObjectContext *context) {
+    for (NSUInteger i = 0; i < 600; i++) {
+      NSManagedObject *task = [NSEntityDescription insertNewObjectForEntityForName:@"Task" inManagedObjectContext:context];
+      [task setValue:[NSUUID UUID].UUIDString forKey:@"id"];
+      [task setValue:[NSString stringWithFormat:@"Imported %lu", (unsigned long)i] forKey:@"title"];
+    }
+  }];
+  [self sync];
+  XCTAssertEqual([self values:@"title" of:@"Task" in:_server].count, before + 600, @"one transaction of 600");
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+  for (NSUInteger i = 0; i < 520; i++) [self makeTask:[NSString stringWithFormat:@"Made %lu", (unsigned long)i]];
+  [self sync];
+  XCTAssertEqual([self values:@"title" of:@"Task" in:_server].count, before + 1120, @"and 520 transactions of one");
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"nothing folded twice: %@", _engine.lastResult);
 }
 
 - (void)testSendingAgainIsHarmless
