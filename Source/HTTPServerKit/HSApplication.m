@@ -9,9 +9,7 @@
 #include <dlfcn.h>
 #include <signal.h>
 #include <stdlib.h>
-#if defined(__GLIBC__)
-#include <malloc.h>
-#endif
+#import "HSMemorySystem.h"
 
 
 static NSError *HSServerError(NSString *message)
@@ -758,9 +756,7 @@ static volatile sig_atomic_t HSStopSignal;
         NSUInteger now = self.server.requestsAnswered;
         if (now != answered && !self.server.requestsInFlight) {
           answered = now;
-#if defined(__GLIBC__)
-          malloc_trim(0);
-#endif
+          HSSystemReturnFreedMemory();
         }
       }
     }
@@ -787,13 +783,8 @@ static volatile sig_atomic_t HSStopSignal;
 
 int HSMain(int argc, const char *argv[], Class applicationClass)
 {
-#if defined(__GLIBC__)
-  // glibc gives a thread an arena of its own, up to eight per core, and
-  // keeps what is freed in each: a server whose requests run on many
-  // dispatch threads grows by what each thread once held. Two are enough
-  // for a server's load (MALLOC_ARENA_MAX, when set, is the operator's).
-  if (!getenv("MALLOC_ARENA_MAX")) mallopt(M_ARENA_MAX, 2);
-#endif
+  // Before any thread: as few allocator arenas as a server needs.
+  HSSystemLimitArenas();
   @autoreleasepool {
     NSString *name = [NSProcessInfo processInfo].processName;
     NSError *error = nil;

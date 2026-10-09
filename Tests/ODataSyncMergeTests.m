@@ -410,6 +410,30 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqual([merging.lastObject completed], 3u, @"%@", merging);
 }
 
+// More objects than a batch of merged attributes (100) and than a page:
+// each batch exchanged, saved, and the context emptied between; all come
+// across, both ways.
+- (void)testManyMergedAttributesInBatches
+{
+  _service.maxPageSize = 50;
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self in:a.coordinator do:^(NSManagedObjectContext *context) {
+    for (int i = 0; i < 120; i++) {
+      NSManagedObject *doc = [NSEntityDescription insertNewObjectForEntityForName:@"Doc" inManagedObjectContext:context];
+      [doc setValue:[NSString stringWithFormat:@"d%03d", i] forKey:@"id"];
+      [doc setValue:[OSMTwoPhaseSet stateAdding:@[ [NSString stringWithFormat:@"e%d", i] ] deleting:@[]] forKey:@"body"];
+    }
+  }];
+  [self sync:a];
+  [self sync:b];
+  XCTAssertEqual(a.pendingChanges.count, 0u, @"%@", a.pendingChanges);
+  for (NSString *doc in @[ @"d000", @"d099", @"d100", @"d119" ]) {
+    NSString *element = [@"e" stringByAppendingString:@([[doc substringFromIndex:1] intValue]).stringValue];
+    XCTAssertEqualObjects([self elementsOf:doc in:_server], @[ element ], @"%@ at the service", doc);
+    XCTAssertEqualObjects([self elementsOf:doc in:b.coordinator], @[ element ], @"%@ on b", doc);
+  }
+}
+
 // A client that sends the whole state (one before merged attributes) has it
 // merged into what the service has, not written over it.
 - (void)testAWholeStateSentIsMergedIn

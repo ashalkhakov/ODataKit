@@ -284,6 +284,50 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqualObjects([asset.indexes valueForKey:@"name"], (@[ @"byRegion", @"ODataSyncKey" ]));
 }
 
+// Many rows, a few at a time: pages read and batches sent, each saved and
+// the context emptied between them (the outbox's index read again): all of
+// them, read whole, sent, and changed and deleted by the delta link.
+- (void)testManyRowsAFewAtATime
+{
+  _service.maxPageSize = 3;
+  _remote.batchSize = 2;
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 4; i <= 11; i++) {
+      NSManagedObject *asset = [NSEntityDescription insertNewObjectForEntityForName:@"Asset" inManagedObjectContext:context];
+      [asset setValue:@(i) forKey:@"id"];
+      [asset setValue:[NSString stringWithFormat:@"Asset %d", i] forKey:@"name"];
+      [asset setValue:@1 forKey:@"version"];
+    }
+  }];
+  for (int i = 0; i < 11; i++) [self makeTask:[NSString stringWithFormat:@"Task %02d", i]];
+  [self sync];
+  XCTAssertEqual([self values:@"name" of:@"Asset" in:_device].count, 11u, @"read whole, in four pages");
+  NSArray *titles = [[self values:@"title" of:@"Task" in:_server] sortedArrayUsingSelector:@selector(compare:)];
+  XCTAssertEqual(titles.count, 11u, @"sent, in six batches: %@", titles);
+  XCTAssertEqualObjects(titles.lastObject, @"Task 10");
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+  ODataSyncProgress *last = nil;
+  for (ODataSyncProgress *p in _delegate.progress) if (p.phase == ODataSyncPhaseSending) last = p;
+  XCTAssertEqual(last.completed, 11u, @"%@", _delegate.progress);
+  XCTAssertEqual(last.total, 11u);
+
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 1; i <= 7; i++) {
+      NSManagedObject *asset = [self object:@"Asset" id:@(i) in:context];
+      [asset setValue:[NSString stringWithFormat:@"Renamed %d", i] forKey:@"name"];
+      [asset setValue:@2 forKey:@"version"];
+    }
+    for (int i = 10; i <= 11; i++) [context deleteObject:[self object:@"Asset" id:@(i) in:context]];
+  }];
+  [self sync];
+  NSArray *names = [self values:@"name" of:@"Asset" in:_device];
+  XCTAssertEqual(names.count, 9u, @"two deleted, by the delta link's pages: %@", names);
+  XCTAssertEqualObjects([names subarrayWithRange:NSMakeRange(0, 7)],
+                        (@[ @"Renamed 1", @"Renamed 2", @"Renamed 3", @"Renamed 4", @"Renamed 5", @"Renamed 6", @"Renamed 7" ]));
+  XCTAssertEqualObjects([names subarrayWithRange:NSMakeRange(7, 2)], (@[ @"Asset 8", @"Asset 9" ]));
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+}
+
 - (void)testDownloadWholeThenByDeltaLink
 {
   [self sync];
