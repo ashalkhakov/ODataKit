@@ -39,6 +39,23 @@
 }
 @end
 
+// The service, with the requests sent to it counted.
+@interface OSTCountingTransport : NSObject <ODataTransport>
+@property (nonatomic, strong) ODataService *service;
+@property (atomic, strong) NSMutableArray<NSURLRequest *> *requests;
+@end
+
+@implementation OSTCountingTransport
+- (void)startExchange:(ODataExchange *)exchange
+{
+  @synchronized (self) {
+    if (!_requests) _requests = [NSMutableArray array];
+    [_requests addObject:exchange.request];
+  }
+  [_service startExchange:exchange];
+}
+@end
+
 @interface OSTDelegate : NSObject <ODataSyncDelegate>
 @property (atomic, strong) NSMutableArray *setAside;
 @property (atomic, strong) NSMutableArray *ignored;
@@ -555,6 +572,33 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqual(last.total, 120u);
   for (ODataSyncProgress *p in [_delegate.progress subarrayWithRange:NSMakeRange(sending, _delegate.progress.count - sending)])
     XCTAssertLessThanOrEqual(p.completed, p.total);
+}
+
+// A batch keeps to the remote's batchBytes: rows with large values go in
+// more batches, and one larger than the budget goes alone.
+- (void)testABatchKeepsToItsBytes
+{
+  [self sync];
+  OSTCountingTransport *counting = [[OSTCountingTransport alloc] init];
+  counting.service = _service;
+  _remote.transport = counting;
+  _remote.batchBytes = 4000;
+  NSString *large = [@"" stringByPaddingToLength:1000 withString:@"x" startingAtIndex:0];
+  for (NSUInteger i = 0; i < 12; i++) [self makeTask:[large stringByAppendingFormat:@"%lu", (unsigned long)i]];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 12u, @"%@", _engine.lastResult);
+  NSPredicate *batches = [NSPredicate predicateWithFormat:@"URL.path ENDSWITH '$batch'"];
+  NSUInteger sent = [counting.requests filteredArrayUsingPredicate:batches].count;
+  XCTAssertGreaterThanOrEqual(sent, 3u, @"twelve rows of 1 KB, in batches of 4 KB at most");
+  XCTAssertLessThanOrEqual(sent, 6u);
+
+  _remote.batchBytes = 10;
+  [counting.requests removeAllObjects];
+  [self makeTask:large];
+  [self makeTask:large];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 2u);
+  XCTAssertEqual([counting.requests filteredArrayUsingPredicate:batches].count, 2u, @"each larger than the budget: alone");
 }
 
 - (void)testSendingAgainIsHarmless
