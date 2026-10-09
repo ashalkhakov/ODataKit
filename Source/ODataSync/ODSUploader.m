@@ -258,14 +258,20 @@ static const NSInteger ODSConflictRounds = 3;
                                           : [ours isKindOfClass:[NSString class]] && [theirs isKindOfClass:[NSString class]] && [ours compare:theirs] == NSOrderedAscending;
     if (older) {
       // Older than the remote's (a copy that came round late): sent, it
-      // would put an older version over a newer one. The remote's is taken.
+      // would put an older version over a newer one. The remote's is taken:
+      // the version agreed on, or, when it keeps a file only as its digest,
+      // read again from the remote (-refreshIn:, at the next sync).
+      if ([_codec shadowHasDigests:agreed entity:root]) {
+        [entry setValue:@(ODataSyncOperationRefresh) forKey:@"operation"];
+        return nil;
+      }
       [_codec applyJSON:agreed toObject:object];
       [context deleteObject:entry];
       return nil;
     }
     // What the remote has already (passed on there by another way, or come
     // from it): not sent again.
-    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromJSON:agreed entity:root]);
+    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromShadow:agreed entity:root]);
     if (!differ.count) {
       [context deleteObject:entry];
       return nil;

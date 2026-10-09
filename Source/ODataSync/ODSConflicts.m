@@ -196,7 +196,8 @@ static NSString *ODSFingerprint(NSDictionary *values)
     return;
   }
   if (etag) [shadow setValue:etag forKey:@"etag"];
-  [shadow setValue:[NSJSONSerialization dataWithJSONObject:row options:0 error:NULL] forKey:@"values"];
+  // Large binaries as their digests: what a comparison needs of them.
+  [shadow setValue:[NSJSONSerialization dataWithJSONObject:[self.codec shadowOfRow:row entity:root] options:0 error:NULL] forKey:@"values"];
 }
 
 // The outbox entry, after a resolution: what this side still has to send
@@ -288,7 +289,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
   NSManagedObject *shadow = [self.store shadowOf:root.name keyText:keyText remote:remote inContext:context make:NO];
   NSData *kept = [shadow valueForKey:@"values"];
   id baseRow = kept.length ? [NSJSONSerialization JSONObjectWithData:kept options:0 error:NULL] : nil;
-  NSMutableDictionary *base = [baseRow isKindOfClass:[NSDictionary class]] ? [[codec valuesFromJSON:baseRow entity:root] mutableCopy] : nil;
+  NSMutableDictionary *base = [baseRow isKindOfClass:[NSDictionary class]] ? [[codec valuesFromShadow:baseRow entity:root] mutableCopy] : nil;
   BOOL deletedHere = [[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationDelete;
   NSManagedObject *object = deletedHere ? nil : [codec objectOfEntity:root key:key inContext:context];
   NSMutableDictionary *local = object ? [[codec valuesOfObject:object] mutableCopy] : nil;

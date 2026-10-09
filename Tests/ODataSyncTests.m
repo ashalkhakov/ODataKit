@@ -120,7 +120,8 @@ static NSManagedObjectModel *OSTModel(void)
   inspection.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"note", NSStringAttributeType, NO),
                              OSTAttribute(@"score", NSInteger32AttributeType, NO), ofAsset ];
   task.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"title", NSStringAttributeType, NO),
-                       OSTAttribute(@"done", NSBooleanAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+                       OSTAttribute(@"done", NSBooleanAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO),
+                       OSTAttribute(@"attachment", NSBinaryDataAttributeType, NO) ];
   NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
   model.entities = @[ asset, inspection, task ];
   return model;
@@ -692,6 +693,49 @@ static NSManagedObjectModel *OSTModel(void)
   for (NSPersistentStoreCoordinator *side in @[ _server, _device ]) {
     XCTAssertEqualObjects([self values:@"title" of:@"Task" in:side], (@[ @"Server's" ]));
     XCTAssertEqualObjects([self values:@"done" of:@"Task" in:side], (@[ @NO ]), @"what only the device changed still goes");
+  }
+}
+
+// A file in a row: the shadow keeps its digest, not the file (twice over,
+// as base64); what each side changed is known all the same.
+- (void)testAFileIsAgreedOnByItsDigest
+{
+  _engine.resolver = [[ODataSyncMergeFields alloc] init];
+  NSMutableData *file = [NSMutableData dataWithLength:8192];
+  for (NSUInteger i = 0; i < file.length; i++) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i * 7);
+  NSString *task = [self makeTask:@"Read the manual"];
+  [self set:@{ @"attachment": file } onTask:task in:_device];
+  [self sync];
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_server], (@[ file ]));
+  __block NSData *kept = nil;
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"ODSShadow"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"entityType == 'Task'"];
+    kept = [[[context executeFetchRequest:fetch error:NULL] firstObject] valueForKey:@"values"];
+  }];
+  XCTAssertNotNil(kept);
+  XCTAssertLessThan(kept.length, 1024u, @"the file's digest, not the file");
+  XCTAssertTrue([[[NSString alloc] initWithData:kept encoding:NSUTF8StringEncoding] containsString:@"@odatasync.sha256"]);
+
+  // The device changes the file, the server the title: both kept.
+  NSMutableData *newer = [file mutableCopy];
+  ((uint8_t *)newer.mutableBytes)[100] ^= 0xFF;
+  [self set:@{ @"attachment": newer } onTask:task in:_device];
+  [self set:@{ @"title": @"Read the manual, twice" } onTask:task in:_server];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.conflicts, 1u);
+  for (NSPersistentStoreCoordinator *side in @[ _server, _device ]) {
+    XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:side], (@[ newer ]), @"the device's file");
+    XCTAssertEqualObjects([self values:@"title" of:@"Task" in:side], (@[ @"Read the manual, twice" ]), @"the server's title");
+  }
+
+  // The other way round: the server's file, the device's done.
+  [self set:@{ @"attachment": file } onTask:task in:_server];
+  [self set:@{ @"done": @YES } onTask:task in:_device];
+  [self sync];
+  for (NSPersistentStoreCoordinator *side in @[ _server, _device ]) {
+    XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:side], (@[ file ]), @"the server's file");
+    XCTAssertEqualObjects([self values:@"done" of:@"Task" in:side], (@[ @YES ]), @"the device's done");
   }
 }
 

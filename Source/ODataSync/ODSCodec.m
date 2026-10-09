@@ -124,6 +124,8 @@
 
 static BOOL ODSSame(id a, id b)
 {
+  // A digest (a shadow's large binary) says whether data is its own.
+  if ([b isKindOfClass:[ODataSyncDigest class]]) return [b isEqual:a];
   return a == b || [a isEqual:b];
 }
 
@@ -218,6 +220,58 @@ static BOOL ODSSame(id a, id b)
         ? [self objectOfEntity:toOne.destinationEntity key:key inContext:object.managedObjectContext] : nil;
     if ([object valueForKey:toOne.name] != related) [object setValue:related forKey:toOne.name];
   }
+}
+
+static NSString * const ODSDigestKey = @"@odatasync.sha256";
+static NSString * const ODSDigestLengthKey = @"@odatasync.length";
+
+- (NSDictionary *)shadowOfRow:(NSDictionary *)row entity:(NSEntityDescription *)entity
+{
+  NSMutableDictionary *shadow = nil;
+  for (NSAttributeDescription *attribute in [self.model attributesOf:entity]) {
+    if (attribute.attributeType != NSBinaryDataAttributeType) continue;
+    NSString *property = [self.mapper propertyForAttribute:attribute];
+    id raw = row[property];
+    // Base64 of more than that many bytes.
+    if (![raw isKindOfClass:[NSString class]] || [raw length] <= ODataSyncShadowDigestBytes * 4 / 3 + 4) continue;
+    id data = [self.mapper.values coreDataValueForJSON:raw attribute:attribute];
+    if (![data isKindOfClass:[NSData class]] || [data length] <= ODataSyncShadowDigestBytes) continue;
+    if (!shadow) shadow = [row mutableCopy];
+    ODataSyncDigest *digest = [ODataSyncDigest digestOfData:data];
+    shadow[property] = @{ ODSDigestKey: [digest.SHA256 base64EncodedStringWithOptions:0], ODSDigestLengthKey: @(digest.length) };
+  }
+  return shadow ?: row;
+}
+
+static ODataSyncDigest *ODSDigestOfMarker(id marker)
+{
+  if (![marker isKindOfClass:[NSDictionary class]] || ![marker[ODSDigestKey] isKindOfClass:[NSString class]]) return nil;
+  NSData *sha = [[NSData alloc] initWithBase64EncodedString:marker[ODSDigestKey] options:0];
+  return sha ? [[ODataSyncDigest alloc] initWithSHA256:sha length:[marker[ODSDigestLengthKey] unsignedIntegerValue]] : nil;
+}
+
+- (NSDictionary *)valuesFromShadow:(NSDictionary *)shadow entity:(NSEntityDescription *)entity
+{
+  NSMutableDictionary *row = [shadow mutableCopy];
+  NSMutableDictionary *digests = [NSMutableDictionary dictionary];
+  for (NSAttributeDescription *attribute in [self.model attributesOf:entity]) {
+    if (attribute.attributeType != NSBinaryDataAttributeType) continue;
+    NSString *property = [self.mapper propertyForAttribute:attribute];
+    ODataSyncDigest *digest = ODSDigestOfMarker(row[property]);
+    if (!digest) continue;
+    digests[attribute.name] = digest;
+    [row removeObjectForKey:property];
+  }
+  NSMutableDictionary *values = [[self valuesFromJSON:row entity:entity] mutableCopy];
+  [values addEntriesFromDictionary:digests];
+  return values;
+}
+
+- (BOOL)shadowHasDigests:(NSDictionary *)shadow entity:(NSEntityDescription *)entity
+{
+  for (NSAttributeDescription *attribute in [self.model attributesOf:entity])
+    if (attribute.attributeType == NSBinaryDataAttributeType && ODSDigestOfMarker(shadow[[self.mapper propertyForAttribute:attribute]])) return YES;
+  return NO;
 }
 
 - (NSDictionary *)rowOfObject:(NSManagedObject *)object
