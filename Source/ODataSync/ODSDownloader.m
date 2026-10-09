@@ -224,6 +224,8 @@ static const NSInteger ODSGone = 410;
     if (object.isInserted || object.changedValues.count) changed++;
   }
   [_engine count:@"downloaded" by:changed];
+  // Each row that came, changed or not: how far receiving is.
+  [_engine progressed:rows.count];
 }
 
 - (void)removeObjectOfEntity:(NSEntityDescription *)entity key:(NSDictionary *)key context:(NSManagedObjectContext *)context
@@ -234,6 +236,7 @@ static const NSInteger ODSGone = 410;
   if (!object) return;
   [context deleteObject:object];
   [_engine count:@"removed" by:1];
+  [_engine progressed:1];
 }
 
 // Local objects of the set the remote did not name, deleted (but not one
@@ -252,6 +255,7 @@ static const NSInteger ODSGone = 410;
     if (entry) [context deleteObject:entry];
     [context deleteObject:object];
     [_engine count:@"removed" by:1];
+    [_engine progressed:1];
   }
 }
 
@@ -384,6 +388,7 @@ static const NSInteger ODSGone = 410;
 
 - (BOOL)download:(NSError **)error
 {
+  [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;
@@ -434,6 +439,7 @@ static const NSInteger ODSGone = 410;
 
 - (BOOL)reconcile:(NSError **)error
 {
+  [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;
@@ -477,6 +483,7 @@ static const NSInteger ODSGone = 410;
     if (object && !_remote.peer) {
       [context deleteObject:object];
       [_engine count:@"removed" by:1];
+      [_engine progressed:1];
     }
     [_engine agreeOn:nil etag:nil of:root keyText:keyText remote:_remote context:context];
     return YES;

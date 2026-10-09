@@ -260,6 +260,7 @@ static NSData *ODSFromBase64(id text)
   // By ID: each batch saved and let go of (the context emptied), so that
   // as many objects as there are go in the memory of a batch.
   NSArray<NSManagedObjectID *> *ids = [[_engine.store mergeEntriesFor:_remote inContext:context] valueForKey:@"objectID"];
+  if (ids.count) [_engine beginPhase:ODataSyncPhaseMerging remote:_remote total:ids.count];
   for (NSUInteger start = 0; start < ids.count; start += ODSMergeBatch) {
     NSInteger done;
     NSError *failure = nil;
@@ -274,6 +275,9 @@ static NSData *ODSFromBase64(id text)
       if (error) *error = failure;
       return NO;
     }
+    // This batch's entries settled for this sync: exchanged, failed (again
+    // at the next), set aside, or with nothing here.
+    [_engine phaseDone:MIN(start + ODSMergeBatch, ids.count)];
   }
   return YES;
 }

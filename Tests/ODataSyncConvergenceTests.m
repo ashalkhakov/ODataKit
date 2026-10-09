@@ -60,6 +60,21 @@ static NSManagedObjectModel *OSCModel(BOOL versions)
   return model;
 }
 
+// What a device is told of its syncs' progress.
+@interface OSCProgress : NSObject <ODataSyncDelegate>
+@property (atomic, strong) NSMutableArray<ODataSyncProgress *> *told;
+@end
+
+@implementation OSCProgress
+- (void)syncEngine:(ODataSyncEngine *)engine didProgress:(ODataSyncProgress *)progress
+{
+  @synchronized (self) {
+    if (!_told) _told = [NSMutableArray array];
+    [_told addObject:progress];
+  }
+}
+@end
+
 // A device: its store, its engine, its peer server, and its remotes.
 @interface OSCDevice : NSObject
 @property (nonatomic) NSUInteger number;
@@ -670,9 +685,22 @@ static NSDictionary *OSCExpected(OSCChange local, OSCChange remote, OSCRule rule
   }];
   // Another device that had not heard: it reads the task from the
   // basement, and passes its insert on.
+  OSCProgress *progress = [[OSCProgress alloc] init];
+  late.engine.delegate = progress;
   [self sync:late];
   XCTAssertEqual([self idsOf:@"Task" in:_server].count, 0u, @"the late insert refused (410)");
   XCTAssertEqual([self idsOf:@"Task" in:late.store].count, 0u, @"and the deletion taken");
+  // Its progress: each phase ends told as all done, the 410 among them
+  // (neither taken nor refused, but settled).
+  NSArray<ODataSyncProgress *> *told = progress.told;
+  BOOL sent = NO;
+  for (NSUInteger i = 0; i < told.count; i++) {
+    ODataSyncProgress *p = told[i], *next = i + 1 < told.count ? told[i + 1] : nil;
+    sent = sent || p.phase == ODataSyncPhaseSending;
+    BOOL last = !next || next.phase != p.phase || next.remote != p.remote || next.completed == 0;
+    if (last && p.total) XCTAssertEqual(p.completed, p.total, @"%@ in %@", p, told);
+  }
+  XCTAssertTrue(sent, @"%@", told);
   [self sync:late];
   XCTAssertEqual(late.engine.lastResult.uploaded + late.engine.lastResult.downloaded, 0u, @"%@", late.engine.lastResult);
 }

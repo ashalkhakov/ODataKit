@@ -591,7 +591,7 @@ service.configuration.credentialProvider = auth;   // ODataCredentialProviding
 service.filters = @{ @"Asset": @"Region eq 'North'" };
 [sync addRemote:service];
 sync.resolver = [[ODataSyncMergeFields alloc] init];   // or per entity: -setResolver:forEntityName:, userInfo ODataSync.conflicts
-sync.delegate = self;                              // changes set aside, local edits of down entities
+sync.delegate = self;                              // changes set aside, local edits of down entities, progress
 [sync syncWithTarget:self action:@selector(syncDidFinish:error:)];   // or -syncWithError: off the main thread
 ```
 
@@ -608,6 +608,20 @@ What exists, and how it goes (`ODataSyncEngine.h`):
 - What waits to be sent: `-pendingChanges` (each an `ODataSyncChange`:
   its entity, key, operation, properties, attempts; an `ODataSyncIssue`
   when set aside), for a "3 changes to send".
+- How far a sync is: the delegate's `-syncEngine:didProgress:`, with an
+  `ODataSyncProgress` (the remote; the phase, receiving, sending or
+  merging; how many done, of how many). Told as each phase with a remote
+  begins (sending and merging only when something waits), then a few
+  times a second at most, as soon as all of a phase's total is done, and
+  as each phase ends, with what it came to, on the engine's thread. So the
+  last a phase is told is true: all done, or as far as it got (a remote
+  gone down midway). Sending counts the rows' changes that no longer
+  wait, however each was settled (taken, refused, in conflict, gone at
+  the remote), of those that waited; merging, the objects whose merged
+  attributes were exchanged or tried (one that failed is tried again at
+  the next sync), of those that waited; receiving, the rows that came
+  down and the objects that went, of a total not known (0). For a
+  "Sending 3,000 of 25,000 changes" while a large import goes up.
 - Refused changes are set aside (`-issues`, the delegate), sent again
   when the object changes or the app retries them, or discarded.
 - `-reconcileWithRemote:error:` reads each set's keys again (4.1).

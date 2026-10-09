@@ -42,6 +42,7 @@
 @interface OSTDelegate : NSObject <ODataSyncDelegate>
 @property (atomic, strong) NSMutableArray *setAside;
 @property (atomic, strong) NSMutableArray *ignored;
+@property (atomic, strong) NSMutableArray<ODataSyncProgress *> *progress;
 @end
 
 @implementation OSTDelegate
@@ -50,7 +51,14 @@
   self = [super init];
   _setAside = [NSMutableArray array];
   _ignored = [NSMutableArray array];
+  _progress = [NSMutableArray array];
   return self;
+}
+- (void)syncEngine:(ODataSyncEngine *)engine didProgress:(ODataSyncProgress *)progress
+{
+  @synchronized (self) {
+    [self.progress addObject:progress];
+  }
 }
 - (void)syncEngine:(ODataSyncEngine *)engine didSetAside:(ODataSyncIssue *)issue
 {
@@ -477,6 +485,32 @@ static NSManagedObjectModel *OSTModel(void)
   }];
   [self sync];
   XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"%@", _engine.lastResult);
+}
+
+// How far a sync is: each phase told as it begins, sending with what
+// waits, and its last told when all is done (whatever the throttle).
+- (void)testProgressIsToldAsASyncGoes
+{
+  [self sync];
+  XCTAssertEqual(_delegate.progress.firstObject.phase, ODataSyncPhaseReceiving);
+  XCTAssertEqual(_delegate.progress.firstObject.total, 0u, @"how much is to come is not known");
+  XCTAssertTrue(_delegate.progress.firstObject.remote == _remote);
+  for (NSUInteger i = 0; i < 120; i++) [self makeTask:[NSString stringWithFormat:@"Task %lu", (unsigned long)i]];
+  [_delegate.progress removeAllObjects];
+  [self sync];
+  NSArray *phases = [_delegate.progress valueForKey:@"phase"];
+  XCTAssertEqualObjects(phases.firstObject, @(ODataSyncPhaseReceiving));
+  NSUInteger sending = [phases indexOfObject:@(ODataSyncPhaseSending)];
+  XCTAssertNotEqual(sending, NSNotFound, @"%@", _delegate.progress);
+  ODataSyncProgress *began = _delegate.progress[sending];
+  XCTAssertEqual(began.completed, 0u);
+  XCTAssertEqual(began.total, 120u);
+  ODataSyncProgress *last = _delegate.progress.lastObject;
+  XCTAssertEqual(last.phase, ODataSyncPhaseSending);
+  XCTAssertEqual(last.completed, 120u, @"%@", _delegate.progress);
+  XCTAssertEqual(last.total, 120u);
+  for (ODataSyncProgress *p in [_delegate.progress subarrayWithRange:NSMakeRange(sending, _delegate.progress.count - sending)])
+    XCTAssertLessThanOrEqual(p.completed, p.total);
 }
 
 - (void)testSendingAgainIsHarmless

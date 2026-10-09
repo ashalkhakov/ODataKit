@@ -234,8 +234,35 @@ typedef NS_ENUM(NSInteger, ODataSyncResolutionKind) {
 @property (nonatomic, readonly) NSUInteger conflicts;   // settled by the policy
 @end
 
+// What a sync is doing with a remote: what changed there coming down, what
+// changed here going up, or merged attributes being exchanged (14).
+typedef NS_ENUM(NSInteger, ODataSyncPhase) {
+  ODataSyncPhaseReceiving,
+  ODataSyncPhaseSending,
+  ODataSyncPhaseMerging,
+};
+
+// How far a sync is, as the delegate is told (-syncEngine:didProgress:):
+// a snapshot, its own.
+@interface ODataSyncProgress : NSObject
+@property (nonatomic, readonly) ODataSyncRemote *remote;
+@property (nonatomic, readonly) ODataSyncPhase phase;
+// Rows come down and objects gone (receiving); changes settled, however
+// (taken, refused, in conflict, gone at the remote: sending); objects
+// whose merged attributes were exchanged or tried (merging). Of total:
+// what waited when the phase began (sending, merging); 0 while receiving,
+// where how much is to come is not known.
+@property (nonatomic, readonly) NSUInteger completed;
+@property (nonatomic, readonly) NSUInteger total;
+@end
+
 @protocol ODataSyncDelegate <NSObject>
 @optional
+// How far a sync is: as each phase with a remote begins (sending and
+// merging when something waits), as it goes, a few times a second at most,
+// and as it ends, with what it came to. On the engine's thread: an app
+// shows it on its own (the main queue).
+- (void)syncEngine:(ODataSyncEngine *)engine didProgress:(ODataSyncProgress *)progress;
 // A change set aside; its issue says why. On the engine's thread.
 - (void)syncEngine:(ODataSyncEngine *)engine didSetAside:(ODataSyncIssue *)issue;
 // A local change to a down entity, which is not sent.

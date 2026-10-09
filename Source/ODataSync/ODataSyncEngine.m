@@ -42,6 +42,11 @@ id ODSUnarchive(NSData *data)
   NSMutableDictionary<NSString *, id<ODataSyncResolving>> *_resolvers;
   NSMutableDictionary<NSString *, id<ODataSyncMerging>> *_mergers;
   ODSRecorder *_recorder;
+  // The phase going (progress), what it counts, and when it was last told.
+  ODataSyncRemote *_phaseRemote;
+  ODataSyncPhase _phase;
+  NSUInteger _phaseDone, _phaseTotal, _phaseToldDone;
+  NSTimeInterval _phaseTold;
 }
 
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
@@ -176,6 +181,78 @@ id ODSUnarchive(NSData *data)
   }
 }
 
+// Under _tally: the phase going, when it is to be told: a few times a
+// second at most, and as soon as all its total is done; final, when it
+// ends: what it came to, unless that was told already.
+- (ODataSyncProgress *)progressDue:(BOOL)final
+{
+  if (!_phaseRemote) return nil;
+  NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+  BOOL all = _phaseTotal && _phaseDone >= _phaseTotal;
+  BOOL due = _phaseDone != _phaseToldDone && (final || all || now - _phaseTold >= 0.25);
+  if (!due) return nil;
+  _phaseTold = now;
+  _phaseToldDone = _phaseDone;
+  // More done than waited (a change made meanwhile): the total grows.
+  NSUInteger total = _phaseTotal && _phaseDone > _phaseTotal ? _phaseDone : _phaseTotal;
+  return [[ODataSyncProgress alloc] initWithRemote:_phaseRemote phase:_phase completed:_phaseDone total:total];
+}
+
+- (void)progressed:(NSUInteger)n
+{
+  ODataSyncProgress *progress = nil;
+  @synchronized (_tally) {
+    _phaseDone += n;
+    progress = [self progressDue:NO];
+  }
+  [self tellProgress:progress];
+}
+
+- (void)phaseDone:(NSUInteger)done
+{
+  ODataSyncProgress *progress = nil;
+  @synchronized (_tally) {
+    _phaseDone = done;
+    progress = [self progressDue:NO];
+  }
+  [self tellProgress:progress];
+}
+
+- (void)beginPhase:(ODataSyncPhase)phase remote:(ODataSyncRemote *)remote total:(NSUInteger)total
+{
+  ODataSyncProgress *ended, *progress;
+  @synchronized (_tally) {
+    ended = [self progressDue:YES];
+    _phase = phase;
+    _phaseRemote = remote;
+    _phaseDone = _phaseToldDone = 0;
+    _phaseTotal = total;
+    _phaseTold = [NSDate timeIntervalSinceReferenceDate];
+    progress = [[ODataSyncProgress alloc] initWithRemote:remote phase:phase completed:0 total:total];
+  }
+  [self tellProgress:ended];
+  [self tellProgress:progress];
+}
+
+// The sync over: the phase going told as it ended; what is counted after
+// is no phase's.
+- (void)endPhases
+{
+  ODataSyncProgress *ended;
+  @synchronized (_tally) {
+    ended = [self progressDue:YES];
+    _phaseRemote = nil;
+  }
+  [self tellProgress:ended];
+}
+
+- (void)tellProgress:(ODataSyncProgress *)progress
+{
+  if (!progress) return;
+  id<ODataSyncDelegate> delegate = self.delegate;
+  if ([delegate respondsToSelector:@selector(syncEngine:didProgress:)]) [delegate syncEngine:self didProgress:progress];
+}
+
 - (void)setAside:(ODataSyncIssue *)issue
 {
   [self count:@"refused" by:1];
@@ -225,6 +302,7 @@ id ODSUnarchive(NSData *data)
     }
     [self noticeModelVersion];
     BOOL ok = [self downloadFromRemote:remote error:error] && [self uploadToRemote:remote error:error];
+    [self endPhases];
     @synchronized (_tally) {
       _lastResult = [[ODataSyncResult alloc] initWithTally:_tally];
     }
@@ -250,6 +328,7 @@ id ODSUnarchive(NSData *data)
       break;
     }
   }
+  [self endPhases];
   @synchronized (_tally) {
     _lastResult = [[ODataSyncResult alloc] initWithTally:_tally];
   }

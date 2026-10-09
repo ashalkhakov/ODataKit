@@ -174,6 +174,21 @@ static NSManagedObjectModel *OSMModel(void)
   return model;
 }
 
+// What a device is told of a sync's progress.
+@interface OSMProgress : NSObject <ODataSyncDelegate>
+@property (atomic, strong) NSMutableArray<ODataSyncProgress *> *told;
+@end
+
+@implementation OSMProgress
+- (void)syncEngine:(ODataSyncEngine *)engine didProgress:(ODataSyncProgress *)progress
+{
+  @synchronized (self) {
+    if (!_told) _told = [NSMutableArray array];
+    [_told addObject:progress];
+  }
+}
+@end
+
 @interface ODataSyncMergeTests : XCTestCase
 @end
 
@@ -358,6 +373,41 @@ static NSManagedObjectModel *OSMModel(void)
     }
   }
   XCTAssertGreaterThan(a.lastResult.uploaded + a.lastResult.downloaded, 0u);
+}
+
+// Merging told as it goes: begun with what waits, done with all of it.
+- (void)testMergingIsToldAsItGoes
+{
+  ODataSyncEngine *a = [self device];
+  OSMProgress *progress = [[OSMProgress alloc] init];
+  a.delegate = progress;
+  for (NSString *doc in @[ @"d1", @"d2", @"d3" ]) [self edit:doc in:a adding:@[ doc ] deleting:nil];
+  [self sync:a];
+  NSArray *merging = [progress.told filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"phase == %d", (int)ODataSyncPhaseMerging]];
+  XCTAssertGreaterThan(merging.count, 0u, @"%@", progress.told);
+  XCTAssertEqual([merging.firstObject total], 3u);
+  XCTAssertEqual([merging.firstObject completed], 0u);
+  XCTAssertEqual([merging.lastObject completed], 3u, @"%@", merging);
+  XCTAssertEqual(((ODataSyncProgress *)progress.told.lastObject).phase, ODataSyncPhaseMerging, @"merging comes last");
+}
+
+// One that fails this sync (to be tried again at the next) is settled for
+// this one: merging still ends told as all done.
+- (void)testMergingEndsToldAllDoneWhenOneFails
+{
+  ODataSyncEngine *a = [self device];
+  OSMProgress *progress = [[OSMProgress alloc] init];
+  a.delegate = progress;
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  [progress.told removeAllObjects];
+  [self edit:@"d1" in:a adding:@[ @"poison" ] deleting:nil];
+  for (NSString *doc in @[ @"d2", @"d3" ]) [self edit:doc in:a adding:@[ doc ] deleting:nil];
+  NSError *error = nil;
+  XCTAssertTrue([a syncWithError:&error], @"%@", error);
+  NSArray *merging = [progress.told filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"phase == %d", (int)ODataSyncPhaseMerging]];
+  XCTAssertEqual([merging.firstObject total], 3u, @"%@", merging);
+  XCTAssertEqual([merging.lastObject completed], 3u, @"%@", merging);
 }
 
 // A client that sends the whole state (one before merged attributes) has it
