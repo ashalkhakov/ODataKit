@@ -117,6 +117,10 @@ FOUNDATION_EXPORT NSSet<NSString *> *ODSChangedNames(NSDictionary *_Nullable bef
 // What a sync did, as it goes: downloaded, removed, uploaded, refused, conflicts.
 @property (nonatomic, readonly) NSMutableDictionary<NSString *, NSNumber *> *tally;
 - (void)count:(NSString *)what by:(NSUInteger)n;
+// A phase with remote begun (total: what waits, 0: not known); what is
+// counted from now on (downloaded, uploaded, merged...) is its progress,
+// the delegate told.
+- (void)beginPhase:(ODataSyncPhase)phase remote:(ODataSyncRemote *)remote total:(NSUInteger)total;
 - (void)setAside:(ODataSyncIssue *)issue;
 - (void)ignoredLocalChangeTo:(NSManagedObjectID *)objectID;
 - (nullable id<ODataSyncResolving>)resolverForEntityName:(NSString *)entityName;
@@ -159,6 +163,10 @@ FOUNDATION_EXPORT NSSet<NSString *> *ODSChangedNames(NSDictionary *_Nullable bef
 @interface ODataSyncChange ()
 - (instancetype)initWithEntry:(NSManagedObject *)entry objectID:(nullable NSManagedObjectID *)objectID;
 @property (nonatomic, readonly, strong) NSManagedObjectID *entryID;
+@end
+
+@interface ODataSyncProgress ()
+- (instancetype)initWithRemote:(ODataSyncRemote *)remote phase:(ODataSyncPhase)phase completed:(NSUInteger)completed total:(NSUInteger)total;
 @end
 
 @interface ODataSyncResult ()

@@ -337,6 +337,7 @@ static const NSInteger ODSGone = 410;
 
 - (BOOL)download:(NSError **)error
 {
+  [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;
@@ -385,6 +386,7 @@ static const NSInteger ODSGone = 410;
 
 - (BOOL)reconcile:(NSError **)error
 {
+  [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;

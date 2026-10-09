@@ -70,3 +70,25 @@
 }
 
 @end
+
+@implementation ODataSyncProgress
+
+- (instancetype)initWithRemote:(ODataSyncRemote *)remote phase:(ODataSyncPhase)phase completed:(NSUInteger)completed total:(NSUInteger)total
+{
+  self = [super init];
+  if (!self) return nil;
+  _remote = remote;
+  _phase = phase;
+  _completed = completed;
+  _total = total;
+  return self;
+}
+
+- (NSString *)description
+{
+  NSArray *phases = @[ @"receiving", @"sending", @"merging" ];
+  return [NSString stringWithFormat:@"<ODataSyncProgress %@ %@ %lu of %lu>", _remote.identifier, phases[(NSUInteger)_phase],
+                                    (unsigned long)_completed, (unsigned long)_total];
+}
+
+@end

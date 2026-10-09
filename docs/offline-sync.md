@@ -591,7 +591,7 @@ service.configuration.credentialProvider = auth;   // ODataCredentialProviding
 service.filters = @{ @"Asset": @"Region eq 'North'" };
 [sync addRemote:service];
 sync.resolver = [[ODataSyncMergeFields alloc] init];   // or per entity: -setResolver:forEntityName:, userInfo ODataSync.conflicts
-sync.delegate = self;                              // changes set aside, local edits of down entities
+sync.delegate = self;                              // changes set aside, local edits of down entities, progress
 [sync syncWithTarget:self action:@selector(syncDidFinish:error:)];   // or -syncWithError: off the main thread
 ```
 
@@ -608,6 +608,16 @@ What exists, and how it goes (`ODataSyncEngine.h`):
 - What waits to be sent: `-pendingChanges` (each an `ODataSyncChange`:
   its entity, key, operation, properties, attempts; an `ODataSyncIssue`
   when set aside), for a "3 changes to send".
+- How far a sync is: the delegate's `-syncEngine:didProgress:`, with an
+  `ODataSyncProgress` (the remote; the phase, receiving, sending or
+  merging; how many done, of how many). Told as each phase with a remote
+  begins, then a few times a second at most, and when the last of a
+  phase's total is done, on the engine's thread. Sending counts what the
+  remote took or refused, of the rows' changes that waited; merging, the
+  objects whose merged attributes were exchanged, of those that waited;
+  receiving, the objects that came down or went, of a total not known
+  (0). For a "Sending 3,000 of 25,000 changes" while a large import goes
+  up.
 - Refused changes are set aside (`-issues`, the delegate), sent again
   when the object changes or the app retries them, or discarded.
 - `-reconcileWithRemote:error:` reads each set's keys again (4.1).

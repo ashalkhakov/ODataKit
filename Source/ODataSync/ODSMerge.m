@@ -176,6 +176,7 @@ static NSData *ODSFromBase64(id text)
 - (BOOL)exchangeIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
   NSArray *entries = [_engine.store mergeEntriesFor:_remote inContext:context];
+  if (entries.count) [_engine beginPhase:ODataSyncPhaseMerging remote:_remote total:entries.count];
   for (NSUInteger start = 0; start < entries.count; start += ODSMergeBatch) {
     NSArray *chunk = [entries subarrayWithRange:NSMakeRange(start, MIN(ODSMergeBatch, entries.count - start))];
     NSArray<ODSMergeSlot *> *slots = [self slotsOf:chunk context:context];

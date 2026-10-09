@@ -475,6 +475,9 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
 - (BOOL)sendIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
   if (![self refreshIn:context error:error]) return NO;
+  // What will go: rows' changes (merged attributes go after, merging).
+  NSPredicate *rows = [NSPredicate predicateWithFormat:@"operation != %d", (int)ODataSyncOperationMerge];
+  [_engine beginPhase:ODataSyncPhaseSending remote:_remote total:[[self pendingIn:context] filteredArrayUsingPredicate:rows].count];
   NSUInteger size = MAX(_remote.batchSize, 1u);
   for (;;) {
     NSMutableArray *entries = [NSMutableArray array];
