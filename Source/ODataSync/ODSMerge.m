@@ -177,10 +177,18 @@ static NSData *ODSFromBase64(id text)
 {
   NSArray *entries = [_engine.store mergeEntriesFor:_remote inContext:context];
   if (entries.count) [_engine beginPhase:ODataSyncPhaseMerging remote:_remote total:entries.count];
+  // Each chunk's entries settled for this sync once it is through:
+  // exchanged, failed (again next sync), set aside, or with nothing here.
+  void (^through)(NSUInteger) = ^(NSUInteger end) {
+    [self->_engine phaseDone:end];
+  };
   for (NSUInteger start = 0; start < entries.count; start += ODSMergeBatch) {
     NSArray *chunk = [entries subarrayWithRange:NSMakeRange(start, MIN(ODSMergeBatch, entries.count - start))];
     NSArray<ODSMergeSlot *> *slots = [self slotsOf:chunk context:context];
-    if (!slots.count) continue;
+    if (!slots.count) {
+      through(start + chunk.count);
+      continue;
+    }
     // Down: what each has, for what it lacks (and the remote's version).
     NSMutableArray *items = [NSMutableArray array];
     for (ODSMergeSlot *slot in slots) {
@@ -250,6 +258,7 @@ static NSData *ODSFromBase64(id text)
       }
     }
     if (![context save:error]) return NO;
+    through(start + chunk.count);
   }
   return YES;
 }

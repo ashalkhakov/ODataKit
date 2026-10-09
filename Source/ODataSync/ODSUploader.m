@@ -475,9 +475,10 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
 - (BOOL)sendIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
   if (![self refreshIn:context error:error]) return NO;
-  // What will go: rows' changes (merged attributes go after, merging).
-  NSPredicate *rows = [NSPredicate predicateWithFormat:@"operation != %d", (int)ODataSyncOperationMerge];
-  [_engine beginPhase:ODataSyncPhaseSending remote:_remote total:[[self pendingIn:context] filteredArrayUsingPredicate:rows].count];
+  // What will go: rows' changes (merged attributes go after, merging); as
+  // it goes, how many of them no longer wait, however each was settled.
+  NSUInteger total = [self rowsWaitingIn:context];
+  if (total) [_engine beginPhase:ODataSyncPhaseSending remote:_remote total:total];
   NSUInteger size = MAX(_remote.batchSize, 1u);
   for (;;) {
     NSMutableArray *entries = [NSMutableArray array];
@@ -531,8 +532,21 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
     }
     [span end];
     if (![context save:error]) return NO;
+    NSUInteger waiting = [self rowsWaitingIn:context];
+    if (total) [_engine phaseDone:total > waiting ? total - waiting : 0];
     if (stop) return YES;
   }
+}
+
+// Rows' changes waiting to be sent: not set aside, not merged attributes,
+// not a version to read again.
+- (NSUInteger)rowsWaitingIn:(NSManagedObjectContext *)context
+{
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND setAside != YES AND operation != %d AND operation != %d", _remote.identifier,
+                                                     (int)ODataSyncOperationMerge, (int)ODataSyncOperationRefresh];
+  NSUInteger count = [context countForFetchRequest:fetch error:NULL];
+  return count == NSNotFound ? 0 : count;
 }
 
 - (BOOL)collect:(NSError **)error

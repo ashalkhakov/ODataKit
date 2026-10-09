@@ -391,6 +391,25 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqual(((ODataSyncProgress *)progress.told.lastObject).phase, ODataSyncPhaseMerging, @"merging comes last");
 }
 
+// One that fails this sync (to be tried again at the next) is settled for
+// this one: merging still ends told as all done.
+- (void)testMergingEndsToldAllDoneWhenOneFails
+{
+  ODataSyncEngine *a = [self device];
+  OSMProgress *progress = [[OSMProgress alloc] init];
+  a.delegate = progress;
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  [progress.told removeAllObjects];
+  [self edit:@"d1" in:a adding:@[ @"poison" ] deleting:nil];
+  for (NSString *doc in @[ @"d2", @"d3" ]) [self edit:doc in:a adding:@[ doc ] deleting:nil];
+  NSError *error = nil;
+  XCTAssertTrue([a syncWithError:&error], @"%@", error);
+  NSArray *merging = [progress.told filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"phase == %d", (int)ODataSyncPhaseMerging]];
+  XCTAssertEqual([merging.firstObject total], 3u, @"%@", merging);
+  XCTAssertEqual([merging.lastObject completed], 3u, @"%@", merging);
+}
+
 // A client that sends the whole state (one before merged attributes) has it
 // merged into what the service has, not written over it.
 - (void)testAWholeStateSentIsMergedIn
