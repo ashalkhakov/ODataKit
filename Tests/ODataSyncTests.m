@@ -832,6 +832,11 @@ static NSManagedObjectModel *OSTModel(void)
     XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:side], (@[ file ]), @"the server's file");
     XCTAssertEqualObjects([self values:@"done" of:@"Task" in:side], (@[ @YES ]), @"the device's done");
   }
+
+  // The same file saved again: nothing to send.
+  [self set:@{ @"attachment": [file copy] } onTask:task in:_device];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"%@", _engine.lastResult);
 }
 
 // A digest is equal to another of the same, not to data; whether data is
