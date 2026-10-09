@@ -136,6 +136,28 @@ typedef NS_ENUM(NSInteger, ODataSyncOperation) {
   ODataSyncOperationMerge,    // merged attributes to exchange (docs/offline-sync.md, 14)
 };
 
+// A binary value of the version last agreed on (a shadow) larger than
+// ODataSyncShadowDigestBytes is kept as its SHA-256 alone: a file in a row
+// would otherwise be kept twice (and a third larger, as JSON's base64).
+// What stands for it in a conflict's base: what each side changed is known
+// all the same (-isDigestOfData:), and a resolver that needs the bytes has
+// the local and remote values. A resolution may name it only where it is
+// one side's (the engine then writes that side's bytes); otherwise there
+// are no bytes to write, and the conflict is set aside.
+FOUNDATION_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
+
+@interface ODataSyncDigest : NSObject <NSCopying>
+- (instancetype)initWithSHA256:(NSData *)sha256 length:(NSUInteger)length NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+// Of data, as a shadow keeps it.
++ (instancetype)digestOfData:(NSData *)data;
+// Whether data is what it was taken of (its length and SHA-256). Equal
+// (-isEqual:) only to another digest of the same.
+- (BOOL)isDigestOfData:(NSData *)data;
+@property (nonatomic, readonly, copy) NSData *SHA256;
+@property (nonatomic, readonly) NSUInteger length;
+@end
+
 // A both object changed here and at the remote since the version both last
 // agreed on. Values by Core Data property name: an attribute's value, a
 // to-one's related key (by its attributes' names), NSNull for none.
@@ -143,7 +165,8 @@ typedef NS_ENUM(NSInteger, ODataSyncOperation) {
 @property (nonatomic, readonly) NSEntityDescription *entity;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, id> *key;
 // The version both last agreed on; nil when not known (an object made on
-// both sides, or before the engine kept versions).
+// both sides, or before the engine kept versions). A large binary value is
+// an ODataSyncDigest in it.
 @property (nonatomic, readonly, copy, nullable) NSDictionary<NSString *, id> *base;
 // This side's, and the remote's; nil when deleted there.
 @property (nonatomic, readonly, copy, nullable) NSDictionary<NSString *, id> *local;

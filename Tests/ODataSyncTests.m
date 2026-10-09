@@ -56,6 +56,20 @@
 }
 @end
 
+// Keeps the version agreed on of the attachment, the rest as the remote
+// has it: a resolver that names a file by the base's digest.
+@interface OSTBaseAttachment : NSObject <ODataSyncResolving>
+@end
+
+@implementation OSTBaseAttachment
+- (ODataSyncResolution *)resolveConflict:(ODataSyncConflict *)conflict
+{
+  NSMutableDictionary *values = [conflict.remote mutableCopy];
+  values[@"attachment"] = conflict.base[@"attachment"] ?: [NSNull null];
+  return [ODataSyncResolution mergedValues:values];
+}
+@end
+
 @interface OSTDelegate : NSObject <ODataSyncDelegate>
 @property (atomic, strong) NSMutableArray *setAside;
 @property (atomic, strong) NSMutableArray *ignored;
@@ -137,7 +151,8 @@ static NSManagedObjectModel *OSTModel(void)
   inspection.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"note", NSStringAttributeType, NO),
                              OSTAttribute(@"score", NSInteger32AttributeType, NO), ofAsset ];
   task.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"title", NSStringAttributeType, NO),
-                       OSTAttribute(@"done", NSBooleanAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+                       OSTAttribute(@"done", NSBooleanAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO),
+                       OSTAttribute(@"attachment", NSBinaryDataAttributeType, NO) ];
   NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
   model.entities = @[ asset, inspection, task ];
   return model;
@@ -774,6 +789,130 @@ static NSManagedObjectModel *OSTModel(void)
     XCTAssertEqualObjects([self values:@"title" of:@"Task" in:side], (@[ @"Server's" ]));
     XCTAssertEqualObjects([self values:@"done" of:@"Task" in:side], (@[ @NO ]), @"what only the device changed still goes");
   }
+}
+
+// A file in a row: the shadow keeps its digest, not the file (twice over,
+// as base64); what each side changed is known all the same.
+- (void)testAFileIsAgreedOnByItsDigest
+{
+  _engine.resolver = [[ODataSyncMergeFields alloc] init];
+  NSMutableData *file = [NSMutableData dataWithLength:8192];
+  for (NSUInteger i = 0; i < file.length; i++) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i * 7);
+  NSString *task = [self makeTask:@"Read the manual"];
+  [self set:@{ @"attachment": file } onTask:task in:_device];
+  [self sync];
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_server], (@[ file ]));
+  __block NSData *kept = nil;
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"ODSShadow"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"entityType == 'Task'"];
+    kept = [[[context executeFetchRequest:fetch error:NULL] firstObject] valueForKey:@"values"];
+  }];
+  XCTAssertNotNil(kept);
+  XCTAssertLessThan(kept.length, 1024u, @"the file's digest, not the file");
+  XCTAssertTrue([[[NSString alloc] initWithData:kept encoding:NSUTF8StringEncoding] containsString:@"@odatasync.sha256"]);
+
+  // The device changes the file, the server the title: both kept.
+  NSMutableData *newer = [file mutableCopy];
+  ((uint8_t *)newer.mutableBytes)[100] ^= 0xFF;
+  [self set:@{ @"attachment": newer } onTask:task in:_device];
+  [self set:@{ @"title": @"Read the manual, twice" } onTask:task in:_server];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.conflicts, 1u);
+  for (NSPersistentStoreCoordinator *side in @[ _server, _device ]) {
+    XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:side], (@[ newer ]), @"the device's file");
+    XCTAssertEqualObjects([self values:@"title" of:@"Task" in:side], (@[ @"Read the manual, twice" ]), @"the server's title");
+  }
+
+  // The other way round: the server's file, the device's done.
+  [self set:@{ @"attachment": file } onTask:task in:_server];
+  [self set:@{ @"done": @YES } onTask:task in:_device];
+  [self sync];
+  for (NSPersistentStoreCoordinator *side in @[ _server, _device ]) {
+    XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:side], (@[ file ]), @"the server's file");
+    XCTAssertEqualObjects([self values:@"done" of:@"Task" in:side], (@[ @YES ]), @"the device's done");
+  }
+}
+
+// A digest is equal to another of the same, not to data; whether data is
+// its own, it says (and reads the data once, however often it is asked).
+- (void)testADigestIsOfItsData
+{
+  NSMutableData *file = [NSMutableData dataWithLength:4096];
+  ((uint8_t *)file.mutableBytes)[7] = 7;
+  NSData *data = [file copy];
+  ODataSyncDigest *digest = [ODataSyncDigest digestOfData:data], *again = [ODataSyncDigest digestOfData:data];
+  XCTAssertEqualObjects(digest, again);
+  XCTAssertEqual(digest.hash, again.hash);
+  XCTAssertTrue([digest isDigestOfData:data]);
+  XCTAssertFalse([digest isEqual:data], @"equal to digests only, as data is to data");
+  XCTAssertFalse([data isEqual:digest]);
+  ((uint8_t *)file.mutableBytes)[8] = 8;
+  XCTAssertFalse([digest isDigestOfData:file]);
+  XCTAssertFalse([digest isDigestOfData:[file subdataWithRange:NSMakeRange(0, 100)]]);
+}
+
+// A resolution that names the attachment by the base's digest: the side
+// whose bytes those are is written; when neither side has them any more,
+// there is nothing to write, and the conflict is set aside.
+- (void)testAResolutionThatKeepsTheBaseFile
+{
+  [_engine setResolver:[[OSTBaseAttachment alloc] init] forEntityName:@"Task"];
+  NSMutableData *file = [NSMutableData dataWithLength:8192];
+  for (NSUInteger i = 0; i < file.length; i++) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i * 3);
+  NSString *task = [self makeTask:@"Read the manual"];
+  [self set:@{ @"attachment": file } onTask:task in:_device];
+  [self sync];
+  // The service changes the file, the device the title: the base's file is
+  // the device's, kept.
+  NSMutableData *theirs = [file mutableCopy];
+  ((uint8_t *)theirs.mutableBytes)[10] ^= 0xFF;
+  [self set:@{ @"attachment": theirs } onTask:task in:_server];
+  [self set:@{ @"title": @"Read it" } onTask:task in:_device];
+  [self sync];
+  XCTAssertEqual(_engine.issues.count, 0u, @"%@", _engine.issues);
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_device], (@[ file ]), @"the base's bytes, here");
+  [self sync];
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_server], (@[ file ]), @"and there");
+
+  // Both change the file: the base's bytes are nowhere; set aside.
+  NSMutableData *ours = [file mutableCopy], *again = [file mutableCopy];
+  ((uint8_t *)ours.mutableBytes)[20] ^= 0xFF;
+  ((uint8_t *)again.mutableBytes)[30] ^= 0xFF;
+  [self set:@{ @"attachment": ours } onTask:task in:_device];
+  [self set:@{ @"attachment": again } onTask:task in:_server];
+  [self sync];
+  XCTAssertEqual(_engine.issues.count, 1u, @"%@", _engine.issues);
+  XCTAssertTrue([_engine.issues.firstObject.message containsString:@"digest"], @"%@", _engine.issues.firstObject.message);
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_device], (@[ ours ]), @"nothing written over it");
+}
+
+// A late copy (a peer's, older than the version agreed on) of a row whose
+// shadow keeps its file only as a digest: not sent, and not set from the
+// shadow - read again from the service.
+- (void)testALateCopyOfAFileIsReadAgain
+{
+  NSMutableData *file = [NSMutableData dataWithLength:8192];
+  for (NSUInteger i = 0; i < file.length; i++) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i * 5);
+  NSString *task = [self makeTask:@"Read the manual"];
+  [self set:@{ @"attachment": file } onTask:task in:_device];
+  [self sync];
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+  context.persistentStoreCoordinator = _device;
+  if ([context respondsToSelector:@selector(setTransactionAuthor:)]) context.transactionAuthor = @"ODataSync.down.a-peer";
+  [context performBlockAndWait:^{
+    NSManagedObject *object = [self object:@"Task" id:task in:context];
+    [object setValue:@"An older copy" forKey:@"title"];
+    [object setValue:@"0000000000000001.0000.peer0000" forKey:@"modified"];
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+  }];
+  [self sync];
+  [self sync];
+  XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_server], (@[ @"Read the manual" ]), @"not sent over the newer");
+  XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_device], (@[ @"Read the manual" ]), @"read again");
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_device], (@[ file ]), @"with its file");
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
 }
 
 - (void)testLastWriterWins
