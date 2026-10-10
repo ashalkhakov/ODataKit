@@ -424,4 +424,47 @@ id ODSUnarchive(NSData *data)
   [_store changeIssue:issue discarding:YES];
 }
 
+- (BOOL)exchangeAllMergedAttributesWithError:(NSError **)error
+{
+  [_running lock];
+  __block BOOL ok = YES;
+  __block NSError *failure = nil;
+  @try {
+    NSManagedObjectContext *context = [_store contextWritingAs:ODataSyncBookkeepingAuthor];
+    [context performBlockAndWait:^{
+      NSSet *up = [NSSet setWithObjects:@(ODataSyncDirectionUp), @(ODataSyncDirectionBoth), nil];
+      for (ODataSyncRemote *remote in self.remotes) {
+        for (NSEntityDescription *root in [self->_model rootEntitiesGoing:up toward:remote]) {
+          if (![self->_model mergesEntity:root]) continue;
+          NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:root.name];
+          fetch.includesSubentities = YES;
+          fetch.resultType = NSManagedObjectIDResultType;
+          NSArray<NSManagedObjectID *> *ids = [context executeFetchRequest:fetch error:NULL] ?: @[];
+          // A batch at a time, saved and let go of; the remote's entries
+          // read once a batch, not looked for one by one.
+          for (NSUInteger start = 0; start < ids.count && ok; start += 500) {
+            @autoreleasepool {
+              [self->_store indexOutboxOf:remote inContext:context];
+              for (NSManagedObjectID *objectID in [ids subarrayWithRange:NSMakeRange(start, MIN(500u, ids.count - start))]) {
+                NSManagedObject *object = [context existingObjectWithID:objectID error:NULL];
+                NSDictionary *key = object ? [self->_codec keyOfObject:object] : nil;
+                if (key.count) [self->_store noteMergeOf:root key:key remote:remote context:context];
+              }
+              [self->_store endOutboxIndex];
+              NSError *e = nil;
+              ok = [context save:&e];
+              if (!ok) failure = e;
+              [context reset];
+            }
+          }
+        }
+      }
+    }];
+  } @finally {
+    [_running unlock];
+  }
+  if (!ok && error) *error = failure;
+  return ok;
+}
+
 @end

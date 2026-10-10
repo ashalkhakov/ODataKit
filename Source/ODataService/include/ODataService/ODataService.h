@@ -595,6 +595,10 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // The operations that could not be declared, one sentence each, naming the
 // selector.
 @property (nonatomic, readonly) NSArray<NSString *> *operationProblems;
+// The ETag an object is served with: its version (ODataUserInfoETag), else
+// a hash of its values. For a part of the service's (ODataSync's) that
+// changes an object and tells the client its ETag after.
+- (NSString *)etagOfObject:(NSManagedObject *)object;
 
 - (void)setHandler:(ODataEntitySetHandler *)handler forEntitySet:(NSString *)entitySet;
 - (nullable ODataEntitySetHandler *)handlerForEntitySet:(NSString *)entitySet;

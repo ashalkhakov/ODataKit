@@ -36,8 +36,10 @@ FOUNDATION_EXPORT NSString * const ODataSyncMergeKey;   // @"ODataSync.merge"
 @protocol ODataSyncMerging <NSObject>
 // What a state has seen (nil: nothing).
 - (NSData *)versionOfState:(nullable NSData *)state;
-// What a copy at version lacks of state (version nil: all of it).
-- (NSData *)deltaOfState:(nullable NSData *)state sinceVersion:(nullable NSData *)version;
+// What a copy at version lacks of state (version nil: all of it). nil when
+// state is none this merger reads (a delta is not a state: what a copy lacks
+// of one is no question a merger answers), which its caller fails on.
+- (nullable NSData *)deltaOfState:(nullable NSData *)state sinceVersion:(nullable NSData *)version;
 // A delta (or a whole state) merged in; nil and the error for one that does
 // not merge (not the merger's, or made for a copy that had seen more).
 - (nullable NSData *)stateByMerging:(NSData *)delta intoState:(nullable NSData *)state error:(NSError **)error;

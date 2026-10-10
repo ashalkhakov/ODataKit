@@ -198,9 +198,12 @@ jobs:
       # constant prints as nil (so it parses back).
       # 1eda55d: six libs-base fixes retired, merged upstream; one of them
       # (constant-expression-copy) no longer applied to libs-base master,
-      # which broke every build of the stack from scratch. The ref
-      # FreeCoreData pins.
-      GNUSTEP_PATCHES_REF: 1eda55d84efa24990a54b67bbbd6e3b785fc1ba9
+      # which broke every build of the stack from scratch.
+      # 610d60b: more fixes retired, merged upstream (predicate-subquery,
+      # expression-binary-coding, xmlns-attribute's rebase among them);
+      # predicates code securely (#766); -addNamespace: frees what it does
+      # not keep. Ahead of the ref FreeCoreData pins (1eda55d).
+      GNUSTEP_PATCHES_REF: 610d60bfdc18b5d36587e799e1b26c460a608d9d
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
       # its momc keeps a model version's Identifier, which models generated

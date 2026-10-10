@@ -17,7 +17,9 @@
 // only its name in gone: a version still has seen it (as a version vector
 // keeps its counters), and a delta that brings it again merges it no more.
 // Its version is what it has seen; a delta, what a version lacks; a meet,
-// what both have. A delta with "poison" in it does not merge.
+// what both have. A delta with "poison" in it does not merge. A delta is
+// marked one, and is no state: what a version lacks of it is no question it
+// answers (nil), as a merger of states alone (TopoText's) answers none.
 @interface OSMTwoPhaseSet : NSObject <ODataSyncMerging>
 @property (atomic) NSUInteger collections;
 + (NSData *)stateAdding:(NSArray *)add deleting:(NSArray *)del;
@@ -65,12 +67,19 @@
 
 - (NSData *)deltaOfState:(NSData *)state sinceVersion:(NSData *)version
 {
+  id json = state.length ? [NSJSONSerialization JSONObjectWithData:state options:0 error:NULL] : nil;
+  if ([json isKindOfClass:[NSDictionary class]] && [json[@"delta"] boolValue]) return nil;
   NSDictionary *s = [OSMTwoPhaseSet setsOf:state], *v = [OSMTwoPhaseSet setsOf:version];
   NSMutableSet *add = [s[@"add"] mutableCopy], *del = [s[@"del"] mutableCopy];
   [add minusSet:v[@"add"]];
   [del minusSet:v[@"del"]];
   if (!add.count && !del.count) return [NSData data];
-  return [OSMTwoPhaseSet stateAdding:add.allObjects deleting:del.allObjects];
+  // Since nothing: the whole state, no delta (as TopoText's -data).
+  if (!version.length) return [OSMTwoPhaseSet stateAdding:add.allObjects deleting:del.allObjects gone:s[@"gone"]];
+  NSMutableDictionary *delta = [[NSJSONSerialization JSONObjectWithData:[OSMTwoPhaseSet stateAdding:add.allObjects deleting:del.allObjects]
+                                                                options:NSJSONReadingMutableContainers error:NULL] mutableCopy];
+  delta[@"delta"] = @YES;
+  return [NSJSONSerialization dataWithJSONObject:delta options:NSJSONWritingSortedKeys error:NULL];
 }
 
 - (NSData *)stateByMerging:(NSData *)delta intoState:(NSData *)state error:(NSError **)error
@@ -117,6 +126,35 @@
   return [OSMTwoPhaseSet stateAdding:add deleting:del gone:[s[@"gone"] setByAddingObjectsFromSet:gone]];
 }
 
+@end
+
+// A service's merger that drops what it is sent (as one did), answering as
+// if it had merged it.
+@interface OSMDroppingSet : OSMTwoPhaseSet
+@end
+
+@implementation OSMDroppingSet
+- (NSData *)stateByMerging:(NSData *)delta intoState:(NSData *)state error:(NSError **)error
+{
+  return state ?: [super stateByMerging:delta intoState:state error:error];
+}
+@end
+
+// A service's merger that cannot place a delta (as TopoText's, for text
+// typed by what it had collected), only a whole state.
+@interface OSMStatesOnlySet : OSMTwoPhaseSet
+@end
+
+@implementation OSMStatesOnlySet
+- (NSData *)stateByMerging:(NSData *)delta intoState:(NSData *)state error:(NSError **)error
+{
+  id json = [NSJSONSerialization JSONObjectWithData:delta options:0 error:NULL];
+  if ([json isKindOfClass:[NSDictionary class]] && [json[@"delta"] boolValue]) {
+    if (error) *error = [NSError errorWithDomain:@"OSM" code:2 userInfo:@{ NSLocalizedDescriptionKey: @"a delta for a copy that has seen more" }];
+    return nil;
+  }
+  return [super stateByMerging:delta intoState:state error:error];
+}
 @end
 
 // The service in the process, each request noted (its method, URL and body).
@@ -471,6 +509,105 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], (@[ @"banana" ]));
   XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], (@[ @"banana" ]));
   XCTAssertGreaterThan(_merger.collections, 0u);
+}
+
+// After the service collected what every replica had seen deleted, what
+// a device adds still reaches it (and the others): the delta merged as it
+// is, not trimmed first (no state, it would come to nothing).
+- (void)testWhatComesAfterACollectionIsMergedToo
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple", @"banana" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  [self edit:@"d1" in:a adding:@[] deleting:@[ @"apple" ]];
+  [self sync:a];
+  [self sync:b];
+  [self sync:a];
+  XCTAssertTrue([[OSMTwoPhaseSet setsOf:[self stateOf:@"d1" in:_server]][@"gone"] containsObject:@"apple"], @"collected");
+  [self edit:@"d1" in:b adding:@[ @"cherry" ] deleting:nil];
+  [self sync:b];
+  NSArray *left = @[ @"banana", @"cherry" ];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], left, @"the service has b's");
+  [self sync:a];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:a.coordinator], left, @"and a, from it");
+  // What came back of what was collected is let go again.
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], left, @"apple, collected, comes back no more");
+}
+
+// The row written and its merged attribute changed at the service, sync
+// after sync, by one device: no conflict, the row's ETag after each merge
+// being the one the device writes it with next.
+- (void)testARowsETagFollowsItsMerges
+{
+  ODataSyncEngine *a = [self device];
+  for (int i = 0; i < 4; i++) {
+    NSString *element = [NSString stringWithFormat:@"e%d", i];
+    [self in:a.coordinator do:^(NSManagedObjectContext *context) {
+      NSManagedObject *doc = [self doc:@"d1" in:context];
+      if (!doc) {
+        doc = [NSEntityDescription insertNewObjectForEntityForName:@"Doc" inManagedObjectContext:context];
+        [doc setValue:@"d1" forKey:@"id"];
+      }
+      NSDictionary *s = [OSMTwoPhaseSet setsOf:[doc valueForKey:@"body"]];
+      [doc setValue:[OSMTwoPhaseSet stateAdding:[[s[@"add"] setByAddingObject:element] allObjects] deleting:[s[@"del"] allObjects]] forKey:@"body"];
+      [doc setValue:[NSString stringWithFormat:@"title %d", i] forKey:@"title"];
+    }];
+    [self sync:a];
+    XCTAssertEqual(a.lastResult.conflicts, 0u, @"sync %d: %@", i, a.lastResult);
+    __block NSString *there = nil, *kept = nil;
+    [self in:_server do:^(NSManagedObjectContext *context) { there = [self->_service etagOfObject:[self doc:@"d1" in:context]]; }];
+    [self in:a.coordinator do:^(NSManagedObjectContext *context) {
+      kept = [[[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"ODSShadow"] error:NULL] firstObject] valueForKey:@"etag"];
+    }];
+    XCTAssertEqualObjects(kept, there, @"the ETag kept is the row's there, after sync %d", i);
+  }
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"e0", @"e1", @"e2", @"e3" ]));
+}
+
+// A delta the remote refused goes again as the whole state, which it merges.
+- (void)testARefusedDeltaGoesAgainAsTheWholeState
+{
+  ODataSyncEngine *a = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  [_sync.engine setMerger:[[OSMStatesOnlySet alloc] init] forName:@"TwoPhase"];
+  [self edit:@"d1" in:a adding:@[ @"banana" ] deleting:nil];
+  NSError *error = nil;
+  XCTAssertTrue([a syncWithError:&error], @"%@", error);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple" ]), @"the delta refused");
+  [self sync:a];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple", @"banana" ]), @"the whole state taken");
+  XCTAssertEqual(a.pendingChanges.count, 0u, @"%@", a.pendingChanges);
+  [_sync.engine setMerger:_merger forName:@"TwoPhase"];
+}
+
+// A service that dropped what it was sent: every object's merged attributes
+// exchanged again, both ways, on asking.
+- (void)testAllMergedAttributesExchangedAgain
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self edit:@"d2" in:a adding:@[ @"pear" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  // The service drops d1's banana, answering as if it had merged it.
+  [_sync.engine setMerger:[[OSMDroppingSet alloc] init] forName:@"TwoPhase"];
+  [self edit:@"d1" in:a adding:@[ @"banana" ] deleting:nil];
+  [self sync:a];
+  [_sync.engine setMerger:_merger forName:@"TwoPhase"];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple" ]), @"lost there; a thinks it has it");
+  XCTAssertEqual(a.pendingChanges.count, 0u);
+  NSError *error = nil;
+  XCTAssertTrue([a exchangeAllMergedAttributesWithError:&error], @"%@", error);
+  XCTAssertEqual(a.pendingChanges.count, 2u, @"both docs: %@", a.pendingChanges);
+  [self sync:a];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple", @"banana" ]));
+  [self sync:b];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], (@[ @"apple", @"banana" ]));
+  XCTAssertEqualObjects([self elementsOf:@"d2" in:b.coordinator], (@[ @"pear" ]));
 }
 
 // An item for an object the request may not see, or none: an error of its
