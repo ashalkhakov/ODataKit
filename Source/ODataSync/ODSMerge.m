@@ -245,7 +245,11 @@ static NSData *ODSFromBase64(id text)
     NSData *theirs = [self apply:answers[i] to:slot];
     if (!theirs) continue;
     NSData *state = [slot.object valueForKey:slot.attribute.name];
-    NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
+    // Refused before (a delta the remote could not place: text typed by
+    // what it had already collected): the whole state this time, which
+    // brings back, deleted, what that was placed by.
+    BOOL whole = [[slot.entry valueForKey:@"attempts"] integerValue] > 0;
+    NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length && !whole ? theirs : nil];
     if (!delta) {
       slot.failed = YES;
       slot.message = @"This copy's state is none its merger reads";
