@@ -359,6 +359,8 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
   // they are saved: saved before the answer, which tells each its ETag as it
   // is kept now, and as it was (the device moves its own on from that one,
   // else its next write of the row is a conflict of the merge's making).
+  // Saved here, the call is its own: inside an atomic $batch change set it
+  // would not go or fail with the rest (devices send it alone).
   if (context.hasChanges) {
     NSError *error = nil;
     if (![context save:&error]) {
