@@ -151,6 +151,11 @@ static NSData *ODSFromBase64(id text)
     // which every other copy has seen, and which is gone there.
     NSData *theirs = ODSFromBase64(answer[@"State"]), *horizon = ODSFromBase64(answer[@"Horizon"]);
     NSData *since = [slot.merger deltaOfState:state sinceVersion:horizon.length ? horizon : nil];
+    if (!since) {
+      slot.failed = YES;
+      slot.message = @"This copy's state is none its merger reads";
+      return nil;
+    }
     tried = since.length > 0;
     merged = tried ? [slot.merger stateByMerging:since intoState:theirs error:&error] : theirs;
   } else {
@@ -165,12 +170,42 @@ static NSData *ODSFromBase64(id text)
   }
   NSData *seen = ODSFromBase64(answer[@"SeenByAll"]);
   if (seen.length) merged = [slot.merger stateByCollecting:merged seenBy:seen] ?: merged;
+  [self follow:answer of:slot];
   if (!(merged == state || [merged isEqual:state])) {
     slot.changed = YES;
     [slot.object setValue:merged forKey:slot.attribute.name];
     if ([slot.merger respondsToSelector:@selector(mergedAttribute:ofObject:)]) [slot.merger mergedAttribute:slot.attribute ofObject:slot.object];
   }
   return ODSFromBase64(answer[@"Version"]) ?: [NSData data];
+}
+
+// The row as the remote has it after the merge (which it saved, and stamped
+// as a change of its own), when it was the one this copy agreed on: its
+// ETag, and its history, seen here. Else the next write of the row, sent
+// with the ETag before, and a download of it, by a history this copy has
+// not seen, would each be a conflict of the merge's own making.
+- (void)follow:(NSDictionary *)answer of:(ODSMergeSlot *)slot
+{
+  NSString *etag = answer[@"ETag"], *was = answer[@"PreviousETag"];
+  if (![etag isKindOfClass:[NSString class]] || ![was isKindOfClass:[NSString class]]) return;
+  NSEntityDescription *root = [_model rootOf:slot.object.entity];
+  NSManagedObject *shadow = [_engine.store shadowOf:root.name keyText:[slot.entry valueForKey:@"keyText"] remote:_remote
+                                          inContext:slot.entry.managedObjectContext make:NO];
+  if (![[shadow valueForKey:@"etag"] isEqual:was]) return;
+  [shadow setValue:etag forKey:@"etag"];
+  NSAttributeDescription *versions = [_model versionsAttributeOf:root];
+  NSString *stamped = [answer[@"Versions"] isKindOfClass:[NSString class]] ? answer[@"Versions"] : nil;
+  if (!versions || !stamped) return;
+  NSDictionary *theirs = ODSVersionsFromText(stamped);
+  NSDictionary *mine = [_codec versionsOfObject:slot.object];
+  NSString *seen = ODSTextOfVersions(ODSMergeVersions(mine, theirs));
+  if (![seen isEqualToString:[slot.object valueForKey:versions.name]]) [slot.object setValue:seen forKey:versions.name];
+  NSData *kept = [shadow valueForKey:@"values"];
+  NSMutableDictionary *agreed = kept.length ? [[NSJSONSerialization JSONObjectWithData:kept options:0 error:NULL] mutableCopy] : nil;
+  if ([agreed isKindOfClass:[NSMutableDictionary class]]) {
+    agreed[[_codec.mapper propertyForAttribute:versions]] = stamped;
+    [shadow setValue:[NSJSONSerialization dataWithJSONObject:agreed options:0 error:NULL] forKey:@"values"];
+  }
 }
 
 // One batch of entries (by ID) exchanged and saved: 1 done, 0 failed, -1
@@ -211,6 +246,11 @@ static NSData *ODSFromBase64(id text)
     if (!theirs) continue;
     NSData *state = [slot.object valueForKey:slot.attribute.name];
     NSData *delta = [slot.merger deltaOfState:state sinceVersion:theirs.length ? theirs : nil];
+    if (!delta) {
+      slot.failed = YES;
+      slot.message = @"This copy's state is none its merger reads";
+      continue;
+    }
     // Nothing it lacks, and nothing changed here: done. Changed, it is told
     // what this copy has now, for what it collects (what a copy says it
     // has, never what it was sent).

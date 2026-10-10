@@ -234,6 +234,9 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
   if (![replica isKindOfClass:[NSString class]] || [replica isEqual:ODSMergeHorizonReplica]) replica = nil;
   ODSCodec *codec = engine.codec;
   NSMutableArray *answers = [NSMutableArray array];
+  // Each object's ETag before the call changed it, and the answers about it.
+  NSMutableDictionary<NSManagedObjectID *, NSString *> *etags = [NSMutableDictionary dictionary];
+  NSMutableArray<NSArray *> *answered = [NSMutableArray array];
   for (NSDictionary *item in items) {
     NSString *(^failed)(NSString *) = ^NSString *(NSString *why) {
       [answers addObject:@{ @"Error": why }];
@@ -277,6 +280,7 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     NSData *theirs = ODSDataOfBase64(item[@"Version"]);
     if (!theirs.length) theirs = [merger versionOfState:nil];
     NSData *state = [object valueForKey:attribute.name];
+    if (!etags[object.objectID]) etags[object.objectID] = [service etagOfObject:object];
 
     // Behind what was collected (away longer than the retention, or only
     // ever through peers): what it has cannot be merged, nor told what it
@@ -288,8 +292,6 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
       continue;
     }
     NSData *delta = ODSDataOfBase64(item[@"Delta"]);
-    // What every copy had seen when it was collected comes back no more.
-    if (delta.length && horizon.length) delta = [merger deltaOfState:delta sinceVersion:horizon];
     if (delta.length) {
       // One that does not merge is this item's error, not the call's.
       NSError *error = nil;
@@ -300,10 +302,26 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
       // Through the handler: merged, written as any update is.
       if (![handler updateObject:object values:@{ attribute.name: delta } request:request reply:reply]) return nil;
       state = [object valueForKey:attribute.name];
+      // What every copy had seen when it was collected comes back no more:
+      // the delta merged as it is, then what it brought back of that let go
+      // again. (Not the delta trimmed first: a delta is no state, and a
+      // merger that reads states only answers nothing for it, so all it
+      // brought would be lost.)
+      if (horizon.length) {
+        NSData *collected = [merger stateByCollecting:state seenBy:horizon];
+        if (collected && ![collected isEqual:state]) {
+          [object setValue:collected forKey:attribute.name];
+          state = collected;
+        }
+      }
     }
     // What the device lacks, before anything is collected: what is collected
     // now it has not seen yet, and is told (then collects it itself).
     NSData *lacks = [merger deltaOfState:state sinceVersion:theirs];
+    if (!lacks) {
+      failed([NSString stringWithFormat:@"%@ is no state its merger reads", item[@"Property"]]);
+      continue;
+    }
     NSData *seen = nil;
     if (record) {
       // What the replica says it has: not what it is answered, which it may
@@ -333,8 +351,33 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     NSMutableDictionary *answer = [NSMutableDictionary dictionary];
     answer[@"Delta"] = ODSBase64Of(lacks);
     answer[@"Version"] = ODSBase64Of([merger versionOfState:state]);
+    [answered addObject:@[ object, answer ]];
     if (seen.length) answer[@"SeenByAll"] = ODSBase64Of(seen);
     [answers addObject:answer];
+  }
+  // The rows a merge changed are written as any update is, and stamped as
+  // they are saved: saved before the answer, which tells each its ETag as it
+  // is kept now, and as it was (the device moves its own on from that one,
+  // else its next write of the row is a conflict of the merge's making).
+  if (context.hasChanges) {
+    NSError *error = nil;
+    if (![context save:&error]) {
+      [reply failWithError:error ?: ODataServiceError(500, @"The merges could not be saved")];
+      return nil;
+    }
+  }
+  for (NSArray *pair in answered) {
+    NSManagedObject *object = pair[0];
+    NSMutableDictionary *answer = pair[1];
+    NSString *was = etags[object.objectID], *now = [service etagOfObject:object];
+    if (was && now && ![now isEqualToString:was]) {
+      answer[@"ETag"] = now;
+      answer[@"PreviousETag"] = was;
+      // And the history it was stamped with: the device's copy has seen it.
+      NSAttributeDescription *versions = [engine.model versionsAttributeOf:object.entity];
+      id text = versions ? [object valueForKey:versions.name] : nil;
+      if ([text isKindOfClass:[NSString class]]) answer[@"Versions"] = text;
+    }
   }
   return @{ @"Items": answers };
 }
