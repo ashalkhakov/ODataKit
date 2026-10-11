@@ -20,6 +20,10 @@ ALWAYS_SEARCH_USER_PATHS = NO
 
 CODE_SIGN_IDENTITY = -
 CODE_SIGNING_REQUIRED = NO
+// On a device, no ad hoc signing (iOS 26's SDK refuses it): the frameworks
+// are left unsigned, and an app signs them as it embeds them (Code Sign On
+// Copy), with its own identity; an app turns signing back on.
+CODE_SIGNING_ALLOWED[sdk=iphoneos*] = NO
 CODE_SIGN_STYLE = Manual
 DEVELOPMENT_TEAM =
 
