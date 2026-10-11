@@ -37,7 +37,7 @@ the client reads back.
 | Double | `Edm.Double` | `Edm.Decimal`, `Single`, `Duration` (seconds) |
 | Float | `Edm.Single` | |
 | Date | `Edm.DateTimeOffset` | `Edm.Date` |
-| Binary | `Edm.Binary` | |
+| Binary | `Edm.Binary` | a model read from `$metadata` allows external storage (not for a key) |
 | UUID | `Edm.Guid` | `Edm.Guid` as a String attribute |
 | URI | `Edm.String` | |
 | Transformable | via `OData.type` | complex types, collections |

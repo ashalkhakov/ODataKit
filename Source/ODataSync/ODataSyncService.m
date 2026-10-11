@@ -432,6 +432,7 @@ void ODSForgetMerges(NSManagedObjectContext *context, NSString *entityType, NSSt
     if (!entity.superentity && [synced versionsAttributeOf:entity]) [roots addObject:entity];
   }
   ODSIndexKeys(model, roots);
+  ODSStoreBinariesExternally(model, roots);
   NSArray *added = @[ ODSTombstoneEntityDescription(), ODSMergeSeenEntityDescription() ];
   model.entities = [model.entities arrayByAddingObjectsFromArray:added];
   if (configuration) {

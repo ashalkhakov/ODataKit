@@ -14,6 +14,7 @@ NSString * const ODataSyncConflictsKey = @"ODataSync.conflicts";
 NSString * const ODataSyncModifiedKey = @"ODataSync.modified";
 NSString * const ODataSyncVersionsKey = @"ODataSync.versions";
 NSString * const ODataSyncMergeKey = @"ODataSync.merge";
+NSString * const ODataSyncExternalKey = @"ODataSync.external";
 
 // An attribute an entity (or one it derives from) names in its userInfo,
 // when it is a String.

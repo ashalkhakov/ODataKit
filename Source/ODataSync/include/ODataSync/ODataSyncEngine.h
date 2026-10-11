@@ -63,6 +63,12 @@ FOUNDATION_EXPORT NSString * const ODataSyncDirectionKey;    // @"ODataSync.dire
 FOUNDATION_EXPORT NSString * const ODataSyncConflictsKey;    // @"ODataSync.conflicts"
 FOUNDATION_EXPORT NSString * const ODataSyncModifiedKey;     // @"ODataSync.modified"
 FOUNDATION_EXPORT NSString * const ODataSyncVersionsKey;     // @"ODataSync.versions"
+// userInfo on a Binary attribute: NO keeps it in the store's rows. Else
+// +addBookkeepingToModel: lets a synced entity's Binary attributes (but a
+// key's) be kept outside the store (allowsExternalBinaryDataStorage): a
+// SQLite store keeps a value past 128 KiB in a file beside it, and a sync
+// that reads a row for its key does not read its files.
+FOUNDATION_EXPORT NSString * const ODataSyncExternalKey;   // @"ODataSync.external"
 FOUNDATION_EXPORT NSString * const ODataSyncErrorDomain;
 // The transaction author of what the engine writes: what came down from a
 // remote (ODataSyncDownAuthorPrefix and the remote's identifier), and its

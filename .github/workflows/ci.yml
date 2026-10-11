@@ -205,7 +205,7 @@ jobs:
       # not keep; 43dcb1f: #821 and #823 retired, merged (nsxml-prefixed-
       # descendants no longer applied to libs-base master, which broke
       # every build from scratch); nsxml-placeholder-attributes, the rest
-      # of #821. Ahead of the ref FreeCoreData pins (1eda55d).
+      # of #821.
       GNUSTEP_PATCHES_REF: 43dcb1fa0d6d468029d66dfeb250ae42bc1d8b10
       # FreeCoreData after #43: models can be copied (#43); managed objects
       # and object IDs in predicates match on every store, and count (#41);
@@ -235,7 +235,10 @@ jobs:
       # #73: objects tell their context of their changes, and changedValues
       # leaves out a property set to what it was (hasPersistentChangedValues
       # too); a fetch reads its rows at once.
-      FREECOREDATA_REF: 524709592bf8670dab363d4c00d70eff4aa51e55
+      # #74, #75: a SQLite store gives back free pages after saves, and keeps
+      # a Binary value that allows external storage (past 128 KiB) in a file
+      # beside it, as Apple's does: ODataSync's synced files are so kept.
+      FREECOREDATA_REF: a07b87ff0cba571bbc282f99d73f37619a9f65b3
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source

@@ -359,6 +359,9 @@ static void OISApplyVocabularies(NSDictionary<NSString *, id> *annotations, ODat
       NSAttributeDescription *attr = [[NSAttributeDescription alloc] init];
       attr.name = OISPropertyName(wire, names);
       attr.attributeType = attributeType;
+      // Files and images: kept beside the store, not in its rows (a SQLite
+      // store's, past 128 KiB), so reading a row does not read them.
+      if (attributeType == NSBinaryDataAttributeType && ![key containsObject:wire]) attr.allowsExternalBinaryDataStorage = YES;
       attr.optional = property.nullable && ![key containsObject:wire];
       NSMutableDictionary *info = [@{ ODataUserInfoProperty: wire } mutableCopy];
       if ([key containsObject:wire]) info[ODataUserInfoKey] = @"YES";

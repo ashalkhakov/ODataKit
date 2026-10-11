@@ -885,6 +885,59 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertFalse([digest isDigestOfData:[file subdataWithRange:NSMakeRange(0, 100)]]);
 }
 
+// Files and images kept outside the store, by default: each synced
+// entity's Binary attributes (a key's not, nor one the app keeps in its
+// rows, ODataSync.external NO), on the device and at the service. A file
+// past 128 KiB is then a file beside the SQLite store, not in its rows.
+- (void)testSyncedFilesAreKeptOutsideTheStore
+{
+  NSManagedObjectModel *device = OSTModel();
+  NSEntityDescription *asset = device.entitiesByName[@"Asset"];
+  NSAttributeDescription *kept = [[NSAttributeDescription alloc] init];
+  kept.name = @"thumbnail";
+  kept.attributeType = NSBinaryDataAttributeType;
+  kept.optional = YES;
+  kept.userInfo = @{ ODataSyncExternalKey: @"NO" };
+  asset.properties = [asset.properties arrayByAddingObject:kept];
+  [ODataSyncEngine addBookkeepingToModel:device configuration:nil];
+  NSAttributeDescription *attachment = [device.entitiesByName[@"Task"] attributesByName][@"attachment"];
+  NSAttributeDescription *thumbnail = [device.entitiesByName[@"Asset"] attributesByName][@"thumbnail"];
+  NSAttributeDescription *values = [device.entitiesByName[@"ODSShadow"] attributesByName][@"values"];
+  XCTAssertTrue(attachment.allowsExternalBinaryDataStorage);
+  XCTAssertFalse(thumbnail.allowsExternalBinaryDataStorage, @"kept in its rows");
+  XCTAssertFalse(values.allowsExternalBinaryDataStorage, @"the bookkeeping is small");
+
+  NSManagedObjectModel *service = OSTModel();
+  NSEntityDescription *task = service.entitiesByName[@"Task"];
+  NSAttributeDescription *versions = [[NSAttributeDescription alloc] init];
+  versions.name = @"versions";
+  versions.attributeType = NSStringAttributeType;
+  versions.optional = YES;
+  task.properties = [task.properties arrayByAddingObject:versions];
+  NSMutableDictionary *info = [task.userInfo mutableCopy];
+  info[ODataSyncVersionsKey] = @"versions";
+  task.userInfo = info;
+  [ODataSyncService addBookkeepingToModel:service configuration:nil];
+  NSAttributeDescription *served = task.attributesByName[@"attachment"];
+  XCTAssertTrue(served.allowsExternalBinaryDataStorage, @"at the service too");
+
+  // A file of 512 KiB, synced down: a file beside the device's store.
+  NSMutableData *file = [NSMutableData dataWithLength:512 * 1024];
+  for (NSUInteger i = 0; i < file.length; i += 4096) ((uint8_t *)file.mutableBytes)[i] = (uint8_t)(i / 4096);
+  NSString *identifier = [self makeTask:@"With a file"];
+  [self set:@{ @"attachment": file } onTask:identifier in:_device];
+  [self sync];
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_server], (@[ file ]));
+  NSPersistentStore *deviceStore = _device.persistentStores.firstObject;
+  NSURL *store = deviceStore.URL;
+  NSString *external = [[store.path stringByDeletingLastPathComponent]
+      stringByAppendingPathComponent:[NSString stringWithFormat:@".%@_SUPPORT/_EXTERNAL_DATA", store.lastPathComponent.stringByDeletingPathExtension]];
+  NSArray *files = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:external error:NULL]
+      filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"NOT SELF BEGINSWITH '.'"]];
+  XCTAssertGreaterThan(files.count, 0u, @"in %@", external);
+  XCTAssertEqualObjects([self values:@"attachment" of:@"Task" in:_device], (@[ file ]), @"and read back whole");
+}
+
 // The same file saved again (an app that sets every field it shows) is
 // no change: nothing stamped, nothing sent.
 - (void)testTheSameFileSavedAgainSendsNothing
