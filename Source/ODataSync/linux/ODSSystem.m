@@ -89,3 +89,38 @@ NSURL *ODSSystemIdentityDirectory(void)
                     stringByAppendingPathComponent:@"ODataSync Peers"];
   return [NSURL fileURLWithPath:path isDirectory:YES];
 }
+
+// No keychain: a property list only the user can read, every service's
+// accounts in one file, written whole.
+static NSURL *ODSSecretsFile(NSString *service)
+{
+  NSString *support = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
+  NSString *directory = [support stringByAppendingPathComponent:service];
+  [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES
+                                             attributes:@{ NSFilePosixPermissions: @0700 } error:NULL];
+  return [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Secrets.plist"]];
+}
+
+// Read by NSPropertyListSerialization: +dictionaryWithContentsOfFile: on
+// GNUstep takes a binary property list for text, and gives nil.
+static NSDictionary *ODSAllSecrets(NSString *service)
+{
+  NSData *data = [NSData dataWithContentsOfURL:ODSSecretsFile(service)];
+  id all = data.length ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL] : nil;
+  return [all isKindOfClass:[NSDictionary class]] ? all : @{};
+}
+
+NSDictionary *ODSSystemSecrets(NSString *service, NSString *account)
+{
+  id mine = ODSAllSecrets(service)[account];
+  return [mine isKindOfClass:[NSDictionary class]] ? mine : nil;
+}
+
+BOOL ODSSystemSetSecrets(NSDictionary *secrets, NSString *service, NSString *account)
+{
+  NSMutableDictionary *all = [ODSAllSecrets(service) mutableCopy];
+  if (secrets) all[account] = secrets;
+  else [all removeObjectForKey:account];
+  NSData *data = [NSPropertyListSerialization dataWithPropertyList:all format:NSPropertyListXMLFormat_v1_0 options:0 error:NULL];
+  return data && ODSSystemWritePrivateFile(data, ODSSecretsFile(service), NULL);
+}

@@ -592,7 +592,7 @@ NSManagedObjectModel *model = ...;                 // annotated: ODataSync.direc
 // the store: SQLite, with NSPersistentHistoryTrackingKey
 ODataSyncEngine *sync = [[ODataSyncEngine alloc] initWithCoordinator:coordinator];
 ODataSyncRemote *service = [ODataSyncRemote remoteWithServiceRoot:url];
-service.configuration.credentialProvider = auth;   // ODataCredentialProviding
+service.configuration.credentialProvider = auth;   // ODataCredentialProviding: ODataSignIn signs in as $metadata says (device flow)
 service.filters = @{ @"Asset": @"Region eq 'North'" };
 [sync addRemote:service];
 sync.resolver = [[ODataSyncMergeFields alloc] init];   // or per entity: -setResolver:forEntityName:, userInfo ODataSync.conflicts

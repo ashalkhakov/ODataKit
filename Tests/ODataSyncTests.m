@@ -1441,3 +1441,267 @@ static NSManagedObjectModel *OSTModel(void)
 }
 
 @end
+
+#pragma mark - Signing in
+
+// Kept in memory, as the Keychain would keep them.
+@interface OSTMemorySecrets : NSObject <ODataSecretStoring>
+@property (nonatomic, strong) NSMutableDictionary *all;
+@end
+
+@implementation OSTMemorySecrets
+- (instancetype)init
+{
+  if ((self = [super init])) _all = [NSMutableDictionary dictionary];
+  return self;
+}
+- (NSDictionary *)secretsForAccount:(NSString *)account { return _all[account]; }
+- (BOOL)setSecrets:(NSDictionary *)secrets forAccount:(NSString *)account
+{
+  _all[account] = secrets;
+  return YES;
+}
+@end
+
+// The service and the identity provider, answering as they would (the
+// provider as Keycloak does, with PKCE set on the client).
+@interface OSTFakeSignIn : ODataSignIn
+@property (nonatomic, strong) ODataService *service;
+@property (nonatomic, copy) NSDictionary *key;
+@property (atomic) NSInteger polls, refreshes;
+@property (atomic, copy) NSString *challenge;
+@end
+
+@implementation OSTFakeSignIn
+
+static NSString *OSTFormValue(NSString *form, NSString *name)
+{
+  for (NSString *pair in [form componentsSeparatedByString:@"&"]) {
+    NSArray *kv = [pair componentsSeparatedByString:@"="];
+    if (kv.count == 2 && [kv[0] isEqual:name]) return [kv[1] stringByRemovingPercentEncoding];
+  }
+  return nil;
+}
+
+- (NSString *)tokenFor:(NSString *)user
+{
+  NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+  return HSSignJWT(@{ @"iss": @"https://id.test", @"sub": user, @"preferred_username": user, @"iat": @((long)now), @"exp": @((long)now + 3600) },
+                   _key, NULL);
+}
+
+- (void)send:(NSURLRequest *)request done:(void (^)(NSData *, NSHTTPURLResponse *, NSError *))done
+{
+  NSString *url = request.URL.absoluteString;
+  NSString *form = request.HTTPBody ? [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] : @"";
+  NSInteger status = 200;
+  id json = nil;
+  NSData *body = nil;
+  if ([url hasSuffix:@"$metadata"]) {
+    body = [[_service metadataXMLForVersion:@"4.01"] dataUsingEncoding:NSUTF8StringEncoding];
+  } else if ([url hasSuffix:@"/.well-known/openid-configuration"]) {
+    json = @{ @"issuer": @"https://id.test", @"device_authorization_endpoint": @"https://id.test/device", @"token_endpoint": @"https://id.test/token" };
+  } else if ([url hasSuffix:@"/device"] && ![OSTFormValue(form, @"code_challenge_method") isEqual:@"S256"]) {
+    status = 400;
+    json = @{ @"error": @"invalid_request", @"error_description": @"Missing parameter: code_challenge_method" };
+  } else if ([url hasSuffix:@"/device"]) {
+    self.challenge = OSTFormValue(form, @"code_challenge");
+    json = @{ @"device_code": @"dc-1", @"user_code": @"WDJB-MJHT", @"verification_uri": @"https://id.test/activate",
+              @"verification_uri_complete": @"https://id.test/activate?user_code=WDJB-MJHT", @"interval": @0.05, @"expires_in": @60 };
+  } else if ([url hasSuffix:@"/token"] && [form containsString:@"device_code"]) {
+    // Pending once (the user still signing in), then the tokens; for the
+    // verifier of the challenge only.
+    NSString *verifier = OSTFormValue(form, @"code_verifier");
+    if (!verifier || ![ODataSignInChallengeOfVerifier(verifier) isEqual:self.challenge]) {
+      status = 400;
+      json = @{ @"error": @"invalid_grant", @"error_description": @"PKCE verification failed" };
+    } else if (self.polls++ == 0) {
+      status = 400;
+      json = @{ @"error": @"authorization_pending" };
+    } else {
+      json = @{ @"access_token": [self tokenFor:@"alice"], @"refresh_token": @"refresh-1", @"id_token": [self tokenFor:@"alice"], @"expires_in": @300 };
+    }
+  } else if ([url hasSuffix:@"/token"] && [form containsString:@"refresh_token"]) {
+    self.refreshes++;
+    json = @{ @"access_token": [self tokenFor:@"alice"], @"refresh_token": @"refresh-2", @"expires_in": @300 };
+  } else {
+    status = 404;
+  }
+  if (json) body = [NSJSONSerialization dataWithJSONObject:json options:0 error:NULL];
+  NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:request.URL statusCode:status HTTPVersion:@"HTTP/1.1" headerFields:@{}];
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    done(body, response, nil);
+  });
+}
+
+@end
+
+// Signing in as the service's $metadata says to: what it asks for; the
+// device flow (PKCE checked); the tokens kept, refreshed, and a sync signed
+// in with them; and the system's secret store.
+@interface ODataSignInTests : XCTestCase <ODataSignInDelegate>
+@end
+
+@implementation ODataSignInTests {
+  NSMutableArray<NSURL *> *_files;
+  NSPersistentStoreCoordinator *_server;
+  ODataService *_service;
+  NSDictionary *_key;
+  NSString *_code;
+  BOOL _learnt, _finished;
+  NSError *_failed;
+}
+
+- (NSPersistentStoreCoordinator *)coordinatorWithModel:(NSManagedObjectModel *)model
+{
+  NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+  [_files addObject:url];
+  NSError *error = nil;
+  XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url
+                                                  options:@{ NSPersistentHistoryTrackingKey: @YES } error:&error], @"%@", error);
+  return coordinator;
+}
+
+- (void)setUp
+{
+  _files = [NSMutableArray array];
+  _server = [self coordinatorWithModel:OSTModel()];
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_server serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  NSError *error = nil;
+  _key = HSGenerateSigningKey(&error);
+  XCTAssertNotNil(_key, @"%@", error);
+}
+
+- (void)tearDown
+{
+  for (NSURL *url in _files) {
+    for (NSString *suffix in @[ @"", @"-wal", @"-shm" ]) [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+  }
+}
+
+// The service signs in with OpenID Connect, its $metadata to anyone.
+- (void)signInWithOpenID
+{
+  HSJWTAuthenticator *jwt = [[HSJWTAuthenticator alloc] initWithIssuer:@"https://id.test" audience:nil];
+  jwt.keySet = @{ @"keys": @[ HSPublicKey(_key) ] };
+  _service.authenticator = jwt;
+  _service.allowsAnonymousMetadata = YES;
+}
+
+- (OSTFakeSignIn *)signIn
+{
+  OSTFakeSignIn *signIn = [[OSTFakeSignIn alloc] initWithServiceRoot:_service.serviceRoot secrets:[[OSTMemorySecrets alloc] init]];
+  signIn.service = _service;
+  signIn.key = _key;
+  signIn.clientID = @"workbench";
+  signIn.delegate = self;
+  return signIn;
+}
+
+- (void)waitFor:(BOOL (^)(void))done
+{
+  NSDate *until = [NSDate dateWithTimeIntervalSinceNow:10];
+  while (!done() && !_failed && [until timeIntervalSinceNow] > 0) [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+}
+
+- (void)signInDidLearn:(ODataSignIn *)signIn { _learnt = YES; }
+- (void)signIn:(ODataSignIn *)signIn showCode:(NSString *)code page:(NSURL *)page completePage:(NSURL *)completePage { _code = code; }
+- (void)signInDidFinish:(ODataSignIn *)signIn { _finished = YES; }
+- (void)signIn:(ODataSignIn *)signIn didFail:(NSError *)error { _failed = error; }
+
+- (void)testWhatTheServiceAsksForIsLearnt
+{
+  OSTFakeSignIn *none = [self signIn];
+  [none learn];
+  [self waitFor:^BOOL { return self->_learnt; }];
+  XCTAssertEqual(none.kind, ODataSignInNone, @"no authenticator: no one asked for");
+  [none begin];
+  [self waitFor:^BOOL { return self->_finished; }];
+  XCTAssertTrue(_finished && none.signedIn, @"nothing to sign in with: done at once");
+
+  [self signInWithOpenID];
+  _learnt = NO;
+  OSTFakeSignIn *signIn = [self signIn];
+  [signIn learn];
+  [self waitFor:^BOOL { return self->_learnt; }];
+  XCTAssertEqual(signIn.kind, ODataSignInOpenID);
+  XCTAssertEqualObjects(signIn.issuer.absoluteString, @"https://id.test");
+  XCTAssertFalse(signIn.signedIn);
+}
+
+// The device flow: a code shown, the provider asked until the user has
+// signed in (PKCE checked), the tokens kept; then a sync of a service that
+// asks for a sign-in, with them.
+- (void)testSigningInByTheDeviceFlowAndSyncing
+{
+  [self signInWithOpenID];
+  OSTFakeSignIn *signIn = [self signIn];
+  [signIn begin];
+  [self waitFor:^BOOL { return self->_finished; }];
+  XCTAssertNil(_failed);
+  XCTAssertEqualObjects(_code, @"WDJB-MJHT");
+  XCTAssertTrue(signIn.signedIn);
+  XCTAssertEqualObjects(signIn.userName, @"alice");
+  XCTAssertGreaterThanOrEqual(signIn.polls, 2, @"pending once, then the tokens");
+
+  NSManagedObjectModel *model = OSTModel();
+  [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:[self coordinatorWithModel:model]];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:_service.serviceRoot];
+  remote.transport = _service;
+  remote.configuration = signIn.configuration;
+  [engine addRemote:remote];
+  NSError *error = nil;
+  XCTAssertTrue([engine syncWithError:&error], @"signed in: %@", error);
+
+  ODataSyncEngine *anonymous = [[ODataSyncEngine alloc] initWithCoordinator:[self coordinatorWithModel:model]];
+  ODataSyncRemote *bare = [ODataSyncRemote remoteWithServiceRoot:_service.serviceRoot];
+  bare.transport = _service;
+  [anonymous addRemote:bare];
+  XCTAssertFalse([anonymous syncWithError:&error], @"and not without it");
+}
+
+// A token run out is refreshed with the refresh token, once.
+- (void)testAnExpiredTokenIsRefreshed
+{
+  [self signInWithOpenID];
+  OSTMemorySecrets *secrets = [[OSTMemorySecrets alloc] init];
+  OSTFakeSignIn *signIn = [[OSTFakeSignIn alloc] initWithServiceRoot:_service.serviceRoot secrets:secrets];
+  signIn.service = _service;
+  signIn.key = _key;
+  signIn.clientID = @"workbench";
+  signIn.delegate = self;
+  [signIn begin];
+  [self waitFor:^BOOL { return self->_finished; }];
+  NSMutableDictionary *kept = [secrets.all[_service.serviceRoot.absoluteString] mutableCopy];
+  kept[@"expires"] = @([NSDate date].timeIntervalSince1970 - 10);
+  secrets.all[_service.serviceRoot.absoluteString] = kept;
+  NSString *token = [signIn accessTokenForAuthorization:nil refresh:NO];
+  XCTAssertTrue(token.length);
+  XCTAssertEqual(signIn.refreshes, 1);
+  XCTAssertEqualObjects(secrets.all[_service.serviceRoot.absoluteString][@"refresh"], @"refresh-2", @"the new refresh token kept");
+}
+
+- (void)testNoClientIDIsAnError
+{
+  [self signInWithOpenID];
+  OSTFakeSignIn *signIn = [self signIn];
+  signIn.clientID = nil;
+  [signIn begin];
+  [self waitFor:^BOOL { return NO; }];
+  XCTAssertTrue([_failed.localizedDescription containsString:@"client"], @"%@", _failed);
+}
+
+// The system's store: the Keychain, or a file only the user can read.
+- (void)testTheSystemKeepsSecrets
+{
+  ODataSecretStore *store = [[ODataSecretStore alloc] initWithServiceName:[@"ODataKit tests " stringByAppendingString:[NSUUID UUID].UUIDString]];
+  XCTAssertNil([store secretsForAccount:@"http://example.test/"]);
+  XCTAssertTrue([store setSecrets:@{ @"refresh": @"r-1" } forAccount:@"http://example.test/"]);
+  XCTAssertEqualObjects([store secretsForAccount:@"http://example.test/"], @{ @"refresh": @"r-1" });
+  XCTAssertTrue([store setSecrets:nil forAccount:@"http://example.test/"]);
+  XCTAssertNil([store secretsForAccount:@"http://example.test/"]);
+}
+
+@end
