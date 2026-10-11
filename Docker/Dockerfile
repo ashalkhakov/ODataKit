@@ -49,7 +49,7 @@ COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
 FROM toolchain AS stack
-ARG GNUSTEP_PATCHES_REF=610d60bfdc18b5d36587e799e1b26c460a608d9d
+ARG GNUSTEP_PATCHES_REF=43dcb1fa0d6d468029d66dfeb250ae42bc1d8b10
 ARG FREECOREDATA_REF=524709592bf8670dab363d4c00d70eff4aa51e55
 RUN set -e; \
     mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
