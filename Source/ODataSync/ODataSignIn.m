@@ -307,6 +307,13 @@ static NSDictionary *ODSSignInJSON(NSData *data) {
                 [self tell:@selector(signInDidFinish:) with:nil];
                 return;
             }
+            /* No answer at all (on iOS, the request cut while the app waited
+               behind the sign-in page; the network changed): asked again,
+               while the code holds. */
+            if (!response && error) {
+                [self pollLater];
+                return;
+            }
             NSString *why = d[@"error"];
             if ([why isEqual:@"authorization_pending"]) [self pollLater];
             else if ([why isEqual:@"slow_down"]) {

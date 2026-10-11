@@ -1522,6 +1522,8 @@ static NSManagedObjectModel *OSTModel(void)
 @property (nonatomic, strong) ODataService *service;
 @property (nonatomic, copy) NSDictionary *key;
 @property (atomic) NSInteger polls, refreshes;
+// Token polls lost on the way (no answer: the connection lost), first.
+@property (atomic) NSInteger lost;
 @property (atomic, copy) NSString *challenge;
 @end
 
@@ -1561,6 +1563,14 @@ static NSString *OSTFormValue(NSString *form, NSString *name)
     self.challenge = OSTFormValue(form, @"code_challenge");
     json = @{ @"device_code": @"dc-1", @"user_code": @"WDJB-MJHT", @"verification_uri": @"https://id.test/activate",
               @"verification_uri_complete": @"https://id.test/activate?user_code=WDJB-MJHT", @"interval": @0.05, @"expires_in": @60 };
+  } else if ([url hasSuffix:@"/token"] && [form containsString:@"device_code"] && self.lost > 0) {
+    self.lost--;
+    NSError *cut = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost
+                                   userInfo:@{ NSLocalizedDescriptionKey: @"The network connection was lost." }];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      done(nil, nil, cut);
+    });
+    return;
   } else if ([url hasSuffix:@"/token"] && [form containsString:@"device_code"]) {
     // Pending once (the user still signing in), then the tokens; for the
     // verifier of the challenge only.
@@ -1681,6 +1691,20 @@ static NSString *OSTFormValue(NSString *form, NSString *name)
   XCTAssertEqual(signIn.kind, ODataSignInOpenID);
   XCTAssertEqualObjects(signIn.issuer.absoluteString, @"https://id.test");
   XCTAssertFalse(signIn.signedIn);
+}
+
+// Polls lost on the way (iOS cuts them while the app waits behind the
+// sign-in page): asked again, and signed in all the same.
+- (void)testAPollLostOnTheWayIsAskedAgain
+{
+  [self signInWithOpenID];
+  OSTFakeSignIn *signIn = [self signIn];
+  signIn.lost = 2;
+  [signIn begin];
+  [self waitFor:^BOOL { return self->_finished || self->_failed; }];
+  XCTAssertNil(_failed, @"%@", _failed);
+  XCTAssertTrue(signIn.signedIn);
+  XCTAssertEqual(signIn.lost, 0);
 }
 
 // The device flow: a code shown, the provider asked until the user has

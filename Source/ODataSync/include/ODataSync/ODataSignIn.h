@@ -12,8 +12,10 @@
 // same on macOS, iOS and GNUstep, with no browser of the app's own.
 //
 // Tokens are kept in an ODataSecretStore (the Keychain; on GNUstep a file
-// only the user can read), and the access token is refreshed when it runs
-// out. An ODataSignIn is a credential provider: an ODataConfiguration's
+// only the user can read), or any ODataSecretStoring (an app that kept its
+// tokens elsewhere before keeps its own store, and nobody is signed out:
+// by account, the service root; "kind", "access", "refresh", ...), and the
+// access token is refreshed when it runs out. An ODataSignIn is a credential provider: an ODataConfiguration's
 // (-configuration), or a store's (ODataIncrementalStoreCredentialProviderOption).
 //
 // The identity provider's client (clientID): a public client with the
