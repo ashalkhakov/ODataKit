@@ -39,6 +39,12 @@ export GNUSTEP_LOCAL_LIBRARY="$HERE/usr/Local/Library"
 export GNUSTEP_LOCAL_TOOLS="$HERE/usr/Local/Tools"
 export GNUSTEP_LOCAL_APPS="$HERE/usr/Local/Applications"
 
+# Saved before they are pointed at the image: Scripts/appimage/open puts these
+# back before handing a URL to the host's browser, which cannot run against the
+# libraries this image carries.
+export OIS_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export OIS_HOST_PATH="$PATH"
+
 export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/Local/Library/Libraries:$HERE/usr/System/Library/Libraries:${LD_LIBRARY_PATH:-}"
 export PATH="$HERE/usr/bin:$HERE/usr/System/Tools:$PATH"
 
@@ -63,6 +69,10 @@ if [ -n "$DEFAULTS_TOOL" ]; then
     "$DEFAULTS_TOOL" write "$domain" NSBoldFont LiberationSans-Bold
     "$DEFAULTS_TOOL" write "$domain" NSUserFont LiberationSans
     "$DEFAULTS_TOOL" write "$domain" NSUserFixedPitchFont LiberationMono
+    # What NSWorkspace runs for a URL it has no application for (a sign-in
+    # page): ours, in the bundle's Tools, which [NSTask launchPathForTool:]
+    # searches before $PATH (Scripts/appimage/open).
+    "$DEFAULTS_TOOL" write "$domain" GSUnknownFileTool open
     "$DEFAULTS_TOOL" write "$domain" GSFirstCommandKey Control_L
     "$DEFAULTS_TOOL" write "$domain" GSFirstControlKey NoSymbol
     "$DEFAULTS_TOOL" write "$domain" GSSecondControlKey Control_R

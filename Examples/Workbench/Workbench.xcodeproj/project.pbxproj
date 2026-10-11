@@ -27,6 +27,7 @@
 		AA00000000000000000000C7 /* WBResults.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000C8 /* WBResults.m */; };
 		AA00000000000000000000C9 /* WorkbenchSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000CA /* WorkbenchSupport.m */; };
 		AA00000000000000000000E0 /* WBTraces.m in Sources */ = {isa = PBXBuildFile; fileRef = AA00000000000000000000E1 /* WBTraces.m */; };
+		AA0000000000000000000F00 /* WBSignInPanel.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F01 /* WBSignInPanel.m */; };
 		AA0000000000000000000E02 /* ExchangeWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000E01 /* ExchangeWindow.xib */; };
 		AA0000000000000000000E04 /* PlanWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000E03 /* PlanWindow.xib */; };
 		AB00000000000000000000C2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB00000000000000000000C1 /* Assets.xcassets */; };
@@ -176,6 +177,8 @@
 		AA00000000000000000000D5 /* WorkbenchController+Private.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "WorkbenchController+Private.h"; sourceTree = "<group>"; };
 		AA00000000000000000000E1 /* WBTraces.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WBTraces.m; sourceTree = "<group>"; };
 		AA00000000000000000000E2 /* WBTraces.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WBTraces.h; sourceTree = "<group>"; };
+		AA0000000000000000000F01 /* WBSignInPanel.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WBSignInPanel.m; sourceTree = "<group>"; };
+		AA0000000000000000000F02 /* WBSignInPanel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WBSignInPanel.h; sourceTree = "<group>"; };
 		AA0000000000000000000E01 /* ExchangeWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ExchangeWindow.xib; sourceTree = "<group>"; };
 		AA0000000000000000000E03 /* PlanWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = PlanWindow.xib; sourceTree = "<group>"; };
 		AB00000000000000000000C1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -225,11 +228,13 @@
 				AA00000000000000000000C6 /* WBQuery.m */,
 				AA00000000000000000000C8 /* WBResults.m */,
 				AA00000000000000000000E1 /* WBTraces.m */,
+				AA0000000000000000000F01 /* WBSignInPanel.m */,
 				AA00000000000000000000CA /* WorkbenchSupport.m */,
 				AA00000000000000000000D1 /* WBConnection.h */,
 				AA00000000000000000000D2 /* WBQuery.h */,
 				AA00000000000000000000D3 /* WBResults.h */,
 				AA00000000000000000000E2 /* WBTraces.h */,
+				AA0000000000000000000F02 /* WBSignInPanel.h */,
 				AA00000000000000000000D4 /* WorkbenchSupport.h */,
 				AA00000000000000000000D5 /* WorkbenchController+Private.h */,
 				AA000000000000000000009F /* WorkbenchEngine.h */,
@@ -426,6 +431,7 @@
 				AA00000000000000000000C5 /* WBQuery.m in Sources */,
 				AA00000000000000000000C7 /* WBResults.m in Sources */,
 				AA00000000000000000000E0 /* WBTraces.m in Sources */,
+				AA0000000000000000000F00 /* WBSignInPanel.m in Sources */,
 				AA00000000000000000000C9 /* WorkbenchSupport.m in Sources */,
 				942C23BF5ED1072A27E86199 /* WBSync.m in Sources */,
 				A17EAFA7B40999E262D97750 /* WorkbenchModel.m in Sources */,

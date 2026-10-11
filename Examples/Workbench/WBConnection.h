@@ -66,6 +66,9 @@ typedef NS_ENUM(NSInteger, WBService) {
 // win, 2 the service's win; applied to the context at once. The other two
 // take effect on the next connection.
 @property (nonatomic) NSInteger mergePolicy;
+// Credentials for a service that asks for a sign-in (an ODataSignIn),
+// taken at the next connection; nil: none.
+@property (nonatomic, strong, nullable) id<ODataCredentialProviding> credentialProvider;
 @property (nonatomic) BOOL respondAsync;
 @property (nonatomic) BOOL JSONBatch;
 

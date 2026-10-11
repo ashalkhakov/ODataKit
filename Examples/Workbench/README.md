@@ -38,7 +38,23 @@ Pick a service at the top:
   own, so writing is safe. Reset starts a new one. Its `Person` is an open
   type: the model built from `$metadata` gives it `dynamicProperties`, the
   properties a person has that the type does not declare.
-- **Other URL…**: any OData v4 service root; press Connect.
+- **Other URL…**: any OData v4 service root; press Connect. One that asks for a sign-in
+  says so in `$metadata` (OData's Authorization vocabulary; an
+  `ODataService` with `AllowAnonymousMetadata` lets anyone read it), and
+  the Workbench signs in as it says (`ODataSignIn`, in ODataSync):
+  - **OpenID Connect** (Keycloak, Authentik, ...): by the device flow. A
+    panel shows the provider and asks for the client the Workbench signs
+    in as (there is no default; it is remembered for each service): a
+    public client with the device flow on, whose tokens name the service
+    in their audience; a SimpleNotes server's own client (`simplenotes`)
+    will do. Sign In shows a code and opens the page to
+    enter it on in the browser (Open Page again, or Copy Code); once
+    signed in there, the Workbench connects.
+  - **A user and password** (Http basic): the panel asks for them.
+  - The tokens (or password) are kept in the Keychain (on GNUstep, a file
+    only the user can read), refreshed when they run out, and used for
+    every request the store sends. Store > Sign Out of the Service forgets
+    them; a service that refuses them is asked again.
 
 For a real service the model is the one its `$metadata` describes, built at
 runtime: nothing is known about the service in advance.

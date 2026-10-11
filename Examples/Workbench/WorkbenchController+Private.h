@@ -9,11 +9,16 @@
 #import "WBResults.h"
 #import "WBTraces.h"
 #import "WBSync.h"
+#import "WBSignInPanel.h"
 
-@interface WorkbenchController ()
+@interface WorkbenchController () <ODataSignInDelegate>
 
 // The three parts: the connection, the query, and its results.
 @property (nonatomic, strong) WBConnection *connection;
+// Signing in to a service that asks for it: one sign-in for each service
+// root, its tokens in the system's secret store; the panel while it asks.
+@property (nonatomic, strong) NSMutableDictionary<NSString *, ODataSignIn *> *signIns;
+@property (nonatomic, strong, nullable) WBSignInPanel *signInPanel;
 @property (nonatomic, strong) WBQuery *query;
 @property (nonatomic, strong) WBResults *results;
 // The service's canned queries, as the presets menu lists them.

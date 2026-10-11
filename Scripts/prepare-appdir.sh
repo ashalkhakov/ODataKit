@@ -62,6 +62,17 @@ if [ -n "$backend" ]; then
   ln -sfn "$(basename "$backend")" "$(dirname "$backend")/back.bundle"
 fi
 
+# The opener, under both names GNUstep asks for: "open" is what the
+# GSUnknownFileTool default (AppRun) names, "xdg-open" is NSWorkspace's
+# built-in fallback. In the bundle's GNUstep Tools, which
+# [NSTask launchPathForTool:] searches before $PATH, and in usr/bin: a
+# sign-in page opens in the host's browser (Scripts/appimage/open).
+mkdir -p AppDir/usr/System/Tools AppDir/usr/bin
+for name in open xdg-open; do
+  install -m 0755 Scripts/appimage/open "AppDir/usr/System/Tools/$name"
+  install -m 0755 Scripts/appimage/open "AppDir/usr/bin/$name"
+done
+
 # Fonts, so the window lays out the same on a machine that has none.
 mkdir -p AppDir/usr/etc/fonts
 cp Scripts/appimage/fonts.conf AppDir/usr/etc/fonts/fonts.conf
