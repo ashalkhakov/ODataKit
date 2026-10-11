@@ -261,7 +261,7 @@ static void OISLoadBackendFor(NSString *type)
 + (NSArray<NSString *> *)knownSettings
 {
   return [[super knownSettings] arrayByAddingObjectsFromArray:@[
-    @"Model", @"StoreType", @"StoreURL", @"StoreOptions", @"ServiceRoot", @"MaxPageSize", @"MaxVersion", @"Namespace", @"Container",
+    @"Model", @"StoreType", @"StoreURL", @"StoreOptions", @"ServiceRoot", @"MaxPageSize", @"MaxPageBytes", @"MaxVersion", @"Namespace", @"Container",
     @"MaxURLLength", @"MaxExpandDepth", @"MaxBatchRequests", @"MaxRowsInMemory", @"MaxJSONDepth", @"MaxAsyncRequests",
     @"ReplyTimeout", @"AsyncResultDuration", @"RepeatabilityDuration", @"RepeatabilityMemory", @"HistoryRetention", @"AllowAnonymous", @"AllowAnonymousMetadata", @"PrintMetadata" ]];
 }
@@ -303,6 +303,7 @@ static void OISLoadBackendFor(NSString *type)
   if ([self setting:@"MaxVersion"]) service.maxVersion = [self setting:@"MaxVersion"];
   // What one request may ask (ODataService.h): each a number, 0 for none.
   if ([self setting:@"MaxPageSize"]) service.maxPageSize = (NSUInteger)[self number:@"MaxPageSize" otherwise:0];
+  if ([self setting:@"MaxPageBytes"]) service.maxPageBytes = (NSUInteger)[self number:@"MaxPageBytes" otherwise:0];
   if ([self setting:@"MaxURLLength"]) service.maxURLLength = (NSUInteger)[self number:@"MaxURLLength" otherwise:0];
   if ([self setting:@"MaxExpandDepth"]) service.maxExpandDepth = (NSUInteger)[self number:@"MaxExpandDepth" otherwise:0];
   if ([self setting:@"MaxBatchRequests"]) service.maxBatchRequests = (NSUInteger)[self number:@"MaxBatchRequests" otherwise:0];

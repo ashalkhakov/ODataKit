@@ -53,6 +53,11 @@ static const NSInteger ODSGone = 410;
 // A GET's JSON; *status the HTTP status of a failure (0: none came).
 - (NSDictionary *)JSONAt:(NSURL *)url prefer:(NSString *)prefer status:(NSInteger *)status error:(NSError **)error
 {
+  // A page of so many rows at most, asked of every read.
+  if (_remote.pageSize) {
+    NSString *page = [NSString stringWithFormat:@"odata.maxpagesize=%lu", (unsigned long)_remote.pageSize];
+    prefer = prefer ? [prefer stringByAppendingFormat:@", %@", page] : page;
+  }
   NSMutableURLRequest *request = [_requests GET:url prefer:prefer];
   NSError *failure = nil;
   ODataHTTPResponse *response = [_client sendRequest:request error:&failure];

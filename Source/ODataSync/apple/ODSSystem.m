@@ -62,3 +62,38 @@ NSString *ODSAppleThumbprint(SecCertificateRef certificate)
   NSData *der = (__bridge_transfer NSData *)SecCertificateCopyData(certificate);
   return der ? [ODataSyncPeerIdentity thumbprintOfCertificateData:der] : nil;
 }
+
+// The Keychain: a generic password, its data the secrets as a property
+// list; on iOS, this device's only, once it was unlocked.
+static NSDictionary *ODSKeychainQuery(NSString *service, NSString *account)
+{
+  return @{ (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword, (__bridge id)kSecAttrService: service,
+            (__bridge id)kSecAttrAccount: account };
+}
+
+NSDictionary *ODSSystemSecrets(NSString *service, NSString *account)
+{
+  NSMutableDictionary *query = [ODSKeychainQuery(service, account) mutableCopy];
+  query[(__bridge id)kSecReturnData] = @YES;
+  query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+  CFTypeRef found = NULL;
+  if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &found) != errSecSuccess || !found) return nil;
+  NSData *data = (__bridge_transfer NSData *)found;
+  id secrets = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
+  return [secrets isKindOfClass:[NSDictionary class]] ? secrets : nil;
+}
+
+BOOL ODSSystemSetSecrets(NSDictionary *secrets, NSString *service, NSString *account)
+{
+  NSDictionary *query = ODSKeychainQuery(service, account);
+  SecItemDelete((__bridge CFDictionaryRef)query);
+  if (!secrets) return YES;
+  NSData *data = [NSPropertyListSerialization dataWithPropertyList:secrets format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+  if (!data) return NO;
+  NSMutableDictionary *item = [query mutableCopy];
+  item[(__bridge id)kSecValueData] = data;
+#if TARGET_OS_IPHONE
+  item[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
+#endif
+  return SecItemAdd((__bridge CFDictionaryRef)item, NULL) == errSecSuccess;
+}

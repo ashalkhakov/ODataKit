@@ -353,7 +353,7 @@ list `-Config` names, and any of them from the command line, which wins
 (`-Port 9000`): `Model`, `StoreType` (`SQLite`, `InMemory`, `XML`, or a
 type a backend registers, such as `CDPostgreSQLStore`), `StoreURL`,
 `StoreOptions`, `ServiceRoot` (the public URL, which `@odata.context` and
-next links begin with), `Port`, `Localhost`, `MaxPageSize`, `MaxVersion`,
+next links begin with), `Port`, `Localhost`, `MaxPageSize`, `MaxPageBytes`, `MaxVersion`,
 `Namespace`, `Container`, and `Bundles`; and the limits below
 (`MaxBodySize`, `MaxURLLength`, `MaxExpandDepth`, `MaxBatchRequests`,
 `MaxRowsInMemory`, `MaxJSONDepth`, `MaxAsyncRequests`, `ReplyTimeout`,
@@ -937,14 +937,43 @@ same request with a `$deltatoken`. The token is the handler's
 (`-changeTokenForRequest:`; by default Core Data's persistent history
 token, archived, in base64url), taken before the rows are read, so a
 change made meanwhile comes again rather than never. A paged read's next
-links carry it (`$skiptoken=20~token`), so the delta starts from the first
+links carry it (`$skiptoken=k…~token`), so the delta starts from the first
 page, not the last.
 
 The delta link answers what changed since the token, as the handler
 says (`-changesSince:request:reply:`, an `ODataChanges`: by default what
 the persistent history holds; a handler with a change feed of its own
-gives that, with tokens of its own), in one response, first changed
-first, with the next delta link:
+gives that, with tokens of its own), in key order, paged as a read is
+(below): a page's next link keeps the `$deltatoken` and goes on after
+the last key sent (`$skiptoken=k…~token`, the token being where the first
+page began). The rows that no longer match and the deleted come with the
+last page, and with them the next delta link, from where the first page
+began: a change made while the pages are read comes again in the next
+delta.
+
+### Pages
+
+A page ends at `maxPageSize` rows (or the client's `Prefer:
+odata.maxpagesize`, the smaller), or before the row that would take its
+JSON past `maxPageBytes` (default 4 MB; `MaxPageBytes`), whichever comes
+first, and holds one row at least, however large. Rows vary too much for
+a row count alone: a note is a few KB, a file several MB, and a response
+is built whole in memory, at many times its JSON's size. A page bounded
+only in bytes reads 1000 rows at most from the store; the rest come by
+next links.
+
+- **By key**: a read in key order (no `$orderby`, `$skip` or `$top`,
+  sorted by the store) goes on after the last key sent (`$skiptoken=k`
+  and the key, Base64URL), so a row deleted between pages makes no other
+  be missed, and one added before the key comes in the next delta. A
+  delta's pages go by key always.
+- **By offset**: a read sorted by `$orderby`, sorted here, or cut by
+  `$skip` and `$top`, goes on after so many rows (`$skiptoken=20`). A row
+  deleted from a page already read moves the rest back by one, and one is
+  missed; such reads are not the ones a sync follows.
+
+The sizes are counted as `NSJSONSerialization` writes them
+(`ODataJSONByteCount`), without writing the rows twice.
 
 - entities added or changed, as they are now, through the handler's fetch
   and the request's own options, so visibility, `$select` and `$expand`
@@ -1146,7 +1175,7 @@ Requests map onto fetch requests, the reverse of `ODataQueryBuilder`:
 | `$top`, `$skip` | `fetchLimit`, `fetchOffset` |
 | `$select` | the properties written; the rows are fetched whole |
 | `$expand` | `relationshipKeyPathsForPrefetching`, then inline. A to-many's members are fetched for every parent on the page at once, with the visible rows' predicate, its `$filter`, `$search` and application time, and its `$orderby`, and split among the parents: a one-to-many in one fetch (`inverse IN parents`), a many-to-many or one with no inverse in two (the parents with the relationship prefetched, then `SELF IN` the related rows). Its `$top`, `$skip` and `$count` per parent, and an expansion with its own `$compute`, in memory |
-| `$skiptoken` | the service's own: the offset of the next page |
+| `$skiptoken` | the service's own: the key the next page goes on after (`k…`), or its offset |
 | `Categories(1)/Products` | the destination's rows whose inverse leads to the parent's key: `category.id == 1`, `ANY suppliers.id == 1` |
 
 Navigation compares keys, not objects. Every store compares attributes,
@@ -1680,8 +1709,9 @@ use. `Core.Messages` a handler adds go into the response's JSON body.
   `$metadata` says so with `Core.OptimisticConcurrency`), else a hash of
   the row's values.
 - ~~Paging~~: `maxPageSize` on the service, and the client's
-  `Prefer: odata.maxpagesize`, whichever is smaller; the client follows
-  `@odata.nextLink` already.
+  `Prefer: odata.maxpagesize`, whichever is smaller, and `maxPageBytes`;
+  by key where the read is in key order, deltas too (Pages, above); the
+  client follows `@odata.nextLink` already.
 - ~~Authentication~~: the service is a relying party, and signs no one
   in. An identity provider (OIDC; passwords, passkeys or FIDO2 keys are
   its business) signs the user in, and the service's `authenticator`

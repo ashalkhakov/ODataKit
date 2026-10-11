@@ -509,47 +509,6 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
   return YES;
 }
 
-// The bytes a string takes as JSON, at most: its UTF-8, quoted, with what
-// NSJSONSerialization escapes (a quote, a backslash, a slash: base64 is
-// full of them; a control character, as \n or \u00XX). Read a chunk at a
-// time: a file's base64 is not copied to be measured.
-static NSUInteger ODSJSONStringSize(NSString *string)
-{
-  NSUInteger n = 2, length = string.length;
-  unichar chunk[1024];
-  for (NSUInteger at = 0; at < length; at += 1024) {
-    NSUInteger count = MIN(1024u, length - at);
-    [string getCharacters:chunk range:NSMakeRange(at, count)];
-    for (NSUInteger i = 0; i < count; i++) {
-      unichar c = chunk[i];
-      if (c == '"' || c == '\\' || c == '/') n += 2;
-      else if (c < 0x20) n += (c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') ? 2 : 6;
-      else if (c < 0x80) n += 1;
-      else if (c < 0x800) n += 2;
-      else if (c >= 0xD800 && c <= 0xDFFF) n += 2;  // a surrogate: four for the pair
-      else n += 3;
-    }
-  }
-  return n;
-}
-
-// About how many bytes a value takes as JSON.
-static NSUInteger ODSJSONSize(id value)
-{
-  if ([value isKindOfClass:[NSString class]]) return ODSJSONStringSize(value);
-  if ([value isKindOfClass:[NSDictionary class]]) {
-    NSUInteger n = 2;
-    for (id key in value) n += ODSJSONSize(key) + ODSJSONSize([value objectForKey:key]) + 2;
-    return n;
-  }
-  if ([value isKindOfClass:[NSArray class]]) {
-    NSUInteger n = 2;
-    for (id item in value) n += ODSJSONSize(item) + 1;
-    return n;
-  }
-  return 16;
-}
-
 // One batch of what waits, sent and saved: 1 more to send, 2 done (nothing
 // waits, or the remote said stop), 0 failed.
 - (NSInteger)sendBatchIn:(NSManagedObjectContext *)context size:(NSUInteger)size error:(NSError **)error
@@ -562,7 +521,7 @@ static NSUInteger ODSJSONSize(id value)
     NSDictionary *request = [self requestOf:entry context:context];
     if (!request) continue;
     // Not past the budget: the next batch takes it (the first goes alone).
-    NSUInteger more = ODSJSONSize(request) + 16;
+    NSUInteger more = ODataJSONByteCount(request) + 16;
     if (requests.count && bytes + more > budget) break;
     [entries addObject:entry];
     [requests addObject:request];

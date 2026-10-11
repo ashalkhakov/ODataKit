@@ -125,5 +125,10 @@ FOUNDATION_EXPORT NSString *ODataEnumText(ODataSchemaEnumType *type, NSNumber *v
 // A type name from @odata.type: "#NS.Type", "NS.Type", or a context URL
 // ending in "#NS.Type", as NS.Type.
 FOUNDATION_EXPORT NSString *ODataTypeNameFromControlInformation(NSString *value);
+// The bytes JSON (dictionaries, arrays, strings, numbers, null) takes as
+// NSJSONSerialization writes it, at most: strings as UTF-8 with what it
+// escapes, read a chunk at a time (a file's base64 is not copied to be
+// measured). For a page or a batch kept to a size, without writing it twice.
+FOUNDATION_EXPORT NSUInteger ODataJSONByteCount(id json);
 
 NS_ASSUME_NONNULL_END

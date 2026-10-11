@@ -134,8 +134,12 @@ static NSString *WBLocalAddress(void)
 
 - (NSDictionary *)storeOptionsWithTransport:(id)transport
 {
-  return @{ ODataIncrementalStoreTransportOption: transport, NSPersistentHistoryTrackingKey: @YES,
-            ODataIncrementalStoreRespondAsyncOption: @(_respondAsync), ODataIncrementalStoreJSONBatchOption: @(_JSONBatch) };
+  NSMutableDictionary *options = [@{ ODataIncrementalStoreTransportOption: transport, NSPersistentHistoryTrackingKey: @YES,
+                                     ODataIncrementalStoreRespondAsyncOption: @(_respondAsync),
+                                     ODataIncrementalStoreJSONBatchOption: @(_JSONBatch) } mutableCopy];
+  // Signed in: asked for credentials once the service refuses a request.
+  if (_credentialProvider && _service != WBServiceBuiltIn) options[ODataIncrementalStoreCredentialProviderOption] = _credentialProvider;
+  return options;
 }
 
 // Each exchange, to the target, on the main thread.

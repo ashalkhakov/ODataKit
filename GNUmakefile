@@ -239,6 +239,7 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODataSyncPeerIdentity.m \
 	Source/ODataSync/ODataSyncPeerServer.m \
 	Source/ODataSync/ODataSyncPeerTokens.m \
+	Source/ODataSync/ODataSignIn.m \
 	Source/ODataSync/ODataSyncPeerTransport.m \
 	Source/ODataSync/ODataSyncPeerTrust.m \
 	Source/ODataSync/ODataSyncRemote.m \
@@ -254,6 +255,7 @@ ODataSync_HEADER_FILES = \
 	ODataSyncMerging.h \
 	ODataSyncPeerServer.h \
 	ODataSyncPeerTokens.h \
+	ODataSignIn.h \
 	ODataSyncService.h \
 	ODataSyncPeerIdentity.h \
 	ODataSyncPeerListener.h \

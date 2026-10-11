@@ -23,6 +23,12 @@ FOUNDATION_EXPORT void ODSSystemRandomBytes(void *bytes, size_t length);
 // readable by the user alone (Linux: 0600, never through a link), and
 // protected where the system protects files (iOS's data protection).
 FOUNDATION_EXPORT BOOL ODSSystemWritePrivateFile(NSData *data, NSURL *url, NSError **error);
+// Secrets kept for an account of a service (a sign-in's tokens, by the
+// server's address): in the Keychain where the system has one; else in a
+// property list only the user can read (0600), Application
+// Support/<service>/Secrets.plist. nil: none kept. Set nil: forgotten.
+FOUNDATION_EXPORT NSDictionary *_Nullable ODSSystemSecrets(NSString *service, NSString *account);
+FOUNDATION_EXPORT BOOL ODSSystemSetSecrets(NSDictionary *_Nullable secrets, NSString *service, NSString *account);
 // A dispatch object let go of: ARC does it where dispatch objects are
 // Objective-C objects (Apple); on GNUstep they are not, and are released.
 FOUNDATION_EXPORT void ODSSystemDispatchRelease(dispatch_object_t object);

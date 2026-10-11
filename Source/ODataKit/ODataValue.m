@@ -819,3 +819,44 @@ static NSString *OISAnnotatedTypeName(id annotation)
 }
 
 @end
+
+// The bytes a string takes as JSON, at most: its UTF-8, quoted, with what
+// NSJSONSerialization escapes (a quote, a backslash, a slash: base64 is
+// full of them; a control character, as \n or \u00XX). Read a chunk at a
+// time: a file's base64 is not copied to be measured.
+static NSUInteger ODataJSONStringByteCount(NSString *string)
+{
+  NSUInteger n = 2, length = string.length;
+  unichar chunk[1024];
+  for (NSUInteger at = 0; at < length; at += 1024) {
+    NSUInteger count = MIN(1024u, length - at);
+    [string getCharacters:chunk range:NSMakeRange(at, count)];
+    for (NSUInteger i = 0; i < count; i++) {
+      unichar c = chunk[i];
+      if (c == '"' || c == '\\' || c == '/') n += 2;
+      else if (c < 0x20) n += (c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f') ? 2 : 6;
+      else if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xD800 && c <= 0xDFFF) n += 2;  // a surrogate: four for the pair
+      else n += 3;
+    }
+  }
+  return n;
+}
+
+NSUInteger ODataJSONByteCount(id value)
+{
+  if ([value isKindOfClass:[NSString class]]) return ODataJSONStringByteCount(value);
+  if ([value isKindOfClass:[NSDictionary class]]) {
+    NSUInteger n = 2;
+    for (id key in value) n += ODataJSONByteCount(key) + ODataJSONByteCount([value objectForKey:key]) + 2;
+    return n;
+  }
+  if ([value isKindOfClass:[NSArray class]]) {
+    NSUInteger n = 2;
+    for (id item in value) n += ODataJSONByteCount(item) + 1;
+    return n;
+  }
+  if (value == [NSNull null]) return 4;
+  return 16;  // a number, true or false, at most
+}

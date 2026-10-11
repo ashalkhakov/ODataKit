@@ -9,6 +9,7 @@
 #import "ODataSyncPeerServer.h"
 #import "ODataSyncService.h"
 #import "ODataSyncPeerTokens.h"
+#import "ODataSignIn.h"
 // Peers over TLS, found by Bonjour (docs/peer-sync.md).
 #import "ODataSyncPeerIdentity.h"
 #import "ODataSyncPeerListener.h"

@@ -25,6 +25,12 @@ FOUNDATION_EXPORT NSEntityDescription *ODSMergeSeenEntityDescription(void);
 // ODataSync looks an app's objects up by, one at a time. Not where an
 // index of the app's own begins with them. Before the model is used.
 FOUNDATION_EXPORT void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *entities);
+// Each entity's Binary attributes (and its sub-entities'), but its key's,
+// kept outside the store (allowsExternalBinaryDataStorage): files and
+// images, which a sync would otherwise read with every row it reads for a
+// key. Not one whose userInfo says ODataSync.external NO. Before the model
+// is used; it changes the entities' version hashes.
+FOUNDATION_EXPORT void ODSStoreBinariesExternally(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *entities);
 
 @interface ODSStore : NSObject
 // The engine's entities added to a model (and ODataSyncPeerConfiguration,

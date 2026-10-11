@@ -27,5 +27,6 @@ CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -
 CODE_SIGNING_REQUIRED[sdk=iphoneos*] = YES
+CODE_SIGNING_ALLOWED[sdk=iphoneos*] = YES
 
 #include? "Local.xcconfig"

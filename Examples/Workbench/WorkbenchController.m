@@ -75,6 +75,10 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   [self keepScroller:_logTable.enclosingScrollView];
   [self addTraceMenus];
   [self addSyncMenu];
+  if (self.storeMenu) {
+    [self.storeMenu addItem:[NSMenuItem separatorItem]];
+    [self.storeMenu addItemWithTitle:@"Sign Out of the Service" action:@selector(signOut:) keyEquivalent:@""].target = self;
+  }
   for (NSTextView *view in @[ self.predicateView, self.inspectorView ]) [self prepareTextView:view fixedPitch:NO];
   [self rebuildStreams];
   [self.servicePopup selectItemAtIndex:WBServiceBuiltIn];
@@ -200,6 +204,21 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   [_results clear];
   [self.tableView reloadData];
   self.connectButton.enabled = NO;
+  // Another service may ask for a sign-in: what for, first, from its
+  // $metadata.
+  ODataSignIn *signIn = service == WBServiceOther ? [self signInForRoot:self.serviceURLField.stringValue] : nil;
+  if (signIn) {
+    self.statusField.stringValue = [NSString stringWithFormat:@"Asking %@ how to sign in …", signIn.serviceRoot.host];
+    signIn.delegate = self;
+    [signIn learn];
+    return;
+  }
+  [self startConnectionToService:service signIn:nil];
+}
+
+- (void)startConnectionToService:(WBService)service signIn:(ODataSignIn *)signIn
+{
+  _connection.credentialProvider = signIn.kind == ODataSignInNone ? nil : signIn;
   if (service != WBServiceBuiltIn) {
     self.statusField.stringValue = [NSString stringWithFormat:@"Connecting to %@ …", self.serviceURLField.stringValue];
   }
@@ -210,6 +229,70 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   }
 }
 
+#pragma mark - Signing in
+
+// The sign-in for a typed service root (nil: no root).
+- (ODataSignIn *)signInForRoot:(NSString *)typed
+{
+  NSString *text = [typed stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  if (text.length && ![text hasSuffix:@"/"]) text = [text stringByAppendingString:@"/"];
+  NSURL *root = [NSURL URLWithString:text];
+  if (!root.scheme.length || !root.host.length) return nil;
+  if (!self.signIns) self.signIns = [NSMutableDictionary dictionary];
+  ODataSignIn *signIn = self.signIns[root.absoluteString];
+  if (!signIn) {
+    signIn = [[ODataSignIn alloc] initWithServiceRoot:root secrets:[[ODataSecretStore alloc] initWithServiceName:@"ODataKit Workbench"]];
+    self.signIns[root.absoluteString] = signIn;
+  }
+  signIn.clientID = WBClientIDForRoot(root);
+  return signIn;
+}
+
+// What the service asks for, learnt: nothing, or signed in already, and
+// it is connected to; else the panel asks.
+- (void)signInDidLearn:(ODataSignIn *)signIn
+{
+  signIn.delegate = nil;
+  if (signIn.kind == ODataSignInNone || signIn.signedIn) {
+    [self startConnectionToService:WBServiceOther signIn:signIn];
+    return;
+  }
+  [self askToSignIn:signIn];
+}
+
+- (void)askToSignIn:(ODataSignIn *)signIn
+{
+  self.statusField.stringValue = [NSString stringWithFormat:@"%@ asks for a sign-in.", signIn.serviceRoot.host];
+  self.signInPanel = [[WBSignInPanel alloc] initWithSignIn:signIn];
+  __weak WorkbenchController *weak = self;
+  [self.signInPanel showBesideWindow:self.window done:^(BOOL signedIn) {
+    WorkbenchController *me = weak;
+    me.signInPanel = nil;
+    if (signedIn) {
+      [me startConnectionToService:WBServiceOther signIn:signIn];
+    } else {
+      me.connectButton.enabled = YES;
+      me.statusField.stringValue = @"Not signed in: connect again to sign in.";
+    }
+  }];
+}
+
+// $metadata not read (behind the sign-in too, or the service down): the
+// connection tried all the same, with whatever this sign-in kept.
+- (void)signIn:(ODataSignIn *)signIn didFail:(NSError *)error
+{
+  signIn.delegate = nil;
+  [self startConnectionToService:WBServiceOther signIn:signIn];
+}
+
+- (IBAction)signOut:(id)sender
+{
+  (void)sender;
+  ODataSignIn *signIn = [self signInForRoot:self.serviceURLField.stringValue];
+  [signIn signOut];
+  self.statusField.stringValue = [NSString stringWithFormat:@"Signed out of %@: connect again to sign in.", signIn.serviceRoot.host ?: @"the service"];
+}
+
 // Connected, or not: a new query and new results, over the new store.
 - (void)connectionDidConnect:(WBConnection *)connection
 {
@@ -217,6 +300,12 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   _explainButton.enabled = connection.engine != nil;
   if (connection.failure) {
     self.statusField.stringValue = [NSString stringWithFormat:@"Could not connect: %@", connection.failure];
+    ODataSignIn *signIn = connection.service == WBServiceOther ? self.signIns[connection.serviceRoot.absoluteString] : nil;
+    if (signIn && (signIn.kind == ODataSignInOpenID || signIn.kind == ODataSignInPassword) && [connection.failure containsString:@"401"]) {
+      [signIn signOut];
+      self.connectButton.enabled = NO;
+      [self askToSignIn:signIn];
+    }
     return;
   }
   _query = [[WBQuery alloc] initWithModel:connection.model builtIn:[self builtIn]];
@@ -230,6 +319,8 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   for (NSDictionary *preset in _presets) [self.presetsPopup addItemWithTitle:preset[@"label"]];
   [self showPending];
   NSString *summary = [connection summary];
+  ODataSignIn *signIn = connection.service == WBServiceOther ? self.signIns[connection.serviceRoot.absoluteString] : nil;
+  if (signIn.signedIn && signIn.userName.length) summary = [summary stringByAppendingFormat:@"  Signed in as %@.", signIn.userName];
   self.statusField.stringValue = summary;
   if (_presets.count) {
     [self.presetsPopup selectItemAtIndex:0];
@@ -1316,6 +1407,10 @@ static NSString *WBRawHeaders(NSDictionary *headers)
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
+  if (sel_isEqual(item.action, @selector(signOut:))) {
+    ODataSignIn *signIn = _connection.service == WBServiceOther ? self.signIns[_connection.serviceRoot.absoluteString] : nil;
+    return signIn.signedIn && signIn.kind != ODataSignInNone;
+  }
   if (sel_isEqual(item.action, @selector(toggleServeNetwork:))) item.state = _connection.servesNetwork ? NSOnState : NSOffState;
   if (sel_isEqual(item.action, @selector(changeAtTheService:))) return _connection.engine != nil;
   return YES;

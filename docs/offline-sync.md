@@ -159,6 +159,27 @@ but unindexed; to have the indexes, delete it and let the device sync
 again (a service's store, made again from its data). The same goes for
 an index an app adds to its own entities.
 
+#### Files: kept beside the store
+
+A synced entity's Binary attributes (files, images, attachments) allow
+external storage, set by `+addBookkeepingToModel:` (and at the service,
+by `+[ODataSyncService addBookkeepingToModel:]`, for its sets that keep
+version vectors): a SQLite store keeps a value past 128 KiB in a file
+beside it (`.<store>_SUPPORT/_EXTERNAL_DATA`, Apple's and FreeCoreData's
+alike), not in its row. A sync reads many rows (the history it folds, the
+objects it looks up by key), and so reads no file it does not send. Not a
+key's attributes, nor ODataSync's own (its shadows keep a large value's
+digest, not the value). An attribute the app wants kept in its rows says
+so in its userInfo: `ODataSync.external` = `NO` (`ODataSyncExternalKey`).
+A model read from a service's `$metadata` (`ODataModelBuilder`) allows it
+for its `Edm.Binary` properties as well.
+
+**Unlike an index, this changes the entity's version hash.** A store made
+before it is a different model's: open it with lightweight migration
+(`NSMigratePersistentStoresAutomaticallyOption` and
+`NSInferMappingModelAutomaticallyOption`), or delete it and let the device
+sync again. A model that already allows it, or says `NO`, is unchanged.
+
 ## 4. Down
 
 Per remote, per `down` and `both` entity set:
@@ -169,6 +190,11 @@ Per remote, per `down` and `both` entity set:
    Each row is applied by key; the final page's `@odata.deltaLink` is kept.
 2. **After**: GET the delta link. Each entry is applied by key; `@removed`
    entries delete the local object; the new delta link is kept.
+   Every read asks for pages of `pageSize` rows at most (`Prefer:
+   odata.maxpagesize`, the remote's `pageSize`, default 100), so that a
+   service with no paging of its own does not answer a whole set at once;
+   an `ODataService` also ends a page at its `maxPageBytes`. The pages
+   are followed however the service cuts them, a delta's too.
 3. **410 Gone** (the service no longer has the history from there): read
    the set again as in 1, and delete the local objects of the set it did
    not return (mark and sweep).
@@ -587,7 +613,7 @@ NSManagedObjectModel *model = ...;                 // annotated: ODataSync.direc
 // the store: SQLite, with NSPersistentHistoryTrackingKey
 ODataSyncEngine *sync = [[ODataSyncEngine alloc] initWithCoordinator:coordinator];
 ODataSyncRemote *service = [ODataSyncRemote remoteWithServiceRoot:url];
-service.configuration.credentialProvider = auth;   // ODataCredentialProviding
+service.configuration.credentialProvider = auth;   // ODataCredentialProviding: ODataSignIn signs in as $metadata says (device flow)
 service.filters = @{ @"Asset": @"Region eq 'North'" };
 [sync addRemote:service];
 sync.resolver = [[ODataSyncMergeFields alloc] init];   // or per entity: -setResolver:forEntityName:, userInfo ODataSync.conflicts
@@ -682,6 +708,7 @@ What ODataService needs, and what it has:
    `+[ODataSyncService addBookkeepingToModel:]` for the synced sets (3.3);
    uniqueness is the model's to declare (a uniqueness constraint), and is
    not checked.*
+   Its Binary attributes are stored externally, as a device's are (3.3).
 
 ## 10. Order of work
 

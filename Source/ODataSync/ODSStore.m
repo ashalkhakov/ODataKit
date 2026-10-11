@@ -65,6 +65,26 @@ void ODSIndexKeys(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *e
   }
 }
 
+void ODSStoreBinariesExternally(NSManagedObjectModel *model, NSArray<NSEntityDescription *> *entities)
+{
+  ODSModel *synced = [[ODSModel alloc] initWithModel:model];
+  NSMutableArray<NSEntityDescription *> *all = [entities mutableCopy];
+  for (NSUInteger i = 0; i < all.count; i++) {
+    for (NSEntityDescription *sub in all[i].subentities) if (![all containsObject:sub]) [all addObject:sub];
+  }
+  for (NSEntityDescription *entity in all) {
+    NSSet *key = [NSSet setWithArray:[synced keyAttributesOf:[synced rootOf:entity]]];
+    for (NSPropertyDescription *property in entity.properties) {
+      if (![property isKindOfClass:[NSAttributeDescription class]]) continue;
+      NSAttributeDescription *attribute = (NSAttributeDescription *)property;
+      if (attribute.attributeType != NSBinaryDataAttributeType || attribute.isTransient || [key containsObject:attribute]) continue;
+      // The app's to keep in the row instead (ODataSyncExternalKey NO).
+      if ([attribute.userInfo[ODataSyncExternalKey] isEqual:@"NO"]) continue;
+      attribute.allowsExternalBinaryDataStorage = YES;
+    }
+  }
+}
+
 NSEntityDescription *ODSMergeSeenEntityDescription(void)
 {
   NSEntityDescription *seen = ODSEntity(ODSMergeSeenEntity, @[ ODSAttribute(@"entityType", NSStringAttributeType), ODSAttribute(@"keyText", NSStringAttributeType),
@@ -142,6 +162,7 @@ static NSString *ODSIndexKey(NSString *entityName, NSString *keyText)
   NSMutableOrderedSet *roots = [NSMutableOrderedSet orderedSet];
   for (NSEntityDescription *entity in synced) [roots addObject:[syncing rootOf:entity]];
   ODSIndexKeys(model, roots.array);
+  ODSStoreBinariesExternally(model, roots.array);
   model.entities = [model.entities arrayByAddingObjectsFromArray:added];
   [model setEntities:synced forConfiguration:ODataSyncPeerConfiguration];
   if (configuration) {
