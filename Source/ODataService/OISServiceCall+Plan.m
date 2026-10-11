@@ -318,12 +318,7 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
   }
 
   // Paging: the smaller of the service's page and the client's.
-  NSUInteger page = self.service.maxPageSize;
-  NSString *preferred = self.request.preferences[@"odata.maxpagesize"];
-  if (preferred.integerValue > 0 && (!page || (NSUInteger)preferred.integerValue < page)) {
-    page = (NSUInteger)preferred.integerValue;
-    self.pagedByPreference = YES;
-  }
+  NSUInteger page = [self pageLimit];
   NSString *skip = options.skipToken;
   if (skip) {
     // A tracked read's pages carry the token it began at: 20~token.
@@ -335,12 +330,22 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
     }
     NSScanner *scanner = [NSScanner scannerWithString:skip];
     NSInteger token = 0;
-    if (![scanner scanInteger:&token] || !scanner.isAtEnd || token < 0) {
+    // After a key (k...), or after so many rows.
+    if ([skip hasPrefix:@"k"]) self.afterKey = [self keyOfToken:skip];
+    if ([skip hasPrefix:@"k"] ? !self.afterKey : (![scanner scanInteger:&token] || !scanner.isAtEnd || token < 0)) {
       [self fail:400 message:[NSString stringWithFormat:@"$skiptoken=%@ is not one this service wrote", options.skipToken]];
       return nil;
     }
     self.skipToken = (NSUInteger)token;
   }
+  // In key order, read by the store: the pages go by key. (Sorted here, or
+  // by $orderby, or cut by $skip and $top, they go by offset.)
+  self.keysetPaging = !here && !memory && !options.orderBy.count && !options.skip && !options.top;
+  if (self.afterKey && !self.keysetPaging) {
+    [self fail:400 message:[NSString stringWithFormat:@"$skiptoken=%@ is not one this service wrote", options.skipToken]];
+    return nil;
+  }
+  if (self.afterKey) scan.after = [self predicateAfterKey:self.afterKey];
   // Changes are followed from before the rows are read: one made while
   // they are may come again in the delta, but none is missed.
   if (![self canTrackChanges]) {
@@ -1170,6 +1175,67 @@ static NSEntityDescription *OISEntityUnder(OISPlanNode *node)
   return parts.count == 1 ? parts[0] : [NSCompoundPredicate andPredicateWithSubpredicates:parts];
 }
 
+// Rows read for a page when only its bytes are bounded: the rest come by
+// next links, rather than every row read to send a few MB of them.
+static const NSUInteger OISRowsForAPageOfBytes = 1000;
+
+- (NSUInteger)pageLimit
+{
+  NSUInteger page = self.service.maxPageSize;
+  NSString *preferred = self.request.preferences[@"odata.maxpagesize"];
+  if (preferred.integerValue > 0 && (!page || (NSUInteger)preferred.integerValue < page)) {
+    page = (NSUInteger)preferred.integerValue;
+    self.pagedByPreference = YES;
+  }
+  if (!page && self.service.maxPageBytes) page = OISRowsForAPageOfBytes;
+  return page;
+}
+
+// A key's values as JSON, in key order, Base64URL: k and that.
+- (NSString *)keyTokenOfObject:(NSManagedObject *)object
+{
+  NSMutableArray *values = [NSMutableArray array];
+  for (NSAttributeDescription *attribute in [self.mapper keyAttributesForEntity:OISRootEntity(self.entity)]) {
+    [values addObject:[self.mapper.values JSONForCoreDataValue:[object valueForKey:attribute.name] attribute:attribute] ?: [NSNull null]];
+  }
+  NSData *json = [NSJSONSerialization dataWithJSONObject:values options:0 error:NULL];
+  return [@"k" stringByAppendingString:ODataBase64URLString(json)];
+}
+
+- (NSDictionary<NSString *, id> *)keyOfToken:(NSString *)token
+{
+  if (![token hasPrefix:@"k"]) return nil;
+  NSMutableString *base64 = [[token substringFromIndex:1] mutableCopy];
+  [base64 replaceOccurrencesOfString:@"-" withString:@"+" options:0 range:NSMakeRange(0, base64.length)];
+  [base64 replaceOccurrencesOfString:@"_" withString:@"/" options:0 range:NSMakeRange(0, base64.length)];
+  while (base64.length % 4) [base64 appendString:@"="];
+  NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+  NSArray *values = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+  NSArray<NSAttributeDescription *> *attributes = [self.mapper keyAttributesForEntity:OISRootEntity(self.entity)];
+  if (![values isKindOfClass:[NSArray class]] || values.count != attributes.count) return nil;
+  NSMutableDictionary *key = [NSMutableDictionary dictionary];
+  for (NSUInteger i = 0; i < attributes.count; i++) {
+    id value = values[i] == [NSNull null] ? nil : [self.mapper.values coreDataValueForJSON:values[i] attribute:attributes[i]];
+    if (!value) return nil;
+    key[attributes[i].name] = value;
+  }
+  return key;
+}
+
+// After a key, in key order: (k1 > v1) or (k1 == v1 and k2 > v2) ...
+- (NSPredicate *)predicateAfterKey:(NSDictionary<NSString *, id> *)key
+{
+  NSArray<NSAttributeDescription *> *attributes = [self.mapper keyAttributesForEntity:OISRootEntity(self.entity)];
+  NSMutableArray *alternatives = [NSMutableArray array];
+  for (NSUInteger i = 0; i < attributes.count; i++) {
+    NSMutableArray *terms = [NSMutableArray array];
+    for (NSUInteger j = 0; j < i; j++) [terms addObject:[NSPredicate predicateWithFormat:@"%K == %@", attributes[j].name, key[attributes[j].name]]];
+    [terms addObject:[NSPredicate predicateWithFormat:@"%K > %@", attributes[i].name, key[attributes[i].name]]];
+    [alternatives addObject:terms.count == 1 ? terms[0] : [NSCompoundPredicate andPredicateWithSubpredicates:terms]];
+  }
+  return alternatives.count == 1 ? alternatives[0] : [NSCompoundPredicate orPredicateWithSubpredicates:alternatives];
+}
+
 - (NSArray<NSSortDescriptor *> *)keyOrderOf:(NSEntityDescription *)entity
 {
   NSMutableArray *keys = [NSMutableArray array];
@@ -1183,6 +1249,7 @@ static NSEntityDescription *OISEntityUnder(OISPlanNode *node)
 {
   NSPredicate *predicate = [self predicateOf:node values:values];
   if (!predicate) return nil;
+  if (node.after) predicate = [NSCompoundPredicate andPredicateWithSubpredicates:@[ predicate, node.after ]];
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:node.entity.name];
   fetch.predicate = predicate;
   NSMutableArray *sort = [NSMutableArray array];
@@ -1691,8 +1758,22 @@ static NSEntityDescription *OISEntityUnder(OISPlanNode *node)
     [self respondError:error];
     return nil;
   }
+  NSPredicate *changedMatching = [NSCompoundPredicate andPredicateWithSubpredicates:@[ [NSPredicate predicateWithFormat:@"self IN %@", changed], matching ]];
+  // Which of them the request still matches: their IDs alone (the rest are
+  // removed entries); then a page of those, in key order, after the key
+  // the last page ended at.
+  NSFetchRequest *matchingIDs = [NSFetchRequest fetchRequestWithEntityName:self.entity.name];
+  matchingIDs.predicate = changedMatching;
+  matchingIDs.resultType = NSManagedObjectIDResultType;
+  NSArray *still = [self answerFor:[key stringByAppendingString:@"/still"] ask:OISAskObjects fetch:matchingIDs handler:self.handler];
+  if (!still) return nil;
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:self.entity.name];
-  fetch.predicate = [NSCompoundPredicate andPredicateWithSubpredicates:@[ [NSPredicate predicateWithFormat:@"self IN %@", changed], matching ]];
+  fetch.predicate = self.afterKey ? [NSCompoundPredicate andPredicateWithSubpredicates:@[ changedMatching, [self predicateAfterKey:self.afterKey] ]]
+                                  : changedMatching;
+  fetch.sortDescriptors = [self keyOrderOf:self.entity];
+  NSUInteger page = [self pageLimit];
+  self.pageSize = page;
+  if (page) fetch.fetchLimit = page + 1;
   NSMutableArray *prefetch = [NSMutableArray array];
   for (ODataExpandItem *item in self.request.options.expand) {
     if (item.path.count != 1) continue;
@@ -1702,14 +1783,10 @@ static NSEntityDescription *OISEntityUnder(OISPlanNode *node)
   if (prefetch.count) fetch.relationshipKeyPathsForPrefetching = prefetch;
   NSArray *objects = [self answerFor:[key stringByAppendingString:@"/matching"] ask:OISAskObjects fetch:fetch handler:self.handler];
   if (!objects) return nil;
-  // In the order the handler gave them: first changed first.
-  NSMutableDictionary *place = [NSMutableDictionary dictionary];
-  for (NSUInteger i = 0; i < changed.count; i++) place[changed[i]] = @(i);
-  objects = [objects sortedArrayUsingComparator:^NSComparisonResult(NSManagedObject *a, NSManagedObject *b) {
-    return [place[a.objectID] ?: @(NSNotFound) compare:place[b.objectID] ?: @(NSNotFound)];
-  }];
+  BOOL more = page && objects.count > page;
+  if (more) objects = [objects subarrayWithRange:NSMakeRange(0, page)];
   NSMutableSet *gone = [NSMutableSet setWithArray:changed];
-  for (NSManagedObject *object in objects) [gone removeObject:object.objectID];
+  for (id object in still) [gone removeObject:[object isKindOfClass:[NSManagedObject class]] ? [object objectID] : object];
   NSMutableArray *removed = [NSMutableArray array];
   if (gone.count) {
     // Changed so that the request no longer matches them; only those the
@@ -1723,7 +1800,9 @@ static NSEntityDescription *OISEntityUnder(OISPlanNode *node)
     for (NSManagedObject *object in seen) [removed addObject:[self removedEntry:[self canonicalPathOf:object] reason:@"changed"]];
   }
   self.deltaRemoved = removed;
-  return [OISRelation relationOfRows:objects];
+  OISRelation *relation = [OISRelation relationOfRows:objects];
+  relation.hasMore = more;
+  return relation;
 }
 
 #pragma mark - Dynamic properties

@@ -29,6 +29,7 @@
   _filters = @{};
   _batchSize = 50;
   _batchBytes = 8 * 1024 * 1024;
+  _pageSize = 100;
   return self;
 }
 

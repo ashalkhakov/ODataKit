@@ -6664,6 +6664,140 @@ static NSDate *OISDay(NSString *day)
   XCTAssertEqualObjects([delta.json[@"value"] valueForKey:@"ProductName"], @[ @"Chai (new)" ], @"%@", delta.text);
 }
 
+// Every page of a read, followed: the products' names in the order they
+// came, each page's response, and its next links.
+- (NSArray *)namesFollowing:(NSString *)path headers:(NSDictionary *)headers pages:(NSMutableArray<OISServiceResponse *> *)pages
+{
+  NSMutableArray *names = [NSMutableArray array];
+  OISServiceResponse *page = [self send:@"GET" path:path headers:headers body:nil];
+  for (NSUInteger guard = 0; page && guard < 50; guard++) {
+    XCTAssertEqual(page.status, 200, @"%@", page.text);
+    [pages addObject:page];
+    for (NSDictionary *row in page.json[@"value"]) if (row[@"ProductName"]) [names addObject:row[@"ProductName"]];
+    NSString *next = page.json[@"@odata.nextLink"];
+    page = next ? [self get:[self pathOfLink:next]] : nil;
+  }
+  return names;
+}
+
+// A page kept to maxPageBytes: it ends before the row that would take it
+// past them (one row at least, however large), or at maxPageSize, whichever
+// first; read whole, every row once, in key order, each page going on after
+// the last key sent.
+- (void)testAPageKeepsToItsBytes
+{
+  NSArray *all = (@[ @"Chai", @"Chang", @"Aniseed Syrup", @"Chef Anton's Cajun Seasoning", @"Chef Anton's Gumbo Mix" ]);
+  XCTAssertEqualObjects([self namesFollowing:@"Products" headers:nil pages:[NSMutableArray array]], all, @"4 MB: one page");
+  _service.maxPageBytes = 300;
+  NSMutableArray<OISServiceResponse *> *pages = [NSMutableArray array];
+  XCTAssertEqualObjects([self namesFollowing:@"Products" headers:nil pages:pages], all);
+  XCTAssertGreaterThan(pages.count, 1u);
+  for (OISServiceResponse *page in pages) {
+    NSArray *rows = page.json[@"value"];
+    NSUInteger bytes = [NSJSONSerialization dataWithJSONObject:rows options:0 error:NULL].length;
+    if (rows.count > 1) XCTAssertLessThanOrEqual(bytes, 300u, @"%@", page.text);
+    NSString *next = page.json[@"@odata.nextLink"];
+    if (next) XCTAssertTrue([[self pathOfLink:next] containsString:@"$skiptoken=k"], @"after a key: %@", next);
+  }
+  _service.maxPageBytes = 1;
+  [pages removeAllObjects];
+  XCTAssertEqualObjects([self namesFollowing:@"Products" headers:nil pages:pages], all, @"one row a page, over the budget as it is");
+  XCTAssertEqual(pages.count, 5u);
+  _service.maxPageBytes = 4 * 1024 * 1024;
+  _service.maxPageSize = 2;
+  [pages removeAllObjects];
+  XCTAssertEqualObjects([self namesFollowing:@"Products" headers:nil pages:pages], all, @"the row cap first");
+  XCTAssertEqual(pages.count, 3u);
+}
+
+// Pages by key: a row deleted from a page already read makes no row after
+// it be missed (by offset, the next page would begin one row too late).
+- (void)testKeyedPagesMissNoRowWhenOneIsDeleted
+{
+  _service.maxPageSize = 2;
+  OISServiceResponse *first = [self get:@"Products"];
+  XCTAssertEqualObjects([first.json[@"value"] valueForKey:@"ProductID"], (@[ @1, @2 ]));
+  NSManagedObjectContext *context = [self serviceContext];
+  [context deleteObject:[self productWithID:2 in:context]];
+  NSError *error = nil;
+  XCTAssertTrue([context save:&error], @"%@", error);
+  NSMutableArray *ids = [NSMutableArray array];
+  NSString *next = first.json[@"@odata.nextLink"];
+  while (next) {
+    OISServiceResponse *page = [self get:[self pathOfLink:next]];
+    [ids addObjectsFromArray:[page.json[@"value"] valueForKey:@"ProductID"]];
+    next = page.json[@"@odata.nextLink"];
+  }
+  XCTAssertEqualObjects(ids, (@[ @3, @4, @5 ]), @"3 not missed");
+}
+
+// Sorted by $orderby, pages go by offset; kept to their bytes all the same.
+- (void)testOrderedPagesGoByOffset
+{
+  _service.maxPageBytes = 1;
+  NSMutableArray<OISServiceResponse *> *pages = [NSMutableArray array];
+  NSArray *names = [self namesFollowing:@"Products?$orderby=ProductName desc" headers:nil pages:pages];
+  XCTAssertEqualObjects(names, (@[ @"Chef Anton's Gumbo Mix", @"Chef Anton's Cajun Seasoning", @"Chang", @"Chai", @"Aniseed Syrup" ]));
+  NSString *next = pages.firstObject.json[@"@odata.nextLink"];
+  XCTAssertTrue([[self pathOfLink:next] containsString:@"$skiptoken=1"], @"%@", next);
+}
+
+// A delta in pages: the changed rows by key, a page kept to its bytes, the
+// removed and deleted with the last page, and the delta link from where the
+// first page began: a change made while the pages are read comes again.
+- (void)testADeltaComesInPages
+{
+  [self serveTrackedCatalog];
+  NSDictionary *track = @{ @"Prefer": @"odata.track-changes" };
+  OISServiceResponse *read = [self send:@"GET" path:@"Products" headers:track body:nil];
+  NSString *link = read.json[@"@odata.deltaLink"];
+  XCTAssertNotNil(link);
+  NSManagedObjectContext *context = [self serviceContext];
+  for (NSNumber *identifier in @[ @3, @1, @4 ]) {
+    NSManagedObject *product = [self productWithID:identifier.integerValue in:context];
+    [product setValue:[[product valueForKey:@"name"] stringByAppendingString:@" (new)"] forKey:@"name"];
+  }
+  [context deleteObject:[self productWithID:2 in:context]];
+  NSError *error = nil;
+  XCTAssertTrue([context save:&error], @"%@", error);
+
+  _service.maxPageBytes = 1;
+  OISServiceResponse *page = [self get:[self pathOfLink:link]];
+  NSMutableArray *names = [NSMutableArray array];
+  NSUInteger pages = 0, removedEntries = 0;
+  BOOL changedMeanwhile = NO;
+  NSString *next = nil, *deltaLink = nil;
+  do {
+    pages++;
+    for (NSDictionary *row in page.json[@"value"]) {
+      if (row[@"ProductName"]) [names addObject:row[@"ProductName"]];
+      else removedEntries++;
+    }
+    next = page.json[@"@odata.nextLink"];
+    deltaLink = page.json[@"@odata.deltaLink"];
+    if (next) {
+      XCTAssertNil(deltaLink);
+      XCTAssertEqual(removedEntries, 0u, @"the removed with the last page");
+      NSString *path = [self pathOfLink:next];
+      XCTAssertTrue([path containsString:@"$deltatoken="] && [path containsString:@"$skiptoken=k"], @"%@", path);
+      if (!changedMeanwhile) {
+        changedMeanwhile = YES;
+        [[self productWithID:5 in:context] setValue:@"Gumbo, changed meanwhile" forKey:@"name"];
+        XCTAssertTrue([context save:&error], @"%@", error);
+      }
+      page = [self get:path];
+    }
+  } while (next && pages < 20);
+  XCTAssertEqualObjects(names, (@[ @"Chai (new)", @"Aniseed Syrup (new)", @"Chef Anton's Cajun Seasoning (new)", @"Gumbo, changed meanwhile" ]),
+                        @"by key, each once (5 changed after the first page, and after 4)");
+  XCTAssertEqual(removedEntries, 1u);
+  XCTAssertGreaterThanOrEqual(pages, 4u);
+  XCTAssertNotNil(deltaLink);
+  OISServiceResponse *again = [self get:[self pathOfLink:deltaLink]];
+  XCTAssertTrue([[again.json[@"value"] valueForKey:@"ProductName"] containsObject:@"Gumbo, changed meanwhile"],
+                @"what changed while the pages were read, again: %@", again.text);
+}
+
 // Without persistent history there is nothing to follow changes with.
 - (void)testNoDeltaLinksWithoutHistory
 {

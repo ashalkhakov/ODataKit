@@ -453,6 +453,14 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // link for the rest. 0, the default: as many as the client asks for
 // (Prefer: odata.maxpagesize), else all of them.
 @property (nonatomic) NSUInteger maxPageSize;
+// And at most about this many bytes of JSON: a page ends before the row
+// that would take it past this (but holds one row at least, however
+// large), whichever limit comes first. Rows vary: a note is a few KB, a
+// file several MB, and a response is built whole in memory. Reads in key
+// order (no $orderby, $skip or $top) go on from the last key sent, so a
+// row deleted between pages makes no other row be missed; deltas page
+// too. 0: no limit. Default: 4 MB.
+@property (nonatomic) NSUInteger maxPageBytes;
 // How long a deferred reply may take before the request is answered 504
 // Gateway Timeout. 0: no limit. Default: 60 seconds.
 @property (nonatomic) NSTimeInterval replyTimeout;

@@ -120,6 +120,12 @@ typedef NS_ENUM(NSInteger, ODataSyncConflictPolicy) {
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *filters;
 // How many changes go in one $batch. Default: 50.
 @property (nonatomic) NSUInteger batchSize;
+// How many rows a page of a read may hold, asked of the remote (Prefer:
+// odata.maxpagesize): a service with no paging of its own would otherwise
+// answer a whole set in one response. The remote may answer fewer (an
+// ODataService also keeps a page to its maxPageBytes). 0: not asked.
+// Default: 100.
+@property (nonatomic) NSUInteger pageSize;
 // And how large it may grow (bytes of JSON, about): a change that would
 // take it past this waits for the next, and one larger than this goes
 // alone. Files and images in rows make a batch of 50 too large to send in

@@ -167,6 +167,15 @@ typedef NS_ENUM(NSInteger, OISTargetKind) {
 @property (nonatomic) NSUInteger pageSize;
 @property (nonatomic) NSUInteger skipToken;
 @property (nonatomic) BOOL pagedByPreference;
+// Reads in key order page by key: a next link goes on after the last key
+// sent (afterKey, from $skiptoken=k...), not after so many rows, so a row
+// deleted between pages makes no other be missed. And whether the page,
+// as read, left rows out (before maxPageBytes cuts it shorter).
+@property (nonatomic) BOOL keysetPaging;
+@property (nonatomic, copy, nullable) NSDictionary<NSString *, id> *afterKey;
+@property (nonatomic) BOOL pageHasMore;
+// A delta's pages after the first: the token the first was read at.
+@property (nonatomic, copy, nullable) NSString *deltaPagesBegan;
 // The recursive hierarchies the request names, read once ($root/Set#Q), and
 // what each hierarchy function in it stands for (Node in (...)), by the
 // call's description.
@@ -384,6 +393,15 @@ typedef NS_ENUM(NSInteger, OISStoreAsk) { OISAskObjects, OISAskCount, OISAskGrou
 - (nullable OISPlan *)planAppliedRead;
 - (nullable OISPlan *)planCountRead;
 - (OISPlan *)planDelta;
+// The page: the service's maxPageSize or the client's odata.maxpagesize,
+// the smaller (0: none); pagedByPreference set when the client's.
+- (NSUInteger)pageLimit;
+// A key token ("k" and the key, Base64URL): of an object, and back to its
+// key's values by attribute name (nil: not one of this entity's); what
+// comes after a key, in key order.
+- (NSString *)keyTokenOfObject:(NSManagedObject *)object;
+- (nullable NSDictionary<NSString *, id> *)keyOfToken:(NSString *)token;
+- (NSPredicate *)predicateAfterKey:(NSDictionary<NSString *, id> *)key;
 - (OISPlan *)planOfObjects:(NSArray *)objects options:(ODataQueryOptions *)options entity:(nullable NSEntityDescription *)entity;
 // Plans are run from the top, again when a handler answers later; then
 // after, with planResult set.

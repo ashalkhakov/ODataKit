@@ -169,6 +169,11 @@ Per remote, per `down` and `both` entity set:
    Each row is applied by key; the final page's `@odata.deltaLink` is kept.
 2. **After**: GET the delta link. Each entry is applied by key; `@removed`
    entries delete the local object; the new delta link is kept.
+   Every read asks for pages of `pageSize` rows at most (`Prefer:
+   odata.maxpagesize`, the remote's `pageSize`, default 100), so that a
+   service with no paging of its own does not answer a whole set at once;
+   an `ODataService` also ends a page at its `maxPageBytes`. The pages
+   are followed however the service cuts them, a delta's too.
 3. **410 Gone** (the service no longer has the history from there): read
    the set again as in 1, and delete the local objects of the set it did
    not return (mark and sweep).

@@ -3916,7 +3916,7 @@ static id OISSparseAtPath(NSArray<NSString *> *path, NSArray<NSNumber *> *collec
   OISRelation *result = self.planResult;
   self.objects = result.rows;
   self.count = result.count;
-  if (result.hasMore) self.nextLink = [self nextLinkWithToken:self.skipToken + self.pageSize];
+  self.pageHasMore = result.hasMore;
   [self writeCollection];
 }
 
@@ -3990,22 +3990,50 @@ static id OISSparseAtPath(NSArray<NSString *> *path, NSArray<NSNumber *> *collec
   return [NSString stringWithFormat:@"%@%@?%@", [self rootString], resource, [pairs componentsJoinedByString:@"&"]];
 }
 
-- (void)writeCollection
+// The page's rows as JSON, kept to maxPageBytes (one at least, however
+// large): the next link goes on from the first left out.
+- (nullable NSArray *)pageOfJSON:(NSArray<NSManagedObject *> *)objects cut:(BOOL *)cut
 {
   NSError *error = nil;
   NSMutableArray *values = [NSMutableArray array];
-  for (NSManagedObject *object in self.objects) {
-    if (self.referencesOnly) {
-      [values addObject:@{ @"@odata.id": [self canonicalPathOf:object] }];
-      continue;
-    }
-    NSDictionary *json = [self JSONForObject:object options:self.request.options expected:self.entity error:&error];
+  NSUInteger budget = self.service.maxPageBytes, bytes = 0;
+  *cut = NO;
+  for (NSManagedObject *object in objects) {
+    NSDictionary *json = self.referencesOnly ? @{ @"@odata.id": [self canonicalPathOf:object] }
+                                             : [self JSONForObject:object options:self.request.options expected:self.entity error:&error];
     if (!json) {
       [self respondError:error];
-      return;
+      return nil;
     }
+    NSUInteger more = budget ? ODataJSONByteCount(json) + 1 : 0;
+    if (budget && values.count && bytes + more > budget) {
+      *cut = YES;
+      break;
+    }
+    bytes += more;
     [values addObject:json];
   }
+  return values;
+}
+
+// The next page's link: after the last key sent (in key order), or after
+// so many rows.
+- (NSString *)nextLinkAfter:(NSArray<NSManagedObject *> *)objects count:(NSUInteger)sent
+{
+  if (self.keysetPaging && sent) {
+    NSString *skip = [self keyTokenOfObject:objects[sent - 1]];
+    if (self.trackingToken) skip = [skip stringByAppendingFormat:@"~%@", [self scopedToken:self.trackingToken]];
+    return [self linkReplacing:@"$skiptoken" with:skip];
+  }
+  return [self nextLinkWithToken:self.skipToken + sent];
+}
+
+- (void)writeCollection
+{
+  BOOL cut = NO;
+  NSArray *values = [self pageOfJSON:self.objects cut:&cut];
+  if (!values) return;
+  if (self.pageHasMore || cut) self.nextLink = [self nextLinkAfter:self.objects count:values.count];
   NSMutableDictionary *body = [NSMutableDictionary dictionary];
   if (![self.metadataLevel isEqualToString:@"none"]) {
     body[@"@odata.context"] = self.referencesOnly
@@ -4201,11 +4229,30 @@ static id OISSparseAtPath(NSArray<NSString *> *path, NSArray<NSNumber *> *collec
   NSString *token = [self tokenCheckingScope:self.deltaToken];
   if (!token) return;
   self.deltaToken = token;
+  // A page after the first: after a key, and the token the delta link at
+  // the end carries (the history as it stood when the first page was read:
+  // what changes while the pages are read comes again in the next delta).
+  NSString *skip = self.request.options.skipToken;
+  if (skip) {
+    NSRange tilde = [skip rangeOfString:@"~"];
+    self.afterKey = tilde.location != NSNotFound ? [self keyOfToken:[skip substringToIndex:tilde.location]] : nil;
+    if (!self.afterKey) {
+      [self fail:400 message:[NSString stringWithFormat:@"$skiptoken=%@ is not one this service wrote", skip]];
+      return;
+    }
+    // A token out of the caller's scope is answered there.
+    NSString *start = [self tokenCheckingScope:[skip substringFromIndex:NSMaxRange(tilde)]];
+    if (!start) return;
+    self.deltaPagesBegan = start;
+  }
   [self runPlan:[self planDelta] then:@selector(didRunDelta)];
 }
 
 - (void)didRunDelta
 {
+  self.pageHasMore = self.planResult.hasMore;
+  // The delta link at the end: from where the first page began.
+  if (self.deltaPagesBegan) self.trackingToken = self.deltaPagesBegan;
   [self writeDelta:self.planResult.rows removed:self.deltaRemoved ?: @[]];
 }
 
@@ -4294,25 +4341,31 @@ static BOOL OISPredicateReadsOnlyKept(NSPredicate *predicate, NSDictionary *valu
 
 - (void)writeDelta:(NSArray<NSManagedObject *> *)objects removed:(NSArray *)removed
 {
-  NSError *error = nil;
-  NSMutableArray *values = [NSMutableArray array];
-  for (NSManagedObject *object in objects) {
-    NSDictionary *json = [self JSONForObject:object options:self.request.options expected:self.entity error:&error];
-    if (!json) {
-      [self respondError:error];
-      return;
-    }
-    [values addObject:json];
+  // A page of the changed, kept to maxPageBytes; the removed and deleted
+  // with the last page, and the delta link.
+  BOOL cut = NO;
+  NSArray *page = [self pageOfJSON:objects cut:&cut];
+  if (!page) return;
+  NSMutableArray *values = [page mutableCopy];
+  BOOL more = self.pageHasMore || cut;
+  if (!more) {
+    [values addObjectsFromArray:removed];
+    for (NSString *path in self.deltaDeleted) [values addObject:[self removedEntry:path reason:@"deleted"]];
   }
-  [values addObjectsFromArray:removed];
-  for (NSString *path in self.deltaDeleted) [values addObject:[self removedEntry:path reason:@"deleted"]];
   NSMutableDictionary *body = [NSMutableDictionary dictionary];
   if (![self.metadataLevel isEqualToString:@"none"]) {
     body[@"@odata.context"] = [NSString stringWithFormat:@"%@#%@%@%@/$delta", [self contextBase], [self setName], [self castSuffixFor:self.entity],
                                                          [self selectListForOptions:self.request.options]];
   }
   body[@"value"] = values;
-  body[@"@odata.deltaLink"] = [self deltaLink];
+  if (more) {
+    // This delta again, after the last key sent, its first page's token kept.
+    NSString *skip = [[self keyTokenOfObject:objects[page.count - 1]] stringByAppendingFormat:@"~%@", [self scopedToken:self.trackingToken]];
+    body[@"@odata.nextLink"] = [[self linkReplacing:@"$skiptoken" with:skip] stringByAppendingFormat:@"&$deltatoken=%@",
+                                                                                                    [self scopedToken:self.deltaToken]];
+  } else {
+    body[@"@odata.deltaLink"] = [self deltaLink];
+  }
   [self respondJSON:body status:200 headers:nil];
 }
 
@@ -5033,6 +5086,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   _tracer = [OTTracer tracerNamed:@"ODataService" version:nil];
   _repeatabilityDuration = 3600;
   _repeatabilityMemory = 32 * 1024 * 1024;
+  _maxPageBytes = 4 * 1024 * 1024;
   _asyncResultDuration = 600;
   _maxAsyncRequests = 1000;
   _maxURLLength = 8192;

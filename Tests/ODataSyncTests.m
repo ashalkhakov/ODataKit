@@ -360,6 +360,39 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
 }
 
+// The downloader asks for pages of so many rows (a service may have no
+// paging of its own), and follows them however the service cuts them: here
+// a row a page, by the service's maxPageBytes, read whole and by delta link.
+- (void)testTheDownloaderAsksForPagesAndFollowsThem
+{
+  OSTCountingTransport *counting = [[OSTCountingTransport alloc] init];
+  counting.service = _service;
+  _remote.transport = counting;
+  _service.maxPageBytes = 1;
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 4; i <= 9; i++) {
+      NSManagedObject *asset = [NSEntityDescription insertNewObjectForEntityForName:@"Asset" inManagedObjectContext:context];
+      [asset setValue:@(i) forKey:@"id"];
+      [asset setValue:[NSString stringWithFormat:@"Asset %d", i] forKey:@"name"];
+      [asset setValue:@1 forKey:@"version"];
+    }
+  }];
+  [self sync];
+  XCTAssertEqual([self values:@"name" of:@"Asset" in:_device].count, 9u, @"nine pages of one");
+  for (NSURLRequest *request in counting.requests) {
+    if (![request.HTTPMethod isEqualToString:@"GET"]) continue;
+    XCTAssertTrue([[request valueForHTTPHeaderField:@"Prefer"] containsString:@"odata.maxpagesize=100"], @"%@: %@", request.URL,
+                  [request valueForHTTPHeaderField:@"Prefer"]);
+  }
+  [self atServer:^(NSManagedObjectContext *context) {
+    for (int i = 4; i <= 7; i++) [[self object:@"Asset" id:@(i) in:context] setValue:@"Renamed" forKey:@"name"];
+  }];
+  [self sync];
+  NSArray *names = [self values:@"name" of:@"Asset" in:_device];
+  XCTAssertEqual([[names filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF == 'Renamed'"]] count], 4u,
+                 @"the delta, a row a page: %@", names);
+}
+
 - (void)testDownloadWholeThenByDeltaLink
 {
   [self sync];

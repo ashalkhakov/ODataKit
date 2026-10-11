@@ -83,6 +83,7 @@ static NSString *OISJoined(NSArray *items, NSString *separator)
       if (self.op == OISPlanStoreScan) {
         NSMutableArray *sort = [NSMutableArray arrayWithArray:[self.order valueForKey:@"description"]];
         if (self.keyOrder) [sort addObject:@"key"];
+        if (self.after) [parts addObject:@"after a key"];
         if (sort.count) [parts addObject:[@"sort " stringByAppendingString:[sort componentsJoinedByString:@", "]]];
         if (self.skip.unsignedIntegerValue) [parts addObject:[NSString stringWithFormat:@"skip %@", self.skip]];
         if (self.top) [parts addObject:[NSString stringWithFormat:@"top %@", self.top]];

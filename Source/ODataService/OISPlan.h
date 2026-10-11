@@ -79,6 +79,7 @@ typedef NS_ENUM(NSInteger, OISPlanOperator) {
 @property (nonatomic, strong, nullable) ODataQueryOptions *time;    // application time ($at, $from...)
 @property (nonatomic, copy) NSArray<ODataOrderItem *> *order;
 @property (nonatomic) BOOL keyOrder;                                // then by key: pages do not overlap
+@property (nonatomic, strong, nullable) NSPredicate *after;         // a store scan's rows after a key (keyset paging)
 @property (nonatomic, strong, nullable) NSNumber *skip;
 @property (nonatomic, strong, nullable) NSNumber *top;
 @property (nonatomic) NSUInteger pageSize;                          // 0: all; else a page, and one more to know there is another

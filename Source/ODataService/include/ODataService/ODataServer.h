@@ -93,7 +93,7 @@ NS_ASSUME_NONNULL_BEGIN
 //   StoreOptions  a dictionary, handed to the coordinator as it is
 //   ServiceRoot   the public URL of the service, which its links begin with
 //                 (default http://127.0.0.1:<Port>/odata/)
-//   MaxPageSize, MaxVersion, Namespace, Container, MaxURLLength,
+//   MaxPageSize, MaxPageBytes, MaxVersion, Namespace, Container, MaxURLLength,
 //   MaxExpandDepth, MaxBatchRequests, MaxRowsInMemory, MaxJSONDepth,
 //   MaxAsyncRequests, ReplyTimeout, AsyncResultDuration,
 //   RepeatabilityDuration, RepeatabilityMemory, HistoryRetention   the service's (ODataService.h)
