@@ -877,7 +877,7 @@ engine, on the device and at the service alike:
 ```objc
 @protocol ODataSyncMerging <NSObject>
 - (NSData *)versionOfState:(nullable NSData *)state;                         // nil: nothing seen
-- (NSData *)deltaOfState:(nullable NSData *)state sinceVersion:(nullable NSData *)version;
+- (nullable NSData *)deltaOfState:(nullable NSData *)state sinceVersion:(nullable NSData *)version;  // nil: no state it reads
 - (nullable NSData *)stateByMerging:(NSData *)delta intoState:(nullable NSData *)state error:(NSError **)error;
 - (NSData *)versionMeeting:(NSData *)version andVersion:(NSData *)other;    // what both have seen
 - (nullable NSData *)stateByCollecting:(nullable NSData *)state seenBy:(NSData *)version;
@@ -900,6 +900,12 @@ merger beyond merging, for collecting (14.4):
   so whether one version has seen all another has can be told:
   `meet(a, b) == meet(b, b)`.
 
+A delta is not a state. ODataSync never asks a merger what a delta lacks
+since a version: it merges a delta as it comes, and asks
+`-deltaOfState:sinceVersion:` of states only. A merger answers nil for
+bytes that are no state it reads (TopoText's reads states alone), and
+the item fails on it rather than being taken for "nothing to send".
+
 ### 14.2 On the wire
 
 One action import, which the service's operations answer (as `PeerToken`,
@@ -915,7 +921,9 @@ POST <root>MergeAttributes
 
 → { "Items": [ { "Delta": "<base64: what the device lacks>",
                  "Version": "<base64: the service's, after>",
-                 "SeenByAll": "<base64>" },
+                 "SeenByAll": "<base64>",
+                 "PreviousETag": "W/\"…\"", "ETag": "W/\"…\"",
+                 "Versions": "<the row's version vector, as stamped>" },
                { "Error": "Body does not merge: ..." },
                { "Reset": true, "State": "<base64: the service's whole state>",
                  "Horizon": "<base64>", "Version": "<base64>" }, ... ] }
@@ -930,6 +938,16 @@ instead, and the others are answered and merged: one bad item holds up
 no other. An item from a replica behind what was collected is answered
 `Reset` (14.4). `Items` is `Edm.Untyped`: an app with operations of its
 own says so in `+ODataOperationTypes`.
+
+A merge writes the row as any update does (the merged attribute, and
+what the merger derives from it), and the save stamps it: its ETag and
+version vector change. The service saves before it answers, so that it
+can tell the device: an item whose row the call changed carries the
+row's ETag before (`PreviousETag`) and after (`ETag`), and the version
+vector it was stamped with (`Versions`). Saved in the call, the call is
+its own: inside an atomic `$batch` change set it would not go or fail
+with the rest (devices send it alone). `-[ODataService etagOfObject:]` is
+how the service tells an object's ETag, the one it serves it with.
 
 ### 14.3 The device
 
@@ -950,10 +968,26 @@ own says so in `+ODataOperationTypes`.
   row's. It holds up nothing else.
 - **Rows** go up (`PATCH`) and come down (`$select`) without merged
   attributes; a merged attribute is never compared in a conflict.
+- **The row's ETag follows its merges.** When an answer carries
+  `PreviousETag` and it is the ETag the device last agreed on for the
+  row, the device takes `ETag`, and merges `Versions` into its object's
+  history and its shadow's. Otherwise its next write of the row would go
+  with the ETag before the merge (a 412), and the next download of it
+  would look concurrent: one device typing in one note would make a
+  conflict at every sync. When someone else changed the row in between,
+  the ETags do not match and nothing is taken, so a real conflict stays
+  one.
 - What comes back is written as the remote's (transaction author
   `ODataSync.down.<remote>`): not sent back, passed on to peers.
 - A remote with no `MergeAttributes` (404, 405, 501: an older service)
   leaves merged attributes as they are; the rest syncs.
+- **A repair:** `-exchangeAllMergedAttributesWithError:` notes a merge
+  entry for every object of every merging entity, for each remote it goes
+  up to, so the next sync exchanges all of them both ways. Until the fix
+  in 14.4, a service dropped every delta sent after it had collected an
+  object's attribute, while answering as if it had merged it; a device
+  that synced with such a service believes the service has edits it does
+  not. Such a device runs it once, after the service is updated.
 
 ### 14.4 Collecting
 
@@ -979,8 +1013,13 @@ device re-bases: what it did since the horizon
 (`deltaOfState:mine sinceVersion:horizon`), merged into that state, is
 its state now, and its second call sends those edits. What was deleted
 while it was away comes back nowhere, and its own new edits are kept.
-Whatever a delta brings that the horizon has seen is dropped before it is
-merged, so a stale copy cannot bring collected elements back either.
+A delta is merged as it comes, then the state is collected again with the
+horizon: whatever the delta brought of what every copy had seen goes
+again, so a stale copy cannot bring collected elements back either. (The
+service once trimmed the delta first, `deltaOfState:delta
+sinceVersion:horizon`; but a delta is no state, a merger of states alone
+answered nothing for it, and every delta sent after a collection was
+lost, though answered as merged. That is what the repair in 14.3 is for.)
 
 The same takes in a device that only ever met peers (the service never
 heard from it, so never waited for it) and two devices with one replica

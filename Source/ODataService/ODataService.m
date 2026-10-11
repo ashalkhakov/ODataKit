@@ -1950,28 +1950,7 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
 
 - (NSString *)etagOf:(NSManagedObject *)object
 {
-  NSAttributeDescription *version = [self.service versionAttributeOfEntity:object.entity];
-  if (version) return [NSString stringWithFormat:@"W/\"%@\"", [object valueForKey:version.name] ?: @0];
-  // A hash of the values, in a fixed order: it changes when they do.
-  uint64_t hash = 14695981039346656037ULL;
-  NSArray *names = [object.entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)];
-  for (NSString *name in names) {
-    NSAttributeDescription *attribute = object.entity.attributesByName[name];
-    if (attribute.isTransient) continue;
-    // Streams have ETags of their own. The bag of dynamic properties is
-    // served, as they are.
-    BOOL bag = [self.mapper attributeHoldsDynamicProperties:attribute];
-    if ((!bag && ![self.service.writer typeNameForAttribute:attribute]) || [self.service.writer isStreamAttribute:attribute]) continue;
-    id json = [self.coder JSONForCoreDataValue:[object valueForKey:name] attribute:attribute];
-    NSString *text = [NSString stringWithFormat:@"%@=%@;", name, json];
-    NSData *bytes = [text dataUsingEncoding:NSUTF8StringEncoding];
-    const uint8_t *p = bytes.bytes;
-    for (NSUInteger i = 0; i < bytes.length; i++) {
-      hash ^= p[i];
-      hash *= 1099511628211ULL;
-    }
-  }
-  return [NSString stringWithFormat:@"W/\"%016llx\"", (unsigned long long)hash];
+  return [self.service etagOfObject:object];
 }
 
 #pragma mark Serialising
@@ -5068,6 +5047,37 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   _handlers = [NSMutableDictionary dictionary];
   _metadataByVersion = [NSMutableDictionary dictionary];
   return self;
+}
+
+// The ETag the object is served with (-etagOfObject:, in the header).
+- (NSString *)etagOfObject:(NSManagedObject *)object
+{
+  [self prepare];
+  NSAttributeDescription *version = [self versionAttributeOfEntity:object.entity];
+  if (version) return [NSString stringWithFormat:@"W/\"%@\"", [object valueForKey:version.name] ?: @0];
+  // A hash of the values, in a fixed order: it changes when they do.
+  ODataValueCoder *coder = [[ODataValueCoder alloc] init];
+  coder.schema = self.mapper.schema;
+  coder.declaredTypeForAttribute = self.mapper.values.declaredTypeForAttribute;
+  uint64_t hash = 14695981039346656037ULL;
+  NSArray *names = [object.entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)];
+  for (NSString *name in names) {
+    NSAttributeDescription *attribute = object.entity.attributesByName[name];
+    if (attribute.isTransient) continue;
+    // Streams have ETags of their own. The bag of dynamic properties is
+    // served, as they are.
+    BOOL bag = [self.mapper attributeHoldsDynamicProperties:attribute];
+    if ((!bag && ![self.writer typeNameForAttribute:attribute]) || [self.writer isStreamAttribute:attribute]) continue;
+    id json = [coder JSONForCoreDataValue:[object valueForKey:name] attribute:attribute];
+    NSString *text = [NSString stringWithFormat:@"%@=%@;", name, json];
+    NSData *bytes = [text dataUsingEncoding:NSUTF8StringEncoding];
+    const uint8_t *p = bytes.bytes;
+    for (NSUInteger i = 0; i < bytes.length; i++) {
+      hash ^= p[i];
+      hash *= 1099511628211ULL;
+    }
+  }
+  return [NSString stringWithFormat:@"W/\"%016llx\"", (unsigned long long)hash];
 }
 
 // $metadata from the model, read back as the schema the mapper answers

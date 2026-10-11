@@ -390,6 +390,12 @@ typedef NS_ENUM(NSInteger, ODataSyncPhase) {
 // Forgotten: never sent. The object stays as it is locally; a conflict's
 // object is read again from the remote at the next sync.
 - (void)discardIssue:(ODataSyncIssue *)issue;
+// Every object's merged attributes exchanged again at the next sync, with
+// every remote it goes up to: what each lacks of the other's, both ways. A
+// repair, for a remote that may have dropped deltas it was sent (an
+// ODataSyncService once dropped those that came after it had collected an
+// object's, answering as if it had merged them). Waits for a sync that runs.
+- (BOOL)exchangeAllMergedAttributesWithError:(NSError **)error;
 
 @end
 
