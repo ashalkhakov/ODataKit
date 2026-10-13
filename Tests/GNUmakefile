@@ -2,7 +2,7 @@
 # Snapshots in Tests/Snapshots — no live OData service.
 #
 #   make -C Tests run-tests
-#   # or from the library root: make test
+#   # or from the library root, with the rest: make check
 #
 # Requires clang + libobjc2 + GNUstep XCTest
 # (https://github.com/gnustep/libs-xctest) and FreeCoreData.
@@ -49,8 +49,7 @@ ODataIncrementalStoreTests_OBJC_FILES = \
 ODataIncrementalStoreTests_RESOURCE_FILES = Snapshots
 ODataIncrementalStoreTests_INCLUDE_DIRS = -I../Source/ODataKit/include -I../Source/ODataIncrementalStore/include -I../Source/ODataService/include -I../Source/ODataKit/include/ODataKit -I../Source/ODataIncrementalStore/include/ODataIncrementalStore -I../Source/ODataService/include/ODataService -I../Source/HTTPServerKit/include -I../Source/HTTPServerKit/include/HTTPServerKit -I../Source/OTelKit/include -I../Source/OTelKit/include/OTelKit -I../Source/ODataSync/include -I../Source/ODataSync/include/ODataSync -I. \
 	-I../Source/ODataSync/linux
-# gnustep-make builds the library into ../obj; `make -f Makefile` into ..
-ODataIncrementalStoreTests_LIB_DIRS = -L../obj -L..
+ODataIncrementalStoreTests_LIB_DIRS = -L../obj
 ODataIncrementalStoreTests_OBJC_LIBS += -lODataSync -lODataService -lHTTPServerKit -lOTelKit -lODataIncrementalStore -lODataKit -lXCTest -lCoreData \
 	-lcurl -lgnutls
 
@@ -73,7 +72,7 @@ XCTEST ?= xctest
 
 .PHONY: check run-tests
 run-tests: all $(BUNDLE_NAME).bundle
-	LD_LIBRARY_PATH="$(CURDIR)/../obj:$(CURDIR)/..$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH))$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH))$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
 	OIS_SNAPSHOTS="$(CURDIR)/Snapshots" $(XCTEST) "$(BUNDLE_NAME).bundle"
 
 # FreeCoreData loads compiled models only, so Catalog.xcdatamodeld is

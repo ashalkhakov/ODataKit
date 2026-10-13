@@ -2,8 +2,9 @@
 #   ODataKit               what a client and a service share
 #   ODataIncrementalStore  the client: a Core Data store over an OData service
 #   OTelKit                OpenTelemetry tracing: spans, sampling, OTLP export
-#   HTTPServerKit          an HTTP server for APIs: the listener (GCDWebServer),
-#                          a pipeline and router, sign-in, observability
+#   HTTPServerKit          an HTTP server for APIs: the listener (GCDWebServer,
+#                          ashalkhakov/GCDWebServer's library), a pipeline and
+#                          router, sign-in, observability
 #   ODataSync              an offline Core Data store kept in sync with a
 #                          service (docs/offline-sync.md)
 #   ODataService           the server: a Core Data store served over OData,
@@ -20,10 +21,9 @@
 #   make
 #   make install
 #
-# Without gnustep-make, use the sibling Makefile (gnustep-config + clang).
 
 ifeq ($(GNUSTEP_MAKEFILES),)
-$(error Set GNUSTEP_MAKEFILES (source GNUstep.sh). Or run `make -f Makefile` with gnustep-config.)
+$(error Set GNUSTEP_MAKEFILES (source GNUstep.sh).)
 endif
 
 include $(GNUSTEP_MAKEFILES)/common.make
@@ -48,7 +48,6 @@ ADDITIONAL_OBJCFLAGS += $(OIS_OBJCFLAGS)
 # In the order they depend on each other (which make -j is told below).
 LIBRARY_NAME = ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync
 
-include ThirdParty/GCDWebServer/GCDWebServer.make
 # The version httpserverkit_build_info says.
 HTTPSERVERKIT_VERSION ?= $(shell git -C "$(CURDIR)" describe --tags --always 2>/dev/null || echo dev)
 
@@ -171,8 +170,7 @@ HTTPServerKit_OBJC_FILES = \
 	Source/HTTPServerKit/HSSignature.m \
 	Source/HTTPServerKit/linux/HSSignatureSystem.m \
 	Source/HTTPServerKit/linux/HSMemorySystem.m \
-	Source/HTTPServerKit/HSStages.m \
-	$(GCDWebServer_OBJC_FILES)
+	Source/HTTPServerKit/HSStages.m
 
 HTTPServerKit_HEADER_FILES = \
 	HSApplication.h \
@@ -188,9 +186,9 @@ HTTPServerKit_HEADER_FILES = \
 
 HTTPServerKit_HEADER_FILES_DIR = Source/HTTPServerKit/include/HTTPServerKit
 HTTPServerKit_HEADER_FILES_INSTALL_DIR = HTTPServerKit
-HTTPServerKit_INCLUDE_DIRS = $(OIS_INCLUDE_DIRS) $(GCDWebServer_INCLUDE_DIRS)
+HTTPServerKit_INCLUDE_DIRS = $(OIS_INCLUDE_DIRS)
 HTTPServerKit_LIB_DIRS = -L./obj
-HTTPServerKit_LIBRARIES_DEPEND_UPON += -lOTelKit -ldispatch -lgnutls $(GCDWebServer_LIBS)
+HTTPServerKit_LIBRARIES_DEPEND_UPON += -lOTelKit -lGCDWebServer -ldispatch -lgnutls
 HTTPServerKit_OBJCFLAGS += $(OIS_OBJCFLAGS) -DHTTPSERVERKIT_VERSION='"$(HTTPSERVERKIT_VERSION)"'
 HTTPServerKit_CFLAGS += -fblocks
 
@@ -309,6 +307,54 @@ after-install::
 after-uninstall::
 	$(ODATAKIT_BUILD_FILES) uninstall libraries
 
-.PHONY: test
-test: all
-	$(MAKE) -C Tests run-tests
+# The rest of the repository, on the libraries: the command-line tools
+# (Tools/), the example apps and the server's tools (Server/); the tools,
+# the Workbench, the Device app, the launcher that chooses between them,
+# and the server's tools installed beside the libraries.
+ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
+ODATAKIT_INSTALLED = Tools Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
+
+after-all::
+	@for part in $(ODATAKIT_PARTS); do $(MAKE) -C $$part || exit 1; done
+
+after-install::
+	@for part in $(ODATAKIT_INSTALLED); do $(MAKE) -C $$part install || exit 1; done
+
+after-clean::
+	@for part in $(ODATAKIT_PARTS) Tests Tests/Live; do $(MAKE) -C $$part clean || exit 1; done
+
+# make check:
+#   the unit tests (the discovery test runs when avahi-daemon does)
+#   the store's predicates and grouping over PostgreSQL, MySQL and MariaDB,
+#     each given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a server
+#     a test may create a database on); without one they are skipped, but
+#     not in CI, where a missing server is a failure
+#   ois-filter (Tools/)
+#   the server over loopback (Server/)
+#   the live service checks and the Workbench's online self-test, against
+#     services.odata.org: out of our hands, so they warn rather than fail
+#   the Device app syncing with the Workbench, as peers
+# The windows run under Xvfb when there is no display.
+XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
+ODATAKIT_RUN = LD_LIBRARY_PATH="$(CURDIR)/obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" AVAHI_COMPAT_NOWARN=1
+
+check::
+	AVAHI_COMPAT_NOWARN=1 $(MAKE) -C Tests run-tests
+	@for server in POSTGRES_URL MYSQL_URL MARIADB_URL; do \
+	  if [ -z "$$(printenv $$server)" ]; then \
+	    if [ -n "$$CI" ]; then echo "check: $$server is not set; the store's SQL tests need it in CI"; exit 1; fi; \
+	    echo "check: no $$server: its SQL tests are skipped"; \
+	  fi; \
+	done
+	@if [ -n "$$POSTGRES_URL$$MYSQL_URL" ]; then \
+	  CD_TEST_POSTGRES_URL="$$POSTGRES_URL" CD_TEST_MYSQL_URL="$${MYSQL_URL:+$${MYSQL_URL%/*}/oistest}" \
+	    $(MAKE) -C Tests run-tests || exit 1; fi
+	@if [ -n "$$MARIADB_URL" ]; then \
+	  CD_TEST_MYSQL_URL="$${MARIADB_URL%/*}/oistest" $(MAKE) -C Tests run-tests || exit 1; fi
+	$(MAKE) -C Tools check
+	$(MAKE) -C Server check
+	$(MAKE) -C Tests/Live live || echo "::warning::the live service checks failed (services.odata.org)"
+	cd Examples/Workbench && $(ODATAKIT_RUN) $(XVFB) ./Workbench.app/Workbench --self-test \
+	  || echo "::warning::the Workbench's online self-test failed"
+	$(ODATAKIT_RUN) XVFB="$(XVFB)" Scripts/peer-sync-check.sh \
+	  Examples/Workbench/Workbench.app/Workbench Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop

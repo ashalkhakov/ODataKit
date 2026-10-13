@@ -277,7 +277,7 @@ static void WBFlatten(NSDictionary *json, NSString *prefix, NSMutableDictionary 
   // The changes stay, to be put right or reverted.
   NSArray *refused = error.userInfo[NSPersistentStoreSaveConflictsErrorKey];
   if (refused.count && conflicts) *conflicts = refused;
-  NSArray *details = error.userInfo[NSDetailedErrorsKey];
+  NSArray *details = OISDetailedErrors(error);
   NSString *why = details.count ? [[details valueForKey:@"localizedDescription"] componentsJoinedByString:@"; "] : error.localizedDescription;
   return why ?: @"unknown error";
 }

@@ -53,7 +53,7 @@ Most of it comes from elsewhere:
      ```
 
      Or, without building anything: the Workbench's AppImage carries this
-     app too (`ODataWorkbench-Linux-*.AppImage device`, or its launcher's
+     app too (`ODataWorkbench-*.AppImage device`, or its launcher's
      Device button).
 
      Discovery takes avahi-daemon running. A desktop has it; in a

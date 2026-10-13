@@ -4,12 +4,12 @@
 #import "HSServer.h"
 #import "HSLog.h"
 #import "HSRouter.h"
-#import "GCDWebServer.h"
-#import "GCDWebServerDataRequest.h"
-#import "GCDWebServerFileRequest.h"
-#import "GCDWebServerDataResponse.h"
-#import "GCDWebServerFileResponse.h"
-#import "GCDWebServerStreamedResponse.h"
+#import <GCDWebServer/GCDWebServer.h>
+#import <GCDWebServer/GCDWebServerDataRequest.h>
+#import <GCDWebServer/GCDWebServerFileRequest.h>
+#import <GCDWebServer/GCDWebServerDataResponse.h>
+#import <GCDWebServer/GCDWebServerFileResponse.h>
+#import <GCDWebServer/GCDWebServerStreamedResponse.h>
 #include <errno.h>
 
 @interface HSServer ()

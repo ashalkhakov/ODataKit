@@ -994,7 +994,7 @@ static NSArray<NSString *> *OISApplyTransformations(void)
     for (NSDictionary *detail in error.userInfo[ODataErrorDetailsKey] ?: @[]) [details addObject:detail];
   } else if ([error.domain isEqualToString:NSCocoaErrorDomain] && error.code >= NSValidationErrorMinimum && error.code <= NSValidationErrorMaximum) {
     status = 400;
-    NSArray *each = error.code == NSValidationMultipleErrorsError ? error.userInfo[NSDetailedErrorsKey] : @[ error ];
+    NSArray *each = error.code == NSValidationMultipleErrorsError ? OISDetailedErrors(error) : @[ error ];
     BOOL own = NO;
     for (NSError *e in each) {
       NSManagedObject *object = e.userInfo[NSValidationObjectErrorKey];

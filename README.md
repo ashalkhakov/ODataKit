@@ -1,6 +1,6 @@
 # ODataKit
 
-[![CI](https://github.com/ashalkhakov/ODataKit/actions/workflows/ci.yml/badge.svg)](https://github.com/ashalkhakov/ODataKit/actions/workflows/ci.yml)
+[![Build](https://github.com/ashalkhakov/ODataKit/actions/workflows/build.yml/badge.svg)](https://github.com/ashalkhakov/ODataKit/actions/workflows/build.yml)
 
 **OData v4 for Core Data**, in Objective-C, on **macOS and Linux (GNUstep)**.
 Both directions: a Core Data store whose rows live in a remote OData service,

@@ -2,8 +2,8 @@
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 //
-// The one part of HTTPServerKit that touches sockets. It listens with the
-// vendored GCDWebServer (ThirdParty/GCDWebServer), turns each request into
+// The one part of HTTPServerKit that touches sockets. It listens with
+// GCDWebServer (ashalkhakov/GCDWebServer's library), turns each request into
 // an HSRequest for its handler -- a pipeline, a router, an API's own
 // handler -- and writes the response back. HTTP/1.1, with persistent
 // connections (keepAliveTimeout), no TLS: it is meant to sit behind a

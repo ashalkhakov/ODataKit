@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# ODataKit on Linux: the GNUstep stack, FreeCoreData and ODataKit, built
-# once, in four images (docs/building.md):
+# ODataKit on Linux, on the GNUstep stack, FreeCoreData and GCDWebServer, in
+# four images (docs/building.md):
 #
 #   docker build -f Docker/Dockerfile --target sdk       -t odatakit-sdk .
 #   docker build -f Docker/Dockerfile --target runtime   -t odatakit-runtime .
@@ -11,80 +11,66 @@
 #
 #   sdk        everything to build an application with: clang, the stack,
 #              FreeCoreData (with momc and the PostgreSQL and MySQL stores),
-#              ODataKit and ODataServer installed, with the make fragment
-#              and pkg-config files (Server/Examples/Docker builds in it)
+#              GCDWebServer, ODataKit and ODataServer installed, with the make
+#              fragment and pkg-config files (Server/Examples/Docker builds in it)
 #   runtime    what such an application needs to run, and no more
 #   ois-serve  runtime and ois-serve, serving a model from settings
 #              (OIS_ variables, or a property list at OIS_CONFIG)
 #   check      sdk, with the loopback check run and an application built
-#              against the installed libraries both ways, for CI
-#   unit       sdk, with the XCTest suite run (make test), as CI's unit
-#              tests: tools-xctest is part of the stack for it, and
+#              against the installed libraries both ways (CI runs the same in
+#              the sdk image: .github/release/docker-test.sh)
+#   unit       sdk, with the XCTest suite run (make -C Tests run-tests), as
+#              CI's unit tests: tools-xctest is part of the stack for it, and
 #              avahi-daemon runs for the peer discovery test
 #
-# The stack is gnustep-patches' build, as CI's: the same two pins, from
-# .github/pins.env.
+# What it builds on is what CI builds on: the releases .github/pins.env names
+# (the GNUstep stack, FreeCoreData, GCDWebServer), each an archive unpacked
+# at /. gnustep-release-actions' docker.yml passes their versions as build
+# arguments of the same names; built by hand, pins.env's are taken.
 
-ARG UBUNTU=24.04
+# The runtime image is the same Ubuntu the archives are built on, so its
+# libraries are the ones built against.
+ARG UBUNTU=22.04
 
-FROM ubuntu:${UBUNTU} AS toolchain
+FROM ubuntu:${UBUNTU} AS stack
 ARG DEBIAN_FRONTEND=noninteractive
+ARG GNUSTEP_PATCHES_VERSION
+ARG FREECOREDATA_VERSION
+ARG GCDWEBSERVER_VERSION
 # Through caching proxies that answer with stale indexes, which apt then
 # refuses (hash sum mismatch): no pipelining, no proxy caches, retries.
 RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcquire::http::Pipeline-Depth "0";\nAcquire::Retries "3";\n' \
       > /etc/apt/apt.conf.d/99-odatakit
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git make cmake patch pkg-config clang lld \
-      libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev libssl-dev zlib1g-dev \
-      libcurl4-gnutls-dev libgmp-dev libsqlite3-dev libpq-dev libmariadb-dev \
- && rm -rf /var/lib/apt/lists/* \
- # The gnustep-2.0 runtime needs ld.gold or lld.
- && update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
-
-ENV PREFIX=/opt/gnustep \
-    CC=clang CXX=clang++ \
-    LIBRARY_COMBO=ng-gnu-gnu RUNTIME_VERSION=gnustep-2.0 \
-    COMPONENTS="libobjc2 libdispatch tools-make libs-base tools-xctest"
+COPY .github/pins.env /tmp/pins.env
+# The archives, the stack first; then the packages building on the stack
+# needs (its own list, beside it), and ODataKit's: FreeCoreData's SQLite,
+# PostgreSQL and MySQL clients, and Avahi's dns_sd for ODataSync's peers.
+RUN set -e; \
+    apt-get update; apt-get install -y --no-install-recommends ca-certificates curl xz-utils; \
+    for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER; do \
+      eval "version=\${${name}_VERSION:-}"; \
+      [ -n "$version" ] || version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
+      repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
+      curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz" \
+        | tar -C / -xJ; \
+    done; \
+    grep -v '^#' /opt/gnustep/share/gnustep-patches/packages-ubuntu.txt \
+      | xargs apt-get install -y --no-install-recommends libsqlite3-dev libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev; \
+    update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10; \
+    rm -rf /var/lib/apt/lists/*
+ENV CC=clang CXX=clang++ LIBRARY_COMBO=ng-gnu-gnu RUNTIME_VERSION=gnustep-2.0
 # Every RUN in the images after this one sees the stack (GNUstep.sh).
 COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
-FROM toolchain AS stack
-# The pins are .github/pins.env's; a --build-arg overrides one.
-ARG GNUSTEP_PATCHES_REF
-ARG FREECOREDATA_REF
-COPY .github/pins.env /tmp/pins.env
-RUN set -e; \
-    : "${GNUSTEP_PATCHES_REF:=$(sed -n 's/^GNUSTEP_PATCHES_REF=//p' /tmp/pins.env)}"; \
-    mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
-    git init -q && git remote add origin https://github.com/ashalkhakov/gnustep-patches.git; \
-    git fetch -q --depth 1 origin "$GNUSTEP_PATCHES_REF" && git checkout -q FETCH_HEAD; \
-    SOURCES=/tmp/src/gnustep Scripts/build-gnustep.sh; \
-    rm -rf /tmp/src
-RUN set -e; \
-    : "${FREECOREDATA_REF:=$(sed -n 's/^FREECOREDATA_REF=//p' /tmp/pins.env)}"; \
-    mkdir -p /tmp/src/FreeCoreData && cd /tmp/src/FreeCoreData; \
-    git init -q && git remote add origin https://github.com/ashalkhakov/FreeCoreData.git; \
-    git fetch -q --depth 1 origin "$FREECOREDATA_REF" && git checkout -q FETCH_HEAD; \
-    make -j"$(nproc)" && make install; \
-    make -C Tools/momc && make -C Tools/momc install; \
-    make -C Backends/PostgreSQL && make -C Backends/PostgreSQL install; \
-    make -C Backends/MySQL && make -C Backends/MySQL install; \
-    cd / && rm -rf /tmp/src
-
 FROM stack AS sdk
 ARG VERSION=0.0.0
-ARG DEBIAN_FRONTEND=noninteractive
-# ODataSync's peers: Bonjour by Avahi's dns_sd compatibility library (here,
-# not in the toolchain, so the stack's layers stay cached).
-RUN apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev \
- && rm -rf /var/lib/apt/lists/*
 COPY . /usr/src/odatakit
 WORKDIR /usr/src/odatakit
+# The libraries and the server's tools; not the example apps.
 RUN set -e; \
-    make -j"$(nproc)" ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
-    make install ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
-    make -C Server -j"$(nproc)" && make -C Server install; \
+    make -j"$(nproc)" ODATAKIT_PARTS=Server ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
+    make install ODATAKIT_PARTS=Server ODATAKIT_INSTALLED=Server ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
     mkdir -p /usr/local/share/ois-serve; \
     momc Examples/Catalog/Catalog.xcdatamodeld /usr/local/share/ois-serve/Catalog.momd
 ENV PKG_CONFIG_PATH=/opt/gnustep/Local/Library/Libraries/pkgconfig
@@ -115,7 +101,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends avahi-daemon db
 WORKDIR /usr/src/odatakit
 RUN set -e; \
     mkdir -p /run/dbus; dbus-daemon --system --fork; avahi-daemon --daemonize --no-chroot; \
-    AVAHI_COMPAT_NOWARN=1 make test
+    AVAHI_COMPAT_NOWARN=1 make -C Tests run-tests
+
+# What a server needs of the stack: the stack image carries the GUI too
+# (gnustep-gui, the backend and its bundles, the Eau theme, Opal), which no
+# service here loads and whose libraries the runtime image does not have; it
+# leaves, with every library and program that links it or what it draws and
+# plays with (images, sound, cairo, X, fonts: gui's tools too), and XCTest.
+FROM sdk AS runtime-files
+RUN set -e; cd /opt/gnustep; \
+    rm -rf Local/Library/Bundles Local/Library/ColorPickers Local/Library/Themes Local/Library/Images \
+           Local/Library/Sounds Local/Library/PostScript System/Library/Bundles System/Library/Themes \
+           System/Library/CoreServices/Applications; \
+    find . -type f \( -name '*.so*' -o -perm -u+x \) | while read -r f; do \
+      if readelf -d "$f" 2>/dev/null | grep -qE 'NEEDED.*\[lib(gnustep-gui|opal|XCTest|tiff|png|jpeg|gif|sndfile|ao|cairo|X|freetype|fontconfig|icns|lcms)'; then rm -f "$f"; fi; \
+    done; \
+    rm -f Local/Library/Libraries/libgnustep-gui.so* Local/Library/Libraries/libopal.so* Local/Library/Libraries/libXCTest.so*
 
 FROM ubuntu:${UBUNTU} AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
@@ -124,10 +125,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcquire::http::Pipeline-Depth "0";\nAcquire::Retries "3";\n' \
       > /etc/apt/apt.conf.d/99-odatakit
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates libgnutls30t64 libffi8 libicu74 libxml2 libxslt1.1 zlib1g libcurl3t64-gnutls libgmp10 \
+      ca-certificates libgnutls30 libffi8 libicu70 libxml2 libxslt1.1 zlib1g libcurl3-gnutls libgmp10 \
       libsqlite3-0 libpq5 libmariadb3 libstdc++6 libatomic1 libavahi-compat-libdnssd1 \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=sdk /opt/gnustep /opt/gnustep
+COPY --from=runtime-files /opt/gnustep /opt/gnustep
 COPY --from=sdk /usr/local/share/ois-serve /usr/local/share/ois-serve
 COPY Docker/ois-env /usr/local/bin/ois-env
 # A library the image lacks fails the build here, not a server at start.

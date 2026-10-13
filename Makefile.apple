@@ -1,0 +1,84 @@
+# ODataKit on Apple's platforms, the familiar way (gnustep-release-actions'
+# macos.yml runs the same):
+#
+#   make -f Makefile.apple                        the libraries as XCFrameworks
+#                                                 (macOS, iOS, the iOS Simulator),
+#                                                 and the Workbench, universal
+#   make -f Makefile.apple check                  the tests
+#   make -f Makefile.apple install DESTDIR=<dir>  the XCFrameworks and Workbench.app
+#   make -f Makefile.apple installcheck DESTDIR=<dir>
+#                                                 the installed Workbench's signature,
+#                                                 and its offline self-test
+#
+# What it builds on (GCDWebServer's XCFramework, Sparkle's) is in .deps/, by
+# the versions .github/pins.env names (gnustep-release-actions'
+# scripts/deps.sh apple). GNUstep: GNUmakefile.
+
+WORKSPACE = ODataKit.xcworkspace
+BUILD = build
+DERIVED = $(BUILD)/DerivedData
+# Where a failed test's result bundle is kept (CI uploads it from there).
+RESULTS ?= $(or $(RUNNER_TEMP),$(BUILD))
+XCODEBUILD = xcodebuild -workspace $(WORKSPACE) -derivedDataPath $(DERIVED)
+
+# In the order they depend on each other; ODataSync's scheme builds them all.
+FRAMEWORKS = ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync
+PRODUCTS = $(DERIVED)/Build/Products
+RELEASE_DIRS = Release Release-iphoneos Release-iphonesimulator
+DEBUG = $(PRODUCTS)/Debug
+
+all: xcframeworks workbench
+
+xcframeworks:
+	@for platform in macOS iOS "iOS Simulator"; do \
+	  $(XCODEBUILD) -scheme ODataSync -configuration Release -destination "generic/platform=$$platform" build || exit 1; \
+	done
+	@for fw in $(FRAMEWORKS); do \
+	  rm -rf $(BUILD)/$$fw.xcframework; \
+	  xcodebuild -create-xcframework $(foreach d,$(RELEASE_DIRS),-framework $(PRODUCTS)/$(d)/$$fw.framework) \
+	    -output $(BUILD)/$$fw.xcframework || exit 1; \
+	done
+
+workbench:
+	$(XCODEBUILD) -scheme Workbench -configuration Release -destination 'generic/platform=macOS' build
+	@for fw in $(FRAMEWORKS); do \
+	  test -d $(PRODUCTS)/Release/Workbench.app/Contents/Frameworks/$$fw.framework \
+	    || { echo "Workbench.app does not embed $$fw.framework"; exit 1; }; \
+	done
+
+# The unit tests against Apple's Core Data; the server over loopback; the
+# example apps built (the Device app for iOS); the live service checks and
+# the Workbench's online self-test, against services.odata.org: out of our
+# hands, so they warn rather than fail; and the Device app syncing with the
+# Workbench, as peers.
+check:
+	rm -rf $(RESULTS)/ODataKitTests.xcresult
+	$(XCODEBUILD) -scheme ODataKitTests -configuration Debug -destination 'platform=macOS' \
+	  -resultBundlePath $(RESULTS)/ODataKitTests.xcresult test
+	$(MAKE) -C Server -f Makefile.apple check
+	@for scheme in Catalog Workbench DeviceDesktop; do \
+	  $(XCODEBUILD) -scheme $$scheme -configuration Debug -destination 'platform=macOS' build || exit 1; \
+	done
+	$(XCODEBUILD) -scheme Device -configuration Debug -destination 'generic/platform=iOS Simulator' build
+	$(MAKE) -C Tests/Live -f Makefile.apple live || echo "::warning::the live service checks failed (services.odata.org)"
+	$(DEBUG)/Workbench.app/Contents/MacOS/Workbench --self-test || echo "::warning::the Workbench's online self-test failed"
+	Scripts/peer-sync-check.sh $(DEBUG)/Workbench.app/Contents/MacOS/Workbench \
+	  $(DEBUG)/DeviceDesktop.app/Contents/MacOS/DeviceDesktop
+
+install: all
+	@test -n "$(DESTDIR)" || { echo "install: give DESTDIR"; exit 1; }
+	mkdir -p $(DESTDIR)
+	@for fw in $(FRAMEWORKS); do rm -rf $(DESTDIR)/$$fw.xcframework && ditto $(BUILD)/$$fw.xcframework $(DESTDIR)/$$fw.xcframework || exit 1; done
+	rm -rf $(DESTDIR)/Workbench.app
+	ditto $(PRODUCTS)/Release/Workbench.app $(DESTDIR)/Workbench.app
+
+installcheck:
+	codesign --verify --deep --strict $(DESTDIR)/Workbench.app
+	$(DESTDIR)/Workbench.app/Contents/MacOS/Workbench --self-test builtin
+
+clean:
+	rm -rf $(BUILD)
+	$(MAKE) -C Server -f Makefile.apple clean
+	$(MAKE) -C Tests/Live -f Makefile.apple clean
+
+.PHONY: all xcframeworks workbench check install installcheck clean

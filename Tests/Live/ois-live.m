@@ -46,8 +46,7 @@ static NSString *reason(NSError *error)
 {
   if (!error) return nil;
   NSError *underlying = error.userInfo[NSUnderlyingErrorKey];
-  NSArray *detailed = error.userInfo[NSDetailedErrorsKey];
-  if (!underlying && [detailed isKindOfClass:[NSArray class]]) underlying = detailed.firstObject;
+  if (!underlying) underlying = OISDetailedErrors(error).firstObject;
   NSError *e = underlying ?: error;
   NSString *why = e.userInfo[NSLocalizedFailureReasonErrorKey];
   return why ? [NSString stringWithFormat:@"%@ (%@)", e.localizedDescription, why] : e.localizedDescription;
@@ -387,7 +386,7 @@ static void tripPin(NSString *models)
     BOOL elsewhere = changeBehindTheStoresBack(root, userName);
     [person setValue:@"Stale" forKey:@"firstName"];
     BOOL overwrote = [moc save:&e];
-    NSError *cause = e.userInfo[NSUnderlyingErrorKey] ?: [e.userInfo[NSDetailedErrorsKey] firstObject] ?: e;
+    NSError *cause = e.userInfo[NSUnderlyingErrorKey] ?: OISDetailedErrors(e).firstObject ?: e;
     check(elsewhere && !overwrote && cause.code == ODataIncrementalStoreErrorOptimisticLocking, @"a stale ETag is refused (412)",
           overwrote ? @"the save went through" : reason(e));
     [moc rollback];

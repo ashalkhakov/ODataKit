@@ -83,18 +83,19 @@ For a device, it needs your signing team (`Examples/Device/Local.xcconfig`).
 
 ## GNUstep
 
-CI builds against a GNUstep stack from
-[gnustep-patches](https://github.com/ashalkhakov/gnustep-patches), whose
-`Scripts/build-gnustep.sh` makes it; `.github/workflows/ci.yml` has the exact
-recipe, and `.github/pins.env` the commits of gnustep-patches and
-FreeCoreData it builds (CI and the Docker images both read them; to move
-one, edit it there).
+`.github/pins.env` names the exact releases ODataKit builds on: the GNUstep
+stack [gnustep-patches](https://github.com/ashalkhakov/gnustep-patches)
+publishes (its `Scripts/build-gnustep.sh` builds the same stack on a machine
+of your own), [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) and
+[GCDWebServer](https://github.com/ashalkhakov/GCDWebServer). CI unpacks each
+one's archive into `/opt/gnustep` (gnustep-release-actions'
+`scripts/deps.sh linux`), and so does the Docker image; to move one, edit it
+there.
 
-Install [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) first: it
-is the Core Data this store subclasses (`NSIncrementalStore`, the coordinator)
-and the server stores in. Install its model compiler too (`make -C Tools/momc
-install` there): the tests and example apps compile `Catalog.xcdatamodeld` to
-`.momd`, which is what FreeCoreData loads. ODataSync's peers need
+FreeCoreData is the Core Data this store subclasses (`NSIncrementalStore`,
+the coordinator) and the server stores in; its model compiler, `momc`,
+compiles `Catalog.xcdatamodeld` to the `.momd` FreeCoreData loads.
+GCDWebServer is HTTPServerKit's listener. ODataSync's peers need
 GnuTLS, libcurl (built with GnuTLS) and Avahi's dns_sd compatibility
 library: on Ubuntu, `libgnutls28-dev libcurl4-gnutls-dev
 libavahi-compat-libdnssd-dev`, and `avahi-daemon` running to find peers
@@ -102,8 +103,19 @@ libavahi-compat-libdnssd-dev`, and `avahi-daemon` running to find peers
 
 ```sh
 . /usr/share/GNUstep/Makefiles/GNUstep.sh
-make && make install                 # libODataKit, libODataIncrementalStore, libOTelKit, libHTTPServerKit, libODataService
-make -C Server && make -C Server install   # ois-serve
+make            # the libraries, the example apps, ois-serve (Server/)
+make check      # the tests (see Tests, below)
+make install    # the libraries, the Workbench, the Device app, their launcher, ois-serve
+```
+
+On macOS, `Makefile.apple` does the same with Xcode: the libraries as
+XCFrameworks (macOS, iOS, the iOS Simulator) and the Workbench, with
+GCDWebServer's and Sparkle's XCFrameworks in `.deps/` (`scripts/deps.sh
+apple`, from `.github/pins.env`):
+
+```sh
+make -f Makefile.apple && make -f Makefile.apple check
+make -f Makefile.apple install DESTDIR=out
 ```
 
 ### Building against what is installed
@@ -141,7 +153,7 @@ clang main.m $(pkg-config --cflags --libs odataservice) -o myserver
 
 ### Docker
 
-`Docker/Dockerfile` builds the stack once, as CI does, into four images:
+`Docker/Dockerfile` builds on the same releases CI does, into four images:
 
 ```sh
 docker build -f Docker/Dockerfile --target sdk       -t odatakit-sdk .
@@ -152,11 +164,11 @@ docker build -f Docker/Dockerfile --target unit .
 ```
 
 - `odatakit-sdk`: clang, GNUstep, FreeCoreData (with `momc` and its
-  PostgreSQL and MySQL stores), ODataKit and HTTPServerKit installed with the
+  PostgreSQL and MySQL stores), GCDWebServer, ODataKit and HTTPServerKit installed with the
   fragment and pkg-config files. Build an application in it.
 - `check` and `unit` are for CI and for trying a change on Linux: the
   loopback check (`make -C Server check`) and an application built
-  against what is installed; and the XCTest suite (`make test`, with
+  against what is installed; and the XCTest suite (`make -C Tests run-tests`, with
   `tools-xctest` in the stack).
 - `odatakit-runtime`: what such an application needs to run, and no more;
   a library it would lack fails the image's build, not a server at start.
@@ -196,14 +208,6 @@ ENTRYPOINT ["/usr/local/bin/ois-env", "myserver"]
 
 `ois-env` runs a command with the stack in its environment (`GNUstep.sh`).
 
-Without gnustep-make, clang and `gnustep-config` build the command-line tool:
-
-```sh
-make -f Makefile
-./ois-filter 'unitPrice > 20 AND discontinued == NO'
-# UnitPrice gt 20 and Discontinued eq false
-```
-
 ## Tests
 
 XCTest, and no network: HTTP is a directory of OData v4 request/response
@@ -213,21 +217,24 @@ it through `ODataTransport`. The tests load
 `Examples/Catalog/Catalog.xcdatamodeld`, the example apps' model.
 
 ```sh
-make test            # GNUstep
+make -C Tests run-tests     # GNUstep; make check runs them with the rest
 ```
 
-On Apple: the `ODataKitTests` scheme (⌘U).
+On Apple: the `ODataKitTests` scheme (⌘U), or `make -f Makefile.apple check`.
 
 The predicate pair tests (`$filter` → `NSPredicate` → rows, and `$apply`
 grouping in the store against grouping in memory) also run over
-FreeCoreData's SQL backends, given a server and the backends built there
-(`make -C Backends/PostgreSQL`, `make -C Backends/MySQL`):
+FreeCoreData's SQL backends (installed with it), given a server:
 
 ```sh
 CD_TEST_POSTGRES_URL=postgresql://postgres:secret@localhost:5432/postgres \
 CD_TEST_MYSQL_URL=mysql://root:secret@localhost:3306/oistest \
-  make -C Tests run-tests FREECOREDATA_BACKENDS=<FreeCoreData>/Backends
+  make -C Tests run-tests
 ```
+
+`make check` runs them against the servers `POSTGRES_URL`, `MYSQL_URL` and
+`MARIADB_URL` name, skipping one it is not given (but not in CI, where a
+missing server fails).
 
 Each store works in a schema of its own, dropped afterwards. CI runs them
 against PostgreSQL 16, MySQL 8 and MariaDB 11.
