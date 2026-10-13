@@ -86,7 +86,9 @@ For a device, it needs your signing team (`Examples/Device/Local.xcconfig`).
 CI builds against a GNUstep stack from
 [gnustep-patches](https://github.com/ashalkhakov/gnustep-patches), whose
 `Scripts/build-gnustep.sh` makes it; `.github/workflows/ci.yml` has the exact
-recipe and the commits it pins.
+recipe, and `.github/pins.env` the commits of gnustep-patches and
+FreeCoreData it builds (CI and the Docker images both read them; to move
+one, edit it there).
 
 Install [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) first: it
 is the Core Data this store subclasses (`NSIncrementalStore`, the coordinator)

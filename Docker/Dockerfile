@@ -22,7 +22,8 @@
 #              tests: tools-xctest is part of the stack for it, and
 #              avahi-daemon runs for the peer discovery test
 #
-# The stack is gnustep-patches' build, as CI's: the same two pins.
+# The stack is gnustep-patches' build, as CI's: the same two pins, from
+# .github/pins.env.
 
 ARG UBUNTU=24.04
 
@@ -49,15 +50,19 @@ COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
 
 FROM toolchain AS stack
-ARG GNUSTEP_PATCHES_REF=43dcb1fa0d6d468029d66dfeb250ae42bc1d8b10
-ARG FREECOREDATA_REF=a07b87ff0cba571bbc282f99d73f37619a9f65b3
+# The pins are .github/pins.env's; a --build-arg overrides one.
+ARG GNUSTEP_PATCHES_REF
+ARG FREECOREDATA_REF
+COPY .github/pins.env /tmp/pins.env
 RUN set -e; \
+    : "${GNUSTEP_PATCHES_REF:=$(sed -n 's/^GNUSTEP_PATCHES_REF=//p' /tmp/pins.env)}"; \
     mkdir -p /tmp/src/gnustep-patches && cd /tmp/src/gnustep-patches; \
     git init -q && git remote add origin https://github.com/ashalkhakov/gnustep-patches.git; \
     git fetch -q --depth 1 origin "$GNUSTEP_PATCHES_REF" && git checkout -q FETCH_HEAD; \
     SOURCES=/tmp/src/gnustep Scripts/build-gnustep.sh; \
     rm -rf /tmp/src
 RUN set -e; \
+    : "${FREECOREDATA_REF:=$(sed -n 's/^FREECOREDATA_REF=//p' /tmp/pins.env)}"; \
     mkdir -p /tmp/src/FreeCoreData && cd /tmp/src/FreeCoreData; \
     git init -q && git remote add origin https://github.com/ashalkhakov/FreeCoreData.git; \
     git fetch -q --depth 1 origin "$FREECOREDATA_REF" && git checkout -q FETCH_HEAD; \
