@@ -74,8 +74,6 @@ for name in open xdg-open; do
 done
 
 # Fonts, so the window lays out the same on a machine that has none.
-mkdir -p AppDir/usr/etc/fonts
-cp Scripts/appimage/fonts.conf AppDir/usr/etc/fonts/fonts.conf
 for dir in /usr/share/fonts/truetype/dejavu /usr/share/fonts/truetype/liberation; do
   if [ -d "$dir" ]; then
     mkdir -p "AppDir/usr/share/fonts/truetype/$(basename "$dir")"
