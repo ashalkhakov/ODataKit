@@ -415,13 +415,13 @@ jobs:
       # linux-test.sh on a plain Ubuntu (this job's) with no GNUstep.
       - name: Package the AppImage
         id: appimage
-        uses: ashalkhakov/gnustep-release-actions/appimage@v1
+        uses: ashalkhakov/gnustep-release-actions/appimage@appimage-shared
         with:
           version: 0.0.0-${{ github.run_number }}-${{ github.sha }}
           working-directory: ${{ env.SRC_PATH }}
 
       - name: Smoke-test the AppImage on a clean system
-        uses: ashalkhakov/gnustep-release-actions/appimage-test@v1
+        uses: ashalkhakov/gnustep-release-actions/appimage-test@appimage-shared
         with:
           image: ${{ steps.appimage.outputs.image }}
           working-directory: ${{ env.SRC_PATH }}
