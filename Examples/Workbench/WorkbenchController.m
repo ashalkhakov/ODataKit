@@ -181,7 +181,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
     NSInteger check = [appMenu indexOfItemWithTag:7100];
     if (check < 0) return;
     [appMenu removeItemAtIndex:check];
-    if (check < appMenu.numberOfItems && [appMenu itemAtIndex:check].separatorItem) [appMenu removeItemAtIndex:check];
+    if (check < appMenu.numberOfItems && [[appMenu itemAtIndex:check] isSeparatorItem]) [appMenu removeItemAtIndex:check];
   }
 }
 
