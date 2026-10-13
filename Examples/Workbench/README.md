@@ -204,8 +204,8 @@ A release carries both packages, attached when a `v*` tag is pushed:
   the Workbench, the desktop Device app
   ([its README](../DeviceDesktop/README.md)) and a launcher that chooses
   between them (`Examples/Launcher`), with the libraries, FreeCoreData and
-  the GNUstep runtime (`Scripts/prepare-appdir.sh`,
-  `Scripts/package-appimage.sh`). It needs what any Linux desktop has: X11,
+  the GNUstep runtime (gnustep-release-actions' `appimage`, from
+  `.github/release/appimage.conf`). It needs what any Linux desktop has: X11,
   fontconfig, freetype, OpenGL. Make it executable and run it:
   - with no arguments, the launcher asks which app to open;
   - `<image> workbench` and `<image> device` open one directly (and pass on

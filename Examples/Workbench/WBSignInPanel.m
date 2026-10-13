@@ -157,7 +157,7 @@ static NSButton *WBButton(NSRect frame, NSString *title, id target, SEL action)
 {
   (void)sender;
   // The browser: on GNUstep through GSUnknownFileTool, which the AppImage
-  // points at the host's opener (Scripts/appimage/open).
+  // points at the host's opener (gnustep-release-actions' appimage/open).
   if (_page && ![[NSWorkspace sharedWorkspace] openURL:_page]) {
     _status.stringValue = [NSString stringWithFormat:@"No browser opened it: open %@ yourself.", _page.absoluteString];
   }

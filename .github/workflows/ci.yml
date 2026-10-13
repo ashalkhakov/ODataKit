@@ -407,38 +407,24 @@ jobs:
           Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop --self-test http://127.0.0.1:8640/odata/
 
       # The Workbench as an AppImage: the app, the library, FreeCoreData and
-      # the GNUstep runtime in one file (Scripts/prepare-appdir.sh,
-      # Scripts/package-appimage.sh), checked here on every push. A release's
-      # is release.yml's, built on Ubuntu 22.04 with its update information.
-      - name: Package the Workbench as an AppImage
-        run: |
-          sudo apt-get -q -y install desktop-file-utils fonts-dejavu fonts-liberation
-          ./Scripts/install-linuxdeploy.sh
-          version="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = tag ] || version="0.0.0-$GITHUB_RUN_NUMBER"
-          . $PREFIX/System/Library/Makefiles/GNUstep.sh
-          GNUSTEP_PREFIX="$PREFIX" ./Scripts/prepare-appdir.sh
-          APP_VERSION="$version" GNUSTEP_PREFIX="$PREFIX" ./Scripts/package-appimage.sh
+      # the GNUstep runtime in one file, checked here on every push. A
+      # release's is release.yml's, built on Ubuntu 22.04 with its update
+      # information.
+      # gnustep-release-actions' appimage and appimage-test, as release.yml's:
+      # .github/release/linux-install.sh and appimage.conf, the image, and
+      # linux-test.sh on a plain Ubuntu (this job's) with no GNUstep.
+      - name: Package the AppImage
+        id: appimage
+        uses: ashalkhakov/gnustep-release-actions/appimage@v1
+        with:
+          version: 0.0.0-${{ github.run_number }}-${{ github.sha }}
+          working-directory: ${{ env.SRC_PATH }}
 
-      # Where it will run: a plain Ubuntu with no GNUstep, and only the
-      # libraries every desktop has (AppImage leaves those to the host). The
-      # offline self-test drives the window against the built-in service.
-      # The host's fonts are removed first (libfontconfig1 pulls in DejaVu),
-      # so the window lays out with the fonts the image carries or not at
-      # all: a font path that misses them fails here.
       - name: Smoke-test the AppImage on a clean system
-        run: |
-          image=$(ls ODataWorkbench-Linux-*.AppImage)
-          chmod +x "$image"
-          docker run --rm -v "$PWD:/w" -w /w ubuntu:24.04 bash -c '
-            export DEBIAN_FRONTEND=noninteractive
-            for i in 1 2 3; do
-              apt-get update -qq && apt-get install -y -qq --fix-missing xvfb xauth ca-certificates \
-                libfontconfig1 libfreetype6 libx11-6 libx11-xcb1 libxcb1 libgl1 libharfbuzz0b > /dev/null && break
-              sleep 10
-            done
-            rm -rf /usr/share/fonts
-            APPIMAGE_EXTRACT_AND_RUN=1 timeout 300 xvfb-run -a ./'"$image"' --self-test builtin'
+        uses: ashalkhakov/gnustep-release-actions/appimage-test@v1
+        with:
+          image: ${{ steps.appimage.outputs.image }}
+          working-directory: ${{ env.SRC_PATH }}
 
       - uses: actions/upload-artifact@v4
         with:
