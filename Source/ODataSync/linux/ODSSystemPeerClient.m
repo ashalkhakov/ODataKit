@@ -40,9 +40,39 @@ static size_t ODSCurlBody(char *bytes, size_t size, size_t count, void *context)
 
 // Each response's header fields; a new status line (after a 100) starts
 // them again.
+// What the header callback needs: where the fields go, and, when the
+// certificate the peer presented is wanted, the handle to read it from and
+// where it goes (retained, handed back by ODSCurlHeaderCertificate).
+typedef struct {
+  void *fields;        // NSMutableDictionary, not retained
+  CURL *curl;          // NULL: the certificate is not wanted
+  void *certificate;   // NSData, retained, or NULL
+} ODSCurlHeaderContext;
+
+// The first certificate the peer presented, in DER, read from the TLS session
+// while the connection is open (the first header line comes after the
+// handshake), not by CURLOPT_CERTINFO: libcurl 7.81 with GnuTLS (Ubuntu
+// 22.04's, which the AppImage carries) fails a transfer that asks for it from
+// a server with an ECDSA certificate, as every peer's is, with "Out of memory".
+static NSData *ODSSessionCertificate(CURL *curl)
+{
+  struct curl_tlssessioninfo *info = NULL;
+  if (curl_easy_getinfo(curl, CURLINFO_TLS_SSL_PTR, &info) != CURLE_OK || !info
+      || info->backend != CURLSSLBACKEND_GNUTLS || !info->internals) return nil;
+  unsigned int count = 0;
+  const gnutls_datum_t *chain = gnutls_certificate_get_peers((gnutls_session_t)info->internals, &count);
+  if (!chain || count < 1) return nil;
+  return [NSData dataWithBytes:chain[0].data length:chain[0].size];
+}
+
 static size_t ODSCurlHeader(char *bytes, size_t size, size_t count, void *context)
 {
-  NSMutableDictionary *fields = (__bridge NSMutableDictionary *)context;
+  ODSCurlHeaderContext *header = context;
+  NSMutableDictionary *fields = (__bridge NSMutableDictionary *)header->fields;
+  if (header->curl && !header->certificate) {
+    NSData *certificate = ODSSessionCertificate(header->curl);
+    if (certificate) header->certificate = (__bridge_retained void *)certificate;
+  }
   NSString *line = [[NSString alloc] initWithBytes:bytes length:size * count encoding:NSISOLatin1StringEncoding];
   line = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   if ([line hasPrefix:@"HTTP/"]) {
@@ -82,22 +112,6 @@ static NSString *ODSKeyPin(NSData *certificate)
 
 // The server's certificate, from what libcurl tells of a new connection
 // (its "Cert:" field, PEM).
-static NSData *ODSPresentedCertificate(CURL *curl)
-{
-  struct curl_certinfo *info = NULL;
-  if (curl_easy_getinfo(curl, CURLINFO_CERTINFO, &info) != CURLE_OK || !info || info->num_of_certs < 1) return nil;
-  for (struct curl_slist *field = info->certinfo[0]; field; field = field->next) {
-    if (strncmp(field->data, "Cert:", 5) != 0) continue;
-    const char *pem = field->data + 5;
-    gnutls_datum_t in = { (unsigned char *)pem, (unsigned int)strlen(pem) }, der = { NULL, 0 };
-    if (gnutls_pem_base64_decode2("CERTIFICATE", &in, &der) < 0) return nil;
-    NSData *certificate = [NSData dataWithBytes:der.data length:der.size];
-    gnutls_free(der.data);
-    return certificate;
-  }
-  return nil;
-}
-
 @implementation ODSSystemPeerClient {
   ODataSyncPeerIdentity *_identity;
   NSLock *_sending;
@@ -176,7 +190,6 @@ static NSData *ODSPresentedCertificate(CURL *curl)
   } else {
     curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1L);
     curl_easy_setopt(curl, CURLOPT_FORBID_REUSE, 1L);
-    curl_easy_setopt(curl, CURLOPT_CERTINFO, 1L);
   }
   NSString *method = request.HTTPMethod.uppercaseString ?: @"GET";
   NSData *sent = request.HTTPBody;
@@ -200,11 +213,13 @@ static NSData *ODSPresentedCertificate(CURL *curl)
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, ODSCurlBody);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (__bridge void *)body);
   curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, ODSCurlHeader);
-  curl_easy_setopt(curl, CURLOPT_HEADERDATA, (__bridge void *)fields);
+  ODSCurlHeaderContext header = { (__bridge void *)fields, pin ? NULL : curl, NULL };
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header);
   CURLcode code = curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-  NSData *certificate = code == CURLE_OK && !pin ? ODSPresentedCertificate(curl) : nil;
+  NSData *certificate = header.certificate ? (__bridge_transfer NSData *)header.certificate : nil;
+  if (code != CURLE_OK) certificate = nil;
   // Nothing of this request's (its buffers, its headers) left in the
   // handle once they are gone; its connections stay.
   curl_easy_reset(curl);

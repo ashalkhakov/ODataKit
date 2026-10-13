@@ -9,8 +9,11 @@
 #include <gnutls/abstract.h>
 #include <sys/stat.h>
 
-// libcurl's: the server's certificate from what it tells of a new
-// connection, kept for those after.
+// libcurl's: the server's certificate read from the TLS session as the
+// answer's first header comes in (the handshake done, the connection open),
+// as the library's peer client reads it: not by CURLOPT_CERTINFO, which
+// libcurl 7.81 with GnuTLS (Ubuntu 22.04's) fails with "Out of memory"
+// against an ECDSA certificate.
 
 static size_t OSPBody(char *bytes, size_t size, size_t count, void *context)
 {
@@ -18,8 +21,30 @@ static size_t OSPBody(char *bytes, size_t size, size_t count, void *context)
   return size * count;
 }
 
+@interface OSPClient ()
+- (void)noteServerCertificate;
+@end
+
+static size_t OSPHeader(char *bytes, size_t size, size_t count, void *context)
+{
+  [(__bridge OSPClient *)context noteServerCertificate];
+  return size * count;
+}
+
 @implementation OSPClient {
   CURL *_curl;
+}
+
+- (void)noteServerCertificate
+{
+  struct curl_tlssessioninfo *info = NULL;
+  if (curl_easy_getinfo(_curl, CURLINFO_TLS_SSL_PTR, &info) != CURLE_OK || !info
+      || info->backend != CURLSSLBACKEND_GNUTLS || !info->internals) return;
+  unsigned int count = 0;
+  const gnutls_datum_t *chain = gnutls_certificate_get_peers((gnutls_session_t)info->internals, &count);
+  if (chain && count > 0) {
+    self.serverThumbprint = [ODataSyncPeerIdentity thumbprintOfCertificateData:[NSData dataWithBytes:chain[0].data length:chain[0].size]];
+  }
 }
 
 - (instancetype)initWithIdentity:(ODataSyncPeerIdentity *)identity
@@ -44,27 +69,17 @@ static size_t OSPBody(char *bytes, size_t size, size_t count, void *context)
   curl_easy_setopt(_curl, CURLOPT_TIMEOUT, 20L);
   curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
   curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
-  curl_easy_setopt(_curl, CURLOPT_CERTINFO, 1L);
   if (self.identity) {
     curl_easy_setopt(_curl, CURLOPT_SSLCERT, self.identity.system.certificateURL.path.fileSystemRepresentation);
     curl_easy_setopt(_curl, CURLOPT_SSLKEY, self.identity.system.keyURL.path.fileSystemRepresentation);
   }
   curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, OSPBody);
   curl_easy_setopt(_curl, CURLOPT_WRITEDATA, (__bridge void *)body);
+  curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, OSPHeader);
+  curl_easy_setopt(_curl, CURLOPT_HEADERDATA, (__bridge void *)self);
   CURLcode code = curl_easy_perform(_curl);
   long status = 0;
   curl_easy_getinfo(_curl, CURLINFO_RESPONSE_CODE, &status);
-  struct curl_certinfo *info = NULL;
-  if (code == CURLE_OK && curl_easy_getinfo(_curl, CURLINFO_CERTINFO, &info) == CURLE_OK && info && info->num_of_certs > 0) {
-    for (struct curl_slist *field = info->certinfo[0]; field; field = field->next) {
-      if (strncmp(field->data, "Cert:", 5) != 0) continue;
-      gnutls_datum_t in = { (unsigned char *)field->data + 5, (unsigned int)strlen(field->data + 5) }, der = { NULL, 0 };
-      if (gnutls_pem_base64_decode2("CERTIFICATE", &in, &der) >= 0) {
-        self.serverThumbprint = [ODataSyncPeerIdentity thumbprintOfCertificateData:[NSData dataWithBytes:der.data length:der.size]];
-        gnutls_free(der.data);
-      }
-    }
-  }
   if (json) *json = body.length ? [NSJSONSerialization JSONObjectWithData:body options:0 error:NULL] : nil;
   if (error) {
     *error = code == CURLE_OK ? nil : [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorSecureConnectionFailed
