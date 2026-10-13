@@ -27,3 +27,14 @@
 #ifndef NSManagedObjectConstraintMergeError
 #define NSManagedObjectConstraintMergeError 1570
 #endif
+
+// The errors one failure collected (a save's, NSValidationMultipleErrorsError's).
+// Apple's Core Data, in a program built for macOS 12 or later, files them
+// under "NSDetailedErrors", not under NSDetailedErrorsKey's own value
+// ("NSDetailedErrorsKey"), where it did before and FreeCoreData does: both
+// are looked in.
+static inline NSArray<NSError *> *OISDetailedErrors(NSError *error)
+{
+  id each = error.userInfo[NSDetailedErrorsKey] ?: error.userInfo[@"NSDetailedErrors"];
+  return [each isKindOfClass:[NSArray class]] ? each : nil;
+}
