@@ -9,6 +9,7 @@
 
 #import "WorkbenchController+Private.h"
 #import "WorkbenchSupport.h"
+#import "WBUpdater.h"
 #import <objc/runtime.h>
 
 static BOOL WorkbenchLoadNib(NSString *name, id owner)
@@ -26,6 +27,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   BOOL _loadingPage;
   BOOL _keepingLogSelection;  // the log's row chosen again after a reload: not shown again
   BOOL _awake;  // the window's xib has loaded; the owner hears it again of each window of its own
+  WBUpdater *_updater;
 }
 
 - (instancetype)init
@@ -165,6 +167,27 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 {
   (void)sender;
   return YES;
+}
+
+// Updates, set up before the app finishes launching (as Sparkle asks);
+// not started in a self-test. Where there is no updater, no menu item,
+// nor the separator under it.
+- (void)applicationWillFinishLaunching:(NSNotification *)notification
+{
+  (void)notification;
+  _updater = [[WBUpdater alloc] initStarting:!self.selfTesting];
+  if (!_updater.available) {
+    NSMenu *appMenu = [[NSApp mainMenu] itemAtIndex:0].submenu;
+    NSInteger check = [appMenu indexOfItemWithTag:7100];
+    if (check < 0) return;
+    [appMenu removeItemAtIndex:check];
+    if (check < appMenu.numberOfItems && [appMenu itemAtIndex:check].separatorItem) [appMenu removeItemAtIndex:check];
+  }
+}
+
+- (IBAction)checkForUpdates:(id)sender
+{
+  [_updater checkForUpdates:sender];
 }
 
 - (BOOL)builtIn
@@ -1407,6 +1430,7 @@ static NSString *WBRawHeaders(NSDictionary *headers)
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
+  if (sel_isEqual(item.action, @selector(checkForUpdates:))) return _updater.canCheckForUpdates;
   if (sel_isEqual(item.action, @selector(signOut:))) {
     ODataSignIn *signIn = _connection.service == WBServiceOther ? self.signIns[_connection.serviceRoot.absoluteString] : nil;
     return signIn.signedIn && signIn.kind != ODataSignInNone;

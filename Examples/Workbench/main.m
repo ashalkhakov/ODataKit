@@ -28,6 +28,7 @@ int main(int argc, const char *argv[])
     WorkbenchController *app = [[WorkbenchController alloc] init];
     [NSApp setDelegate:(id)app];
     app.selfTestOffline = offline;
+    app.selfTesting = selfTest;
     [app showWindow];
     if (serve && !selfTest) [app serveOnTheNetworkAtPort:port];
     if (selfTest) [app performSelector:@selector(runSelfTest) withObject:nil afterDelay:0.5];

@@ -39,6 +39,8 @@
 		AB00000000000000000E1A00 /* HTTPServerKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000E1800 /* HTTPServerKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		AB00000000000000000E1F00 /* OTelKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000E1E00 /* OTelKit.framework */; };
 		AB00000000000000000E2000 /* OTelKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000E1E00 /* OTelKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AC0000000000000000000001 /* WBUpdater-Apple.m in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* WBUpdater-Apple.m */; };
+		AC0000000000000000000005 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AC0000000000000000000006 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -184,6 +186,10 @@
 		AB00000000000000000000C1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CE18C071E2F64EAF0C84382D /* WorkbenchModel.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkbenchModel.h; sourceTree = "<group>"; };
 		FC7B0FDF2768FE210A1CFD2E /* WorkbenchDevice.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkbenchDevice.m; sourceTree = "<group>"; };
+		AC0000000000000000000002 /* WBUpdater-Apple.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "WBUpdater-Apple.m"; sourceTree = "<group>"; };
+		AC0000000000000000000003 /* WBUpdater.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WBUpdater.h; sourceTree = "<group>"; };
+		AC0000000000000000000004 /* WBUpdater.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WBUpdater.m; sourceTree = "<group>"; };
+		AC0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +205,7 @@
 				AA0000000000000000000094 /* Cocoa.framework in Frameworks */,
 				AA0000000000000000000096 /* CoreData.framework in Frameworks */,
 				09B9ED482C7470BB3085B8B5 /* ODataSync.framework in Frameworks */,
+				AC0000000000000000000005 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +256,10 @@
 				986F3DA9CF252313A4AFEB95 /* WorkbenchModel.m */,
 				91287A5DE82B52D40EC935CE /* WorkbenchDevice.h */,
 				FC7B0FDF2768FE210A1CFD2E /* WorkbenchDevice.m */,
+				AC0000000000000000000003 /* WBUpdater.h */,
+				AC0000000000000000000002 /* WBUpdater-Apple.m */,
+				AC0000000000000000000004 /* WBUpdater.m */,
+				AC0000000000000000000008 /* Info.plist */,
 			);
 			name = Workbench;
 			sourceTree = "<group>";
@@ -318,6 +329,9 @@
 			productName = Workbench;
 			productReference = AA0000000000000000000009 /* Workbench.app */;
 			productType = "com.apple.product-type.application";
+			packageProductDependencies = (
+				AC0000000000000000000006 /* Sparkle */,
+			);
 		};
 /* End PBXNativeTarget section */
 
@@ -343,6 +357,9 @@
 				Base,
 			);
 			mainGroup = AA00000000000000000000A1;
+			packageReferences = (
+				AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = AA00000000000000000000A5 /* Products */;
 			projectDirPath = "";
 			projectReferences = (
@@ -436,6 +453,7 @@
 				942C23BF5ED1072A27E86199 /* WBSync.m in Sources */,
 				A17EAFA7B40999E262D97750 /* WorkbenchModel.m in Sources */,
 				0F7E19DF8E054A0C4BF350A2 /* WorkbenchDevice.m in Sources */,
+				AC0000000000000000000001 /* WBUpdater-Apple.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -498,6 +516,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OIS Workbench";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (C) 2026 OIS contributors. LGPL-2.1-or-later.";
@@ -517,6 +536,7 @@
 				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = NO;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = NO;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OIS Workbench";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (C) 2026 OIS contributors. LGPL-2.1-or-later.";
@@ -549,6 +569,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AC0000000000000000000006 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA00000000000000000000AB /* Project object */;
 }

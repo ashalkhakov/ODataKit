@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "WorkbenchController+Private.h"
+#import "WBUpdater.h"
 #import <objc/runtime.h>
 
 @implementation WorkbenchController (SelfTest)
@@ -875,6 +876,13 @@ static void WBCheck(BOOL ok, NSString *what, NSString *detail)
 
 - (void)runSelfTest
 {
+  // Check for Updates…: in the app menu where there is an updater
+  // (Sparkle, on macOS), not where the image is updated from outside
+  // (GNUstep's AppImage).
+  BOOL hasUpdater = [[WBUpdater alloc] initStarting:NO].available;
+  NSMenuItem *checkForUpdates = [[[NSApp mainMenu] itemAtIndex:0].submenu itemWithTag:7100];
+  WBCheck((checkForUpdates != nil) == hasUpdater && (!checkForUpdates || sel_isEqual(checkForUpdates.action, @selector(checkForUpdates:))),
+          hasUpdater ? @"Check for Updates… in the app menu" : @"Check for Updates… not offered", nil);
   NSArray *names = @[ @"Built-in", @"Northwind", @"TripPin" ];
   NSInteger last = self.selfTestOffline ? WBServiceBuiltIn : WBServiceTripPin;
   for (NSInteger service = WBServiceBuiltIn; service <= last; service++) {

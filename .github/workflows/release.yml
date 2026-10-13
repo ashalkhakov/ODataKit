@@ -1,7 +1,8 @@
 name: Release
 
-# The Workbench for macOS, signed with a Developer ID and notarized: ported
-# from FreeCoreData's and XFormsKit's release workflows. A v* tag builds it
+# The Workbench for macOS, signed with a Developer ID and notarized, and
+# for a release the appcast its Sparkle reads: ported from FreeCoreData's
+# and XFormsKit's release workflows. A v* tag builds it
 # and attaches it to that release. Run by hand with a tag, it builds that
 # tag and attaches to its release, one published already included (the
 # ad hoc zip ci.yml attached before this workflow existed is replaced, the
@@ -55,119 +56,40 @@ jobs:
             MARKETING_VERSION="${APP_VERSION%%-*}" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" build
           app="$RUNNER_TEMP/Release/Build/Products/Release/Workbench.app"
           echo "APP=$app" >> "$GITHUB_ENV"
-          for fw in ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync; do
+          for fw in ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync Sparkle; do
             test -d "$app/Contents/Frameworks/$fw.framework" \
               || { echo "::error::Workbench.app does not embed $fw.framework"; exit 1; }
           done
           lipo "$app/Contents/MacOS/Workbench" -verify_arch arm64 x86_64
           "$app/Contents/MacOS/Workbench" --self-test builtin
 
-      # Signing is skipped, loudly, when the certificate secrets are absent, so
-      # a fork or a dry run still produces artifacts -- unsigned, and named so.
+      # Signing, notarizing and the appcast are gnustep-release-actions',
+      # the same in every app's release. Each step skips itself, saying so,
+      # when its secrets are absent (a fork, a dry run): the build is then
+      # unsigned, and named so.
       - name: Sign
         id: sign
-        env:
-          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          if [ -z "$CERTIFICATE" ]; then
-            echo "::warning::MACOS_CERTIFICATE not set; shipping unsigned"
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          keychain=$RUNNER_TEMP/signing.keychain-db
-          password=$(uuidgen)
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
-            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$password" "$keychain" > /dev/null
-          security list-keychain -d user -s "$keychain" login.keychain-db
-          rm -f "$RUNNER_TEMP/cert.p12"
-          # codesign takes only an identity it can chain to Apple's root, and
-          # a runner need not have the Developer ID intermediate: without it
-          # the certificate is there and still "no identity found".
-          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
-          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+        uses: ashalkhakov/gnustep-release-actions/macos-sign@v1
+        with:
+          app: ${{ env.APP }}
+          certificate: ${{ secrets.MACOS_CERTIFICATE }}
+          certificate-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          identity: ${{ secrets.MACOS_SIGN_IDENTITY }}
 
-          # The identity is read out of the keychain, not matched by name:
-          # codesign wants the certificate's common name exactly, a secret
-          # cannot be checked by eye, and what it says when they differ is
-          # "<masked>: no identity found" (RDLKit met it too). Only a
-          # Developer ID Application certificate can be notarized, so that is
-          # the kind looked for; MACOS_SIGN_IDENTITY, if set, chooses between
-          # several. Signed by hash, which is unambiguous.
-          echo "identities in the signing keychain:"
-          security find-identity -p codesigning "$keychain"
-          valid=$(security find-identity -v -p codesigning "$keychain")
-          candidates=$(printf '%s\n' "$valid" | awk -F'"' '/"Developer ID Application: /{print $2}' | sort -u)
-          if [ -z "$candidates" ]; then
-            echo "::error::MACOS_CERTIFICATE holds no valid Developer ID Application certificate (listed above); notarization accepts no other kind"
-            exit 1
-          fi
-          chosen=$(printf '%s\n' "$candidates" | { [ -n "$IDENTITY" ] && grep -Fx "$IDENTITY" || true; } | head -1)
-          if [ -z "$chosen" ]; then
-            [ -z "$IDENTITY" ] || echo "::warning::MACOS_SIGN_IDENTITY names no Developer ID identity in MACOS_CERTIFICATE; signing with the one it holds"
-            chosen=$(printf '%s\n' "$candidates" | head -1)
-          fi
-          echo "signing as: $chosen"
-          IDENTITY=$(printf '%s\n' "$valid" | grep -F "\"$chosen\"" | head -1 | awk '{print $2}')
-
-          # --timestamp and --options runtime are what notarization requires.
-          # Signed inside out: every framework embedded (what is there, not a
-          # list: one left out keeps Xcode's ad hoc signature, with no
-          # Developer ID and no timestamp, and notarization refuses the app),
-          # then the app, whose signature seals theirs. --deep would do it in
-          # one call, but Apple deprecates it and it is the usual reason
-          # notarization rejects a nested framework.
-          for fw in "$APP"/Contents/Frameworks/*.framework; do
-            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$fw"
-          done
-          codesign --force --timestamp --options runtime --sign "$IDENTITY" "$APP"
-          codesign --verify --strict --verbose=2 "$APP"
-          # The hardened runtime loads only frameworks signed by the same
-          # team: the signed app has to start and pass again.
-          "$APP/Contents/MacOS/Workbench" --self-test builtin
-          echo "signed=true" >> "$GITHUB_OUTPUT"
+      # The hardened runtime loads only frameworks signed by the same team:
+      # the signed app has to start and pass again.
+      - name: Self-test, signed
+        if: steps.sign.outputs.signed == 'true'
+        run: '"$APP/Contents/MacOS/Workbench" --self-test builtin'
 
       - name: Notarize
         if: steps.sign.outputs.signed == 'true'
-        env:
-          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
-          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
-        run: |
-          # Checked here rather than in `if:`, where a step's own env block is
-          # not reliably visible to its own condition -- the step would be
-          # skipped whatever the secrets said, and a signed-but-unnotarized app
-          # that Gatekeeper still refuses would ship from a green run.
-          if [ -z "$NOTARY_APPLE_ID" ] || [ -z "$NOTARY_TEAM_ID" ] || [ -z "$NOTARY_PASSWORD" ]; then
-            echo "::warning::NOTARY_* secrets not set; signed but not notarized"
-            exit 0
-          fi
-          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/Workbench-notarize.zip"
-          # A submission Apple finds invalid still ends the wait: the status
-          # is what says whether it was accepted, and the log says why not.
-          xcrun notarytool submit "$RUNNER_TEMP/Workbench-notarize.zip" \
-            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" \
-            --password "$NOTARY_PASSWORD" --wait --output-format json > "$RUNNER_TEMP/notary.json" || true
-          cat "$RUNNER_TEMP/notary.json"
-          id=$(plutil -extract id raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
-          status=$(plutil -extract status raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)
-          if [ "$status" != "Accepted" ]; then
-            [ -n "$id" ] && xcrun notarytool log "$id" \
-              --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" || true
-            echo "::error::notarization was not accepted (status: ${status:-none})"
-            exit 1
-          fi
-          xcrun stapler staple "$APP"
-          xcrun stapler validate "$APP"
-          # What a downloaded copy meets: Gatekeeper's own assessment.
-          spctl --assess --type execute --verbose=2 "$APP"
+        uses: ashalkhakov/gnustep-release-actions/macos-notarize@v1
+        with:
+          app: ${{ env.APP }}
+          apple-id: ${{ secrets.NOTARY_APPLE_ID }}
+          team-id: ${{ secrets.NOTARY_TEAM_ID }}
+          password: ${{ secrets.NOTARY_PASSWORD }}
 
       - name: Package
         run: |
@@ -175,14 +97,30 @@ jobs:
           [ "${{ steps.sign.outputs.signed }}" = "true" ] || suffix="-unsigned"
           ditto -c -k --keepParent "$APP" "ODataWorkbench-macOS-${APP_VERSION}${suffix}.zip"
 
+      # The appcast the Workbench's Sparkle reads (SUFeedURL: the newest
+      # release's appcast.xml), signed with the key whose public half is
+      # SUPublicEDKey; for a release only.
+      - name: Appcast
+        if: steps.sign.outputs.signed == 'true'
+        uses: ashalkhakov/gnustep-release-actions/sparkle-appcast@v1
+        with:
+          archive: ${{ github.workspace }}/ODataWorkbench-macOS-${{ env.APP_VERSION }}.zip
+          output: ${{ github.workspace }}/appcast.xml
+          tag: ${{ env.TAG }}
+          private-key: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: ODataWorkbench-macOS-${{ env.APP_VERSION }}
-          path: ODataWorkbench-macOS-*.zip
+          path: |
+            ${{ github.workspace }}/ODataWorkbench-macOS-*.zip
+            ${{ github.workspace }}/appcast.xml
 
       - name: Attach to the release
         if: env.TAG != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          files: ODataWorkbench-macOS-*.zip
+          files: |
+            ${{ github.workspace }}/ODataWorkbench-macOS-*.zip
+            ${{ github.workspace }}/appcast.xml

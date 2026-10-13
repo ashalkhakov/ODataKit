@@ -38,6 +38,9 @@
 // Network), at that port (0: the default, 8640).
 - (void)serveOnTheNetworkAtPort:(NSUInteger)port;
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender;
+// Check for Updates… (WBUpdater.h): on macOS only; GNUstep's menu has no
+// such item, the AppImage being updated from outside.
+- (IBAction)checkForUpdates:(id)sender;
 - (IBAction)serviceChanged:(id)sender;
 - (IBAction)connect:(id)sender;
 - (IBAction)applyPreset:(id)sender;
@@ -58,6 +61,8 @@
 // Workbench --self-test [builtin]: builtin tests the built-in service
 // alone, with no network: a package's smoke test.
 @property (nonatomic) BOOL selfTestOffline;
+// Workbench --self-test: the updater is not started.
+@property (nonatomic) BOOL selfTesting;
 
 @end
 
