@@ -131,7 +131,7 @@ jobs:
       # uploaded. The one a release carries is release.yml's, signed with a
       # Developer ID and notarized.
       - name: Stamp the version
-        uses: ashalkhakov/gnustep-release-actions/stamp-version@v1
+        uses: ashalkhakov/gnustep-release-actions/stamp-version@stamp-version
         with:
           version: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.0-{0}', github.run_number) }}
 
