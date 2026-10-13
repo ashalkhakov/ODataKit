@@ -540,6 +540,9 @@ static void OISAddUserInfo(ODataXMLElement *parent, NSDictionary *info)
                                          @"attributeType", OISAttributeTypeName(attr.attributeType) ] mutableCopy];
         if (attr.valueTransformerName.length) [attributes addObjectsFromArray:@[ @"valueTransformerName", attr.valueTransformerName ]];
         if (attr.attributeValueClassName.length) [attributes addObjectsFromArray:@[ @"customClassName", attr.attributeValueClassName ]];
+        // Part of the attribute's version hash: a model written without it
+        // is not the version of the one built from the schema.
+        if (attr.allowsExternalBinaryDataStorage) [attributes addObjectsFromArray:@[ @"allowsExternalBinaryDataStorage", @"YES" ]];
         if (attr.attributeType == NSInteger16AttributeType || attr.attributeType == NSInteger32AttributeType ||
             attr.attributeType == NSInteger64AttributeType || attr.attributeType == NSDoubleAttributeType ||
             attr.attributeType == NSFloatAttributeType || attr.attributeType == NSBooleanAttributeType ||

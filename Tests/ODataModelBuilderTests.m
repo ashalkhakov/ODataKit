@@ -207,6 +207,33 @@
   [[NSFileManager defaultManager] removeItemAtPath:package.stringByDeletingLastPathComponent error:NULL];
 }
 
+// A file or an image is kept beside the store (allows external storage),
+// which is part of its version hash: the package says so, or the model
+// compiled from it is not the version of the service's (Northwind's
+// pictures and photos were).
+- (void)testPackagesKeepExternalStorage
+{
+  NSString *xml = [_zooXML stringByReplacingOccurrencesOfString:@"<Property Name=\"Code\" Type=\"Edm.String\" Nullable=\"false\"/>"
+                                                     withString:@"<Property Name=\"Code\" Type=\"Edm.String\" Nullable=\"false\"/><Property Name=\"Photo\" Type=\"Edm.Binary\"/>"];
+  NSManagedObjectModel *model = [ODataModelBuilder modelWithSchema:[self schemaFrom:xml]];
+  NSAttributeDescription *photo = (NSAttributeDescription *)model.entitiesByName[@"Keeper"].propertiesByName[@"photo"];
+  XCTAssertTrue(photo.allowsExternalBinaryDataStorage);
+  NSString *package = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                       [NSString stringWithFormat:@"ois-%@/Zoo.xcdatamodeld", [[NSUUID UUID] UUIDString]]];
+  NSError *error = nil;
+  BOOL changed = NO;
+  XCTAssertEqualObjects([ODataModelBuilder writeModel:model toPackage:package changed:&changed error:&error], @"Zoo", @"%@", error);
+  NSString *document = [NSString stringWithContentsOfFile:[package stringByAppendingPathComponent:@"Zoo.xcdatamodel/contents"]
+                                                 encoding:NSUTF8StringEncoding error:NULL];
+  NSRange element = [document rangeOfString:@"<attribute name=\"photo\"[^>]*>" options:NSRegularExpressionSearch];
+  XCTAssertTrue(element.location != NSNotFound, @"%@", document);
+  if (element.location != NSNotFound) {
+    XCTAssertTrue([[document substringWithRange:element] rangeOfString:@"allowsExternalBinaryDataStorage=\"YES\""].location != NSNotFound,
+                  @"%@", [document substringWithRange:element]);
+  }
+  [[NSFileManager defaultManager] removeItemAtPath:package.stringByDeletingLastPathComponent error:NULL];
+}
+
 - (void)testAChangedServiceIsAVersionChange
 {
   NSURL *root = [NSURL URLWithString:@"https://zoo.test/Zoo.svc/"];
