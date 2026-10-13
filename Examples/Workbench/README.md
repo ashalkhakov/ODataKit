@@ -191,7 +191,7 @@ A release carries both packages, attached when a `v*` tag is pushed:
 - **macOS**: `ODataWorkbench-macOS-<version>.zip`, a universal (Apple silicon
   and Intel) `Workbench.app` with the frameworks inside, signed with a
   Developer ID and notarized, so it opens like any downloaded app. It is
-  `.github/workflows/release.yml`'s: the frameworks signed, then the app,
+  `.github/workflows/build.yml`'s, for a `v*` tag: the frameworks signed, then the app,
   with the hardened runtime; notarized and stapled; and checked the way
   Gatekeeper checks a download. Run by hand with a tag, it signs that
   release's app again (the first release's included). Without the signing
@@ -200,7 +200,7 @@ A release carries both packages, attached when a `v*` tag is pushed:
   allowed), with Sparkle: a release also carries `appcast.xml`, its update
   signed with the EdDSA key in the `SPARKLE_PRIVATE_KEY` secret, whose
   public half is `SUPublicEDKey` in `Info.plist`.
-- **Linux**: `ODataWorkbench-Linux-<version>-x86_64.AppImage`. It contains
+- **Linux**: `ODataWorkbench-<version>-x86_64.AppImage`. It contains
   the Workbench, the desktop Device app
   ([its README](../DeviceDesktop/README.md)) and a launcher that chooses
   between them (`Examples/Launcher`), with the libraries, FreeCoreData and
@@ -218,9 +218,9 @@ A release carries both packages, attached when a `v*` tag is pushed:
 
 Before either is uploaded, it is started and runs its offline self-test:
 the Mac app before signing and again after, the AppImage in a plain Ubuntu
-container with no GNUstep in it. CI also packages both on every push, as
-artifacts of the run (kept 14 days); the Mac app there is signed ad hoc and
-named `-unsigned`.
+container with no GNUstep in it. Every push builds both too, as
+artifacts of the run (kept two weeks); the Mac app there is signed ad hoc
+and named `-unsigned`.
 
 ## Testing
 
