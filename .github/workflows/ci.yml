@@ -408,7 +408,8 @@ jobs:
 
       # The Workbench as an AppImage: the app, the library, FreeCoreData and
       # the GNUstep runtime in one file (Scripts/prepare-appdir.sh,
-      # Scripts/package-appimage.sh). A v* tag attaches it to that release.
+      # Scripts/package-appimage.sh), checked here on every push. A release's
+      # is release.yml's, built on Ubuntu 22.04 with its update information.
       - name: Package the Workbench as an AppImage
         run: |
           sudo apt-get -q -y install desktop-file-utils fonts-dejavu fonts-liberation
@@ -444,9 +445,3 @@ jobs:
           name: ODataWorkbench-Linux-${{ github.sha }}
           path: ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage
           retention-days: 14
-
-      - name: Attach the AppImage to the release
-        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage

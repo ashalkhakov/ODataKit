@@ -7,7 +7,7 @@ name: Release
 # tag and attaches to its release, one published already included (the
 # ad hoc zip ci.yml attached before this workflow existed is replaced, the
 # name being the same); with none, it builds the branch, as an artifact
-# only. The Linux AppImage is ci.yml's.
+# only. The Linux AppImage likewise, with its update information.
 on:
   push:
     tags: ['v*']
@@ -124,3 +124,130 @@ jobs:
           files: |
             ${{ github.workspace }}/ODataWorkbench-macOS-*.zip
             ${{ github.workspace }}/appcast.xml
+
+  # The Workbench as an AppImage: the app, the library, FreeCoreData and the
+  # GNUstep runtime in one file (Scripts/prepare-appdir.sh,
+  # Scripts/package-appimage.sh), on gnustep-release-actions as every app's.
+  # Built on the oldest Ubuntu LTS still in support, not ubuntu-latest: an
+  # AppImage carries its own libraries but not glibc, so it runs only on a
+  # system at least as new as the one it was linked on.
+  appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.ref }}
+          path: source
+
+      # GNUSTEP_PATCHES_REF and FREECOREDATA_REF: .github/pins.env.
+      - uses: ashalkhakov/gnustep-release-actions/pins@v1
+        with:
+          file: source/.github/pins.env
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/gnustep-patches
+          ref: ${{ env.GNUSTEP_PATCHES_REF }}
+          path: gnustep-patches
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/FreeCoreData
+          ref: ${{ env.FREECOREDATA_REF }}
+          path: FreeCoreData
+
+      - name: Version
+        run: |
+          if [ -n "$TAG" ]; then
+            echo "APP_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=0.0.0-build${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      # The patched stack, cached by its recipe: Foundation, gui and back,
+      # and the Eau theme the AppImage ships with. Beyond the stack's
+      # packages: FreeCoreData's stores' (SQLite, PostgreSQL, MariaDB).
+      - name: GNUstep
+        uses: ashalkhakov/gnustep-release-actions/gnustep-stack@v1
+        with:
+          patches: ${{ github.workspace }}/gnustep-patches
+          extra-packages: libsqlite3-dev libpq-dev libmariadb-dev
+
+      # The framework, momc and its SQL stores, as ci.yml builds them.
+      - name: FreeCoreData
+        working-directory: ${{ github.workspace }}/FreeCoreData
+        run: |
+          . $PREFIX/System/Library/Makefiles/GNUstep.sh
+          make -j"$(nproc)"
+          make install
+          make -C Tools/momc
+          make -C Tools/momc install
+          make -C Backends/PostgreSQL
+          make -C Backends/MySQL
+
+      - name: The libraries and the Workbench
+        run: |
+          . $PREFIX/System/Library/Makefiles/GNUstep.sh
+          make -j"$(nproc)"
+          make -C Examples/Workbench
+
+      - name: linuxdeploy and the AppImage runtime
+        uses: ashalkhakov/gnustep-release-actions/appimage-tools@v1
+
+      # A release's image updates itself from the newest release (through
+      # AppImageUpdate, Gear Lever and the like), by the .zsync attached
+      # beside it; a pre-release's does not.
+      - name: Update information
+        uses: ashalkhakov/gnustep-release-actions/appimage-update-info@v1
+        with:
+          tag: ${{ env.TAG }}
+          zsync: ODataWorkbench-Linux-*x86_64.AppImage.zsync
+
+      - name: Package the AppImage
+        run: |
+          . $PREFIX/System/Library/Makefiles/GNUstep.sh
+          GNUSTEP_PREFIX="$PREFIX" ./Scripts/prepare-appdir.sh
+          GNUSTEP_PREFIX="$PREFIX" ./Scripts/package-appimage.sh
+
+      # Where it will run: a plain Ubuntu with no GNUstep, the oldest it is
+      # built for, and only the libraries every desktop has (AppImage leaves
+      # those to the host). The offline self-test drives the window against
+      # the built-in service. The host's fonts are removed first, so the
+      # window lays out with the fonts the image carries.
+      - name: Smoke-test the AppImage on a clean system
+        run: |
+          image=$(ls ODataWorkbench-Linux-*.AppImage)
+          chmod +x "$image"
+          docker run --rm -v "$PWD:/w" -w /w ubuntu:22.04 bash -c '
+            export DEBIAN_FRONTEND=noninteractive
+            for i in 1 2 3; do
+              apt-get update -qq && apt-get install -y -qq --fix-missing xvfb xauth ca-certificates \
+                libfontconfig1 libfreetype6 libx11-6 libx11-xcb1 libxcb1 libgl1 libharfbuzz0b > /dev/null && break
+              sleep 10
+            done
+            rm -rf /usr/share/fonts
+            APPIMAGE_EXTRACT_AND_RUN=1 timeout 300 xvfb-run -a ./'"$image"' --self-test builtin'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ODataWorkbench-Linux-${{ env.APP_VERSION }}
+          path: |
+            ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage
+            ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage.zsync
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: env.TAG != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: |
+            ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage
+            ${{ github.workspace }}/source/ODataWorkbench-Linux-*.AppImage.zsync
