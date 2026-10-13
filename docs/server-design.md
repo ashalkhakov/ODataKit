@@ -613,9 +613,12 @@ possible:
   `MaxRequestsPerConnection`, default 100) whenever that is safe, and
   closed otherwise (`PORTING.md`).
 
-It lives in `ThirdParty/GCDWebServer/` with its license; `PORTING.md`
-there lists every change, and `upstream.diff` reapplies them to the
-pristine release. It is built into `libHTTPServerKit` (`Source/HTTPServerKit/`) only,
+It is a fork of its own,
+[ashalkhakov/GCDWebServer](https://github.com/ashalkhakov/GCDWebServer),
+released like ODataKit's other dependencies (a GNUstep library, an
+XCFramework) and named in `.github/pins.env`; `PORTING.md` there lists every
+change, and `upstream.diff` reapplies them to the pristine release. It is
+linked into `libHTTPServerKit` (`Source/HTTPServerKit/`) only,
 with `HSServer`, which turns each request into an
 `HSRequest` for its handler and the finished reply back into a
 response. The

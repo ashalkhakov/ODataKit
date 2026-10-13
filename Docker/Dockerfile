@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# ODataKit on Linux: the GNUstep stack, FreeCoreData and ODataKit, built
-# once, in four images (docs/building.md):
+# ODataKit on Linux, on the GNUstep stack, FreeCoreData and GCDWebServer, in
+# four images (docs/building.md):
 #
 #   docker build -f Docker/Dockerfile --target sdk       -t odatakit-sdk .
 #   docker build -f Docker/Dockerfile --target runtime   -t odatakit-runtime .
@@ -11,67 +11,66 @@
 #
 #   sdk        everything to build an application with: clang, the stack,
 #              FreeCoreData (with momc and the PostgreSQL and MySQL stores),
-#              ODataKit and ODataServer installed, with the make fragment
-#              and pkg-config files (Server/Examples/Docker builds in it)
+#              GCDWebServer, ODataKit and ODataServer installed, with the make
+#              fragment and pkg-config files (Server/Examples/Docker builds in it)
 #   runtime    what such an application needs to run, and no more
 #   ois-serve  runtime and ois-serve, serving a model from settings
 #              (OIS_ variables, or a property list at OIS_CONFIG)
 #   check      sdk, with the loopback check run and an application built
 #              against the installed libraries both ways (CI runs the same in
 #              the sdk image: .github/release/docker-test.sh)
-#   unit       sdk, with the XCTest suite run (make test), as CI's unit
-#              tests: tools-xctest is part of the stack for it, and
+#   unit       sdk, with the XCTest suite run (make -C Tests run-tests), as
+#              CI's unit tests: tools-xctest is part of the stack for it, and
 #              avahi-daemon runs for the peer discovery test
 #
-# The stack is gnustep-patches' image, the one CI builds on; FreeCoreData is
-# .github/pins.env's.
+# What it builds on is what CI builds on: the releases .github/pins.env names
+# (the GNUstep stack, FreeCoreData, GCDWebServer), each an archive unpacked
+# at /. gnustep-release-actions' docker.yml passes their versions as build
+# arguments of the same names; built by hand, pins.env's are taken.
 
-# The patched GNUstep stack is gnustep-patches' image (its newest; --build-arg
-# STACK=ghcr.io/ashalkhakov/gnustep:<version> for another), on Ubuntu 22.04;
-# the runtime image is the same Ubuntu, so its libraries are the ones built
-# against.
-ARG STACK=ghcr.io/ashalkhakov/gnustep:latest
+# The runtime image is the same Ubuntu the archives are built on, so its
+# libraries are the ones built against.
 ARG UBUNTU=22.04
 
-FROM ${STACK} AS stack
+FROM ubuntu:${UBUNTU} AS stack
 ARG DEBIAN_FRONTEND=noninteractive
+ARG GNUSTEP_PATCHES_VERSION
+ARG FREECOREDATA_VERSION
+ARG GCDWEBSERVER_VERSION
 # Through caching proxies that answer with stale indexes, which apt then
 # refuses (hash sum mismatch): no pipelining, no proxy caches, retries.
 RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcquire::http::Pipeline-Depth "0";\nAcquire::Retries "3";\n' \
       > /etc/apt/apt.conf.d/99-odatakit
-# Beyond the stack: FreeCoreData's SQLite, PostgreSQL and MySQL clients.
-RUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libpq-dev libmariadb-dev \
- && rm -rf /var/lib/apt/lists/*
+COPY .github/pins.env /tmp/pins.env
+# The archives, the stack first; then the packages building on the stack
+# needs (its own list, beside it), and ODataKit's: FreeCoreData's SQLite,
+# PostgreSQL and MySQL clients, and Avahi's dns_sd for ODataSync's peers.
+RUN set -e; \
+    apt-get update; apt-get install -y --no-install-recommends ca-certificates curl xz-utils; \
+    for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER; do \
+      eval "version=\${${name}_VERSION:-}"; \
+      [ -n "$version" ] || version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
+      repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
+      curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz" \
+        | tar -C / -xJ; \
+    done; \
+    grep -v '^#' /opt/gnustep/share/gnustep-patches/packages-ubuntu.txt \
+      | xargs apt-get install -y --no-install-recommends libsqlite3-dev libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev; \
+    update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10; \
+    rm -rf /var/lib/apt/lists/*
+ENV CC=clang CXX=clang++ LIBRARY_COMBO=ng-gnu-gnu RUNTIME_VERSION=gnustep-2.0
 # Every RUN in the images after this one sees the stack (GNUstep.sh).
 COPY Docker/ois-env /usr/local/bin/ois-env
 SHELL ["/usr/local/bin/ois-env", "/bin/sh", "-c"]
-# FreeCoreData at .github/pins.env's commit; a --build-arg overrides it.
-ARG FREECOREDATA_REF
-COPY .github/pins.env /tmp/pins.env
-RUN set -e; \
-    : "${FREECOREDATA_REF:=$(sed -n 's/^FREECOREDATA_REF=//p' /tmp/pins.env)}"; \
-    mkdir -p /tmp/src/FreeCoreData && cd /tmp/src/FreeCoreData; \
-    git init -q && git remote add origin https://github.com/ashalkhakov/FreeCoreData.git; \
-    git fetch -q --depth 1 origin "$FREECOREDATA_REF" && git checkout -q FETCH_HEAD; \
-    make -j"$(nproc)" && make install; \
-    make -C Tools/momc && make -C Tools/momc install; \
-    make -C Backends/PostgreSQL && make -C Backends/PostgreSQL install; \
-    make -C Backends/MySQL && make -C Backends/MySQL install; \
-    cd / && rm -rf /tmp/src
 
 FROM stack AS sdk
 ARG VERSION=0.0.0
-ARG DEBIAN_FRONTEND=noninteractive
-# ODataSync's peers: Bonjour by Avahi's dns_sd compatibility library (here,
-# not in the toolchain, so the stack's layers stay cached).
-RUN apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev \
- && rm -rf /var/lib/apt/lists/*
 COPY . /usr/src/odatakit
 WORKDIR /usr/src/odatakit
+# The libraries and the server's tools; not the example apps.
 RUN set -e; \
-    make -j"$(nproc)" ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
-    make install ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
-    make -C Server -j"$(nproc)" && make -C Server install; \
+    make -j"$(nproc)" ODATAKIT_PARTS=Server ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
+    make install ODATAKIT_PARTS=Server ODATAKIT_INSTALLED=Server ODATAKIT_VERSION="$VERSION" HTTPSERVERKIT_VERSION="$VERSION"; \
     mkdir -p /usr/local/share/ois-serve; \
     momc Examples/Catalog/Catalog.xcdatamodeld /usr/local/share/ois-serve/Catalog.momd
 ENV PKG_CONFIG_PATH=/opt/gnustep/Local/Library/Libraries/pkgconfig
@@ -102,7 +101,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends avahi-daemon db
 WORKDIR /usr/src/odatakit
 RUN set -e; \
     mkdir -p /run/dbus; dbus-daemon --system --fork; avahi-daemon --daemonize --no-chroot; \
-    AVAHI_COMPAT_NOWARN=1 make test
+    AVAHI_COMPAT_NOWARN=1 make -C Tests run-tests
 
 # What a server needs of the stack: the stack image carries the GUI too
 # (gnustep-gui, the backend and its bundles, the Eau theme, Opal), which no

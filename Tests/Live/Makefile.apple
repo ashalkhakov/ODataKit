@@ -1,0 +1,60 @@
+# ois-live and ois-classes on macOS, with Apple's Core Data and momc: the
+# same checks as GNUmakefile's live, against Microsoft's public reference
+# services, Northwind v4 (read) and TripPin (write). The client's sources
+# are compiled into the tools.
+#
+#   make -f Makefile.apple live
+#
+# GNUstep: GNUmakefile.
+
+CC = clang
+BUILD = build
+SRC = ../../Source
+INCLUDES = -I$(SRC)/ODataKit/include -I$(SRC)/ODataKit/include/ODataKit \
+	-I$(SRC)/ODataIncrementalStore/include -I$(SRC)/ODataIncrementalStore/include/ODataIncrementalStore \
+	-I$(SRC)/OTelKit/include -I$(SRC)/OTelKit/include/OTelKit
+CLIENT = $(wildcard $(SRC)/ODataKit/*.m $(SRC)/ODataIncrementalStore/*.m $(SRC)/OTelKit/*.m)
+FLAGS = -fobjc-arc -fmodules
+LIBS = -framework Foundation -framework CoreData
+MOMC = xcrun momc
+
+NORTHWIND = https://services.odata.org/V4/Northwind/Northwind.svc/
+TRIPPIN = https://services.odata.org/V4/TripPinServiceRW/
+
+all: $(BUILD)/ois-model $(BUILD)/ois-live
+
+$(BUILD)/ois-model: ../../Tools/ois-model.m $(CLIENT)
+	@mkdir -p $(BUILD)
+	$(CC) $(FLAGS) $(INCLUDES) $^ $(LIBS) -o $@
+
+$(BUILD)/ois-live: ois-live.m $(CLIENT)
+	@mkdir -p $(BUILD)
+	$(CC) $(FLAGS) $(INCLUDES) $^ $(LIBS) -o $@
+
+# The models, compiled; Northwind's also generated from its $metadata, as a
+# client built on it would be.
+models: all
+	rm -rf $(BUILD)/*.momd $(BUILD)/NorthwindGenerated.xcdatamodeld
+	$(MOMC) ../../Examples/Catalog/Catalog.xcdatamodeld $(abspath $(BUILD))/Catalog.momd
+	$(MOMC) TripPin.xcdatamodeld $(abspath $(BUILD))/TripPin.momd
+	$(MOMC) Northwind.xcdatamodeld $(abspath $(BUILD))/Northwind.momd
+	$(BUILD)/ois-model $(NORTHWIND) $(BUILD)/NorthwindGenerated.xcdatamodeld
+	$(MOMC) $(BUILD)/NorthwindGenerated.xcdatamodeld $(abspath $(BUILD))/NorthwindGenerated.momd
+
+# TripPin's model and classes, generated; the classes compiled into
+# ois-classes, which uses them against the service.
+classes: all
+	rm -rf $(BUILD)/TripPinClasses $(BUILD)/Generated $(BUILD)/TripPinGenerated.momd
+	$(BUILD)/ois-model --classes $(BUILD)/TripPinClasses $(TRIPPIN) $(BUILD)/Generated/TripPin.xcdatamodeld
+	$(MOMC) $(BUILD)/Generated/TripPin.xcdatamodeld $(abspath $(BUILD))/TripPinGenerated.momd
+	$(CC) $(FLAGS) $(INCLUDES) -I$(BUILD)/TripPinClasses $(CLIENT) $(BUILD)/TripPinClasses/*.m ois-classes.m $(LIBS) -o $(BUILD)/ois-classes
+	$(BUILD)/ois-classes $(BUILD)/TripPinGenerated.momd
+
+live: models
+	$(BUILD)/ois-live $(BUILD)
+	$(MAKE) -f Makefile.apple classes
+
+clean:
+	rm -rf $(BUILD)
+
+.PHONY: all models classes live clean

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		179FC94FDBB7ACA94743268B /* Sparkle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D1D98800C6C067E1333F9FCE /* Sparkle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		09B9ED482C7470BB3085B8B5 /* ODataSync.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5B310E12D8EC70C276FBABC7 /* ODataSync.framework */; };
 		0F7E19DF8E054A0C4BF350A2 /* WorkbenchDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = FC7B0FDF2768FE210A1CFD2E /* WorkbenchDevice.m */; };
 		7C316FF0434F39E08F5E7DA4 /* ODataSync.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5B310E12D8EC70C276FBABC7 /* ODataSync.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -40,7 +41,7 @@
 		AB00000000000000000E1F00 /* OTelKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000E1E00 /* OTelKit.framework */; };
 		AB00000000000000000E2000 /* OTelKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000E1E00 /* OTelKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		AC0000000000000000000001 /* WBUpdater-Apple.m in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* WBUpdater-Apple.m */; };
-		AC0000000000000000000005 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AC0000000000000000000006 /* Sparkle */; };
+		AC0000000000000000000005 /* Sparkle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = D1D98800C6C067E1333F9FCE /* Sparkle.xcframework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,6 +138,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				179FC94FDBB7ACA94743268B /* Sparkle.xcframework in Embed Frameworks */,
 				AA0000000000000000000097 /* ODataIncrementalStore.framework in Embed Frameworks */,
 				AB00000000000000000E1400 /* ODataService.framework in Embed Frameworks */,
 				AB00000000000000000E1A00 /* HTTPServerKit.framework in Embed Frameworks */,
@@ -150,6 +152,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D1D98800C6C067E1333F9FCE /* Sparkle.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sparkle.xcframework; path = ../../.deps/Sparkle.xcframework; sourceTree = SOURCE_ROOT; };
 		4F1065873BF3739CF0BCBE48 /* WBSync.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WBSync.m; sourceTree = "<group>"; };
 		91287A5DE82B52D40EC935CE /* WorkbenchDevice.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkbenchDevice.h; sourceTree = "<group>"; };
 		986F3DA9CF252313A4AFEB95 /* WorkbenchModel.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkbenchModel.m; sourceTree = "<group>"; };
@@ -205,7 +208,7 @@
 				AA0000000000000000000094 /* Cocoa.framework in Frameworks */,
 				AA0000000000000000000096 /* CoreData.framework in Frameworks */,
 				09B9ED482C7470BB3085B8B5 /* ODataSync.framework in Frameworks */,
-				AC0000000000000000000005 /* Sparkle in Frameworks */,
+				AC0000000000000000000005 /* Sparkle.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,6 +218,7 @@
 		AA00000000000000000000A1 = {
 			isa = PBXGroup;
 			children = (
+				D1D98800C6C067E1333F9FCE /* Sparkle.xcframework */,
 				AA00000000000000000000A2 /* Workbench */,
 				AA0000000000000000000099 /* ODataKit.xcodeproj */,
 				AA00000000000000000000A3 /* Configs */,
@@ -329,9 +333,6 @@
 			productName = Workbench;
 			productReference = AA0000000000000000000009 /* Workbench.app */;
 			productType = "com.apple.product-type.application";
-			packageProductDependencies = (
-				AC0000000000000000000006 /* Sparkle */,
-			);
 		};
 /* End PBXNativeTarget section */
 
@@ -357,9 +358,6 @@
 				Base,
 			);
 			mainGroup = AA00000000000000000000A1;
-			packageReferences = (
-				AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */,
-			);
 			productRefGroup = AA00000000000000000000A5 /* Products */;
 			projectDirPath = "";
 			projectReferences = (
@@ -570,24 +568,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = exactVersion;
-				version = 2.10.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		AC0000000000000000000006 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = AC0000000000000000000007 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA00000000000000000000AB /* Project object */;
 }

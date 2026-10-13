@@ -2,7 +2,7 @@
 # Snapshots in Tests/Snapshots — no live OData service.
 #
 #   make -C Tests run-tests
-#   # or from the library root: make test
+#   # or from the library root, with the rest: make check
 #
 # Requires clang + libobjc2 + GNUstep XCTest
 # (https://github.com/gnustep/libs-xctest) and FreeCoreData.

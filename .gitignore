@@ -27,11 +27,12 @@ AppDir/
 *.AppImage
 ODataWorkbench-*.zip
 
-# ThirdParty/GCDWebServer smoke-test builds
-ThirdParty/GCDWebServer/build/
-ThirdParty/GCDWebServer/obj/
+# Makefile.apple's builds, and what it builds on (.github/pins.env)
+build/
+Tests/Live/build/
 Server/build/
 Server/obj/
 
 # The Device app: your signing team
 Examples/Device/Local.xcconfig
+.deps/

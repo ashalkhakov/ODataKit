@@ -1,7 +1,9 @@
 # clang + libobjc2 + gnustep-base + FreeCoreData.
 # Does not need gnustep-make.
 #
-# Install FreeCoreData first: https://github.com/ashalkhakov/FreeCoreData
+# Install FreeCoreData and GCDWebServer first:
+#   https://github.com/ashalkhakov/FreeCoreData
+#   https://github.com/ashalkhakov/GCDWebServer
 #
 #   make
 #   ./ois-filter 'unitPrice > 20 AND discontinued == NO'
@@ -14,8 +16,6 @@ CC = clang
 endif
 SRC_DIR = Source
 LIBS_ = ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync
-GCDWebServer_DIR = ThirdParty/GCDWebServer
-include $(GCDWebServer_DIR)/GCDWebServer.make
 INC = $(foreach l,$(LIBS_),-I$(SRC_DIR)/$(l)/include -I$(SRC_DIR)/$(l)/include/$(l))
 HTTPSERVERKIT_VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -56,7 +56,6 @@ HOST_SRCS = $(wildcard $(SRC_DIR)/HTTPServerKit/*.m) $(wildcard $(SRC_DIR)/HTTPS
 SERVICE_SRCS = $(wildcard $(SRC_DIR)/ODataService/*.m)
 SYNC_SRCS = $(wildcard $(SRC_DIR)/ODataSync/*.m) $(wildcard $(SRC_DIR)/ODataSync/linux/*.m)
 SRCS = $(KIT_SRCS) $(CLIENT_SRCS) $(TRACE_SRCS) $(HOST_SRCS) $(SERVICE_SRCS) $(SYNC_SRCS)
-GCDWebServer_OBJS = $(GCDWebServer_OBJC_FILES:.m=.o)
 
 OBJS = $(SRCS:.m=.o)
 
@@ -73,8 +72,8 @@ libODataIncrementalStore.so: $(CLIENT_SRCS:.m=.o) libODataKit.so libOTelKit.so
 libOTelKit.so: $(TRACE_SRCS:.m=.o)
 	$(CC) -shared -o $@ $^ $(GNUSTEP_LIBS)
 
-libHTTPServerKit.so: $(HOST_SRCS:.m=.o) $(GCDWebServer_OBJS) libOTelKit.so
-	$(CC) -shared -o $@ $(HOST_SRCS:.m=.o) $(GCDWebServer_OBJS) -L. -lOTelKit $(GNUSTEP_LIBS) -lgnutls $(GCDWebServer_LIBS)
+libHTTPServerKit.so: $(HOST_SRCS:.m=.o) libOTelKit.so
+	$(CC) -shared -o $@ $(HOST_SRCS:.m=.o) -L. -lOTelKit -lGCDWebServer $(GNUSTEP_LIBS) -lgnutls
 
 libODataService.so: $(SERVICE_SRCS:.m=.o) libODataKit.so libHTTPServerKit.so
 	$(CC) -shared -o $@ $(SERVICE_SRCS:.m=.o) -L. -lHTTPServerKit -lOTelKit -lODataKit $(GNUSTEP_LIBS)
@@ -87,13 +86,10 @@ $(SRC_DIR)/ODataSync/%.o: $(SRC_DIR)/ODataSync/%.m
 	$(CC) $(OBJCFLAGS) -I$(SRC_DIR)/ODataSync $(DNSSD_CFLAGS) -c $< -o $@
 
 $(SRC_DIR)/HTTPServerKit/%.o: $(SRC_DIR)/HTTPServerKit/%.m
-	$(CC) $(OBJCFLAGS) $(GCDWebServer_INCLUDE_DIRS) -DHTTPSERVERKIT_VERSION='"$(HTTPSERVERKIT_VERSION)"' -c $< -o $@
+	$(CC) $(OBJCFLAGS) -DHTTPSERVERKIT_VERSION='"$(HTTPSERVERKIT_VERSION)"' -c $< -o $@
 
 $(SRC_DIR)/%.o: $(SRC_DIR)/%.m
 	$(CC) $(OBJCFLAGS) -c $< -o $@
-
-$(GCDWebServer_DIR)/%.o: $(GCDWebServer_DIR)/%.m
-	$(CC) $(OBJCFLAGS) $(GCDWebServer_INCLUDE_DIRS) -c $< -o $@
 
 ois-filter: Tools/ois-filter.m libODataIncrementalStore.so
 	$(CC) $(OBJCFLAGS) -o $@ Tools/ois-filter.m -L. -lODataIncrementalStore -lODataKit -lOTelKit $(GNUSTEP_LIBS)
@@ -116,5 +112,5 @@ test:
 	$(MAKE) -C Tests run-tests
 
 clean:
-	rm -f $(OBJS) $(GCDWebServer_OBJS) libODataKit.so libODataIncrementalStore.so libOTelKit.so libHTTPServerKit.so libODataService.so libODataSync.so ois-filter ois-model
+	rm -f $(OBJS) libODataKit.so libODataIncrementalStore.so libOTelKit.so libHTTPServerKit.so libODataService.so libODataSync.so ois-filter ois-model
 	rm -rf Catalog.momd
