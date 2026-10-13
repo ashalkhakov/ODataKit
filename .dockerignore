@@ -1,6 +1,7 @@
 # What the images do not need from the tree (Docker/Dockerfile).
 .git
 .github
+!.github/pins.env
 .claude
 **/obj
 **/build

@@ -58,6 +58,13 @@
                 <menuItem title="Workbench" id="MI1">
                     <menu key="submenu" title="Workbench" systemMenu="apple" id="MS1">
                         <items>
+                            <menuItem title="Check for Updates…" tag="7100" id="MUPD">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="checkForUpdates:" target="-2" id="AUPD"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="MUPDSEP"/>
                             <menuItem title="Quit Workbench" keyEquivalent="q" id="MQ">
                                 <connections>
                                     <action selector="terminate:" target="-1" id="AQ"/>

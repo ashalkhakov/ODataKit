@@ -186,59 +186,6 @@ jobs:
       # gnustep layout does not treat as a library root. GNUstep.sh prepends
       # the roots it does know about to this.
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
-      # Both pinned to commits, not branches. The patches ref decides the
-      # recipe hash the stack is cached under, so a moving branch would keep
-      # serving a prefix built from patches that have since changed.
-      # gnustep-patches #7: NSSortDescriptor sorts nil before every value.
-      # 0b19ede: NSExpression's FUNCTION(receiver, "selector:") and FETCH,
-      # and a key path reached through something else, which FreeCoreData's
-      # migrations by mapping model need; libobjc2's stack-block-retain
-      # retired, fixed upstream.
-      # c03ea57: an NSExpression given for %@ is used as itself; a nil
-      # constant prints as nil (so it parses back).
-      # 1eda55d: six libs-base fixes retired, merged upstream; one of them
-      # (constant-expression-copy) no longer applied to libs-base master,
-      # which broke every build of the stack from scratch.
-      # 610d60b: more fixes retired, merged upstream (predicate-subquery,
-      # expression-binary-coding, xmlns-attribute's rebase among them);
-      # predicates code securely (#766); -addNamespace: frees what it does
-      # not keep; 43dcb1f: #821 and #823 retired, merged (nsxml-prefixed-
-      # descendants no longer applied to libs-base master, which broke
-      # every build from scratch); nsxml-placeholder-attributes, the rest
-      # of #821.
-      GNUSTEP_PATCHES_REF: 43dcb1fa0d6d468029d66dfeb250ae42bc1d8b10
-      # FreeCoreData after #43: models can be copied (#43); managed objects
-      # and object IDs in predicates match on every store, and count (#41);
-      # its momc keeps a model version's Identifier, which models generated
-      # from $metadata carry (#40).
-      # #51: the SQL backends share one libCDSQLStore, so a process can load
-      # both, and evaluate MATCHES in SQL.
-      # #61: NULL sorts as Core Data sorts it, on every SQL backend.
-      # #62: momc reads and writes "Preserve After Deletion" as Xcode spells
-      # it (preserveAfterDeletion): the Catalog's keys carry it.
-      # #63-65: migrations. Store metadata with options; a store comes
-      # through a migration as the same store; a mapping model made in
-      # Xcode is read and followed, its source expressions included.
-      # #67: momc keeps Xcode's Renaming IDs (elementID); inferred mappings
-      # follow them.
-      # #68: fetch indexes (NSFetchIndexDescription), made by every store:
-      # ODataSync's bookkeeping is indexed.
-      # #69: a model's copy keeps exactly its indexes (no index more per
-      # attribute an index covers).
-      # #70: migratePersistentStore:toURL:options:withType:error: (a server
-      # can move from SQLite to PostgreSQL), ordered relationships in order.
-      # #71: an object and its context let go of what they held (a server
-      # no longer keeps every row a request read).
-      # 3e15e53: gnustep-patches 1eda55d. #72: a context that related
-      # objects is let go of (a server no longer leaks each child row it
-      # upserts, attachments and all).
-      # #73: objects tell their context of their changes, and changedValues
-      # leaves out a property set to what it was (hasPersistentChangedValues
-      # too); a fetch reads its rows at once.
-      # #74, #75: a SQLite store gives back free pages after saves, and keeps
-      # a Binary value that allows external storage (past 128 KiB) in a file
-      # beside it, as Apple's does: ODataSync's synced files are so kept.
-      FREECOREDATA_REF: a07b87ff0cba571bbc282f99d73f37619a9f65b3
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
@@ -287,6 +234,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: source
+
+      # GNUSTEP_PATCHES_REF and FREECOREDATA_REF: .github/pins.env.
+      - uses: ashalkhakov/gnustep-release-actions/pins@v1
+        with:
+          file: source/.github/pins.env
 
       - uses: actions/checkout@v4
         with:

@@ -196,6 +196,10 @@ A release carries both packages, attached when a `v*` tag is pushed:
   Gatekeeper checks a download. Run by hand with a tag, it signs that
   release's app again (the first release's included). Without the signing
   secrets (a fork) it still builds, and names the zip `-unsigned`.
+  It updates itself (Workbench > Check for Updates…, and a daily check if
+  allowed), with Sparkle: a release also carries `appcast.xml`, its update
+  signed with the EdDSA key in the `SPARKLE_PRIVATE_KEY` secret, whose
+  public half is `SUPublicEDKey` in `Info.plist`.
 - **Linux**: `ODataWorkbench-Linux-<version>-x86_64.AppImage`. It contains
   the Workbench, the desktop Device app
   ([its README](../DeviceDesktop/README.md)) and a launcher that chooses
