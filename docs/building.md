@@ -208,14 +208,6 @@ ENTRYPOINT ["/usr/local/bin/ois-env", "myserver"]
 
 `ois-env` runs a command with the stack in its environment (`GNUstep.sh`).
 
-Without gnustep-make, clang and `gnustep-config` build the command-line tool:
-
-```sh
-make -f Makefile
-./ois-filter 'unitPrice > 20 AND discontinued == NO'
-# UnitPrice gt 20 and Discontinued eq false
-```
-
 ## Tests
 
 XCTest, and no network: HTTP is a directory of OData v4 request/response

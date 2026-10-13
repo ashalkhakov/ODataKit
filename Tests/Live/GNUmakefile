@@ -18,11 +18,11 @@ OBJC = clang
 TOOL_NAME = ois-live ois-model
 ois-live_OBJC_FILES = ois-live.m
 ois-live_INCLUDE_DIRS = -I../../Source/ODataKit/include -I../../Source/ODataIncrementalStore/include -I../../Source/ODataKit/include/ODataKit -I../../Source/ODataIncrementalStore/include/ODataIncrementalStore
-ois-live_LIB_DIRS = -L../../obj -L../..
+ois-live_LIB_DIRS = -L../../obj
 ois-live_TOOL_LIBS += -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData
 ois-model_OBJC_FILES = ../../Tools/ois-model.m
 ois-model_INCLUDE_DIRS = -I../../Source/ODataKit/include -I../../Source/ODataIncrementalStore/include -I../../Source/ODataKit/include/ODataKit -I../../Source/ODataIncrementalStore/include/ODataIncrementalStore
-ois-model_LIB_DIRS = -L../../obj -L../..
+ois-model_LIB_DIRS = -L../../obj
 ois-model_TOOL_LIBS += -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \

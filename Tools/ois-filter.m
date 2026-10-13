@@ -10,13 +10,14 @@
 #import "ODataIncrementalStore.h"
 #import <stdio.h>
 
-// Core Data loads compiled models only: the Makefile compiles
-// Examples/Catalog/Catalog.xcdatamodeld to Catalog.momd with momc.
+// Core Data loads compiled models only: Tools/GNUmakefile compiles
+// Examples/Catalog/Catalog.xcdatamodeld to Catalog.momd with momc, beside
+// this file; or one in the current directory.
 static NSManagedObjectModel *OISLoadCatalogModel(void)
 {
   NSString *here = [@(__FILE__) stringByDeletingLastPathComponent];
   NSArray *candidates = @[
-    [here stringByAppendingPathComponent:@"../Catalog.momd"],
+    [here stringByAppendingPathComponent:@"Catalog.momd"],
     @"Catalog.momd",
   ];
   for (NSString *path in candidates) {
@@ -37,7 +38,7 @@ int main(int argc, const char *argv[])
     NSManagedObjectModel *model = OISLoadCatalogModel();
     NSEntityDescription *entity = model.entitiesByName[@"Product"];
     if (!entity) {
-      fprintf(stderr, "ois-filter: could not load Catalog.momd (run make -f Makefile)\n");
+      fprintf(stderr, "ois-filter: could not load Catalog.momd (run make in Tools/)\n");
       return 1;
     }
 

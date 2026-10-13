@@ -21,10 +21,9 @@
 #   make
 #   make install
 #
-# Without gnustep-make, use the sibling Makefile (gnustep-config + clang).
 
 ifeq ($(GNUSTEP_MAKEFILES),)
-$(error Set GNUSTEP_MAKEFILES (source GNUstep.sh). Or run `make -f Makefile` with gnustep-config.)
+$(error Set GNUSTEP_MAKEFILES (source GNUstep.sh).)
 endif
 
 include $(GNUSTEP_MAKEFILES)/common.make
@@ -308,11 +307,12 @@ after-install::
 after-uninstall::
 	$(ODATAKIT_BUILD_FILES) uninstall libraries
 
-# The rest of the repository, on the libraries: the example apps and the
-# server's tools (Server/); the Workbench, the Device app, the launcher that
-# chooses between them, and the server's tools installed beside the libraries.
-ODATAKIT_PARTS = Examples/Catalog Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
-ODATAKIT_INSTALLED = Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
+# The rest of the repository, on the libraries: the command-line tools
+# (Tools/), the example apps and the server's tools (Server/); the tools,
+# the Workbench, the Device app, the launcher that chooses between them,
+# and the server's tools installed beside the libraries.
+ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
+ODATAKIT_INSTALLED = Tools Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
 
 after-all::
 	@for part in $(ODATAKIT_PARTS); do $(MAKE) -C $$part || exit 1; done
@@ -329,7 +329,7 @@ after-clean::
 #     each given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a server
 #     a test may create a database on); without one they are skipped, but
 #     not in CI, where a missing server is a failure
-#   the libraries built a second way, without gnustep-make (Makefile)
+#   ois-filter (Tools/)
 #   the server over loopback (Server/)
 #   the live service checks and the Workbench's online self-test, against
 #     services.odata.org: out of our hands, so they warn rather than fail
@@ -351,11 +351,7 @@ check::
 	    $(MAKE) -C Tests run-tests || exit 1; fi
 	@if [ -n "$$MARIADB_URL" ]; then \
 	  CD_TEST_MYSQL_URL="$${MARIADB_URL%/*}/oistest" $(MAKE) -C Tests run-tests || exit 1; fi
-	$(MAKE) -f Makefile
-	@got=$$(LD_LIBRARY_PATH=".:$$LD_LIBRARY_PATH" ./ois-filter 'unitPrice > 20 AND discontinued == NO'); \
-	  want='UnitPrice gt 20 and Discontinued eq false'; \
-	  [ "$$got" = "$$want" ] || { echo "check: ois-filter printed '$$got', expected '$$want'"; exit 1; }
-	$(MAKE) -f Makefile clean
+	$(MAKE) -C Tools check
 	$(MAKE) -C Server check
 	$(MAKE) -C Tests/Live live || echo "::warning::the live service checks failed (services.odata.org)"
 	cd Examples/Workbench && $(ODATAKIT_RUN) $(XVFB) ./Workbench.app/Workbench --self-test \

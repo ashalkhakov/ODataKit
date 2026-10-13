@@ -16,8 +16,6 @@ obj/
 *.d
 *.so
 *.so.*
-ois-filter
-ois-model
 *.momd
 Tests/Live/TripPinClasses/
 Tests/Live/Generated/

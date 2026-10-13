@@ -28,7 +28,7 @@ DeviceDesktop_INCLUDE_DIRS = -I. -I../Device -I../Workbench \
 	-I$(ROOT)/Source/ODataService/include/ODataService -I$(ROOT)/Source/HTTPServerKit/include \
 	-I$(ROOT)/Source/HTTPServerKit/include/HTTPServerKit -I$(ROOT)/Source/OTelKit/include -I$(ROOT)/Source/OTelKit/include/OTelKit \
 	-I$(ROOT)/Source/ODataSync/include -I$(ROOT)/Source/ODataSync/include/ODataSync
-DeviceDesktop_LIB_DIRS = -L$(ROOT)/obj -L$(ROOT)
+DeviceDesktop_LIB_DIRS = -L$(ROOT)/obj
 DeviceDesktop_GUI_LIBS += -lODataSync -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch -lqrencode
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \
