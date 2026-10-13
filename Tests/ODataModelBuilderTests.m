@@ -216,7 +216,8 @@
   NSString *xml = [_zooXML stringByReplacingOccurrencesOfString:@"<Property Name=\"Code\" Type=\"Edm.String\" Nullable=\"false\"/>"
                                                      withString:@"<Property Name=\"Code\" Type=\"Edm.String\" Nullable=\"false\"/><Property Name=\"Photo\" Type=\"Edm.Binary\"/>"];
   NSManagedObjectModel *model = [ODataModelBuilder modelWithSchema:[self schemaFrom:xml]];
-  NSAttributeDescription *photo = (NSAttributeDescription *)model.entitiesByName[@"Keeper"].propertiesByName[@"photo"];
+  NSEntityDescription *keeper = model.entitiesByName[@"Keeper"];
+  NSAttributeDescription *photo = (NSAttributeDescription *)keeper.propertiesByName[@"photo"];
   XCTAssertTrue(photo.allowsExternalBinaryDataStorage);
   NSString *package = [NSTemporaryDirectory() stringByAppendingPathComponent:
                        [NSString stringWithFormat:@"ois-%@/Zoo.xcdatamodeld", [[NSUUID UUID] UUIDString]]];
