@@ -104,6 +104,21 @@ RUN set -e; \
     mkdir -p /run/dbus; dbus-daemon --system --fork; avahi-daemon --daemonize --no-chroot; \
     AVAHI_COMPAT_NOWARN=1 make test
 
+# What a server needs of the stack: the stack image carries the GUI too
+# (gnustep-gui, the backend and its bundles, the Eau theme, Opal), which no
+# service here loads and whose libraries the runtime image does not have; it
+# leaves, with every library and program that links it or what it draws and
+# plays with (images, sound, cairo, X, fonts: gui's tools too), and XCTest.
+FROM sdk AS runtime-files
+RUN set -e; cd /opt/gnustep; \
+    rm -rf Local/Library/Bundles Local/Library/ColorPickers Local/Library/Themes Local/Library/Images \
+           Local/Library/Sounds Local/Library/PostScript System/Library/Bundles System/Library/Themes \
+           System/Library/CoreServices/Applications; \
+    find . -type f \( -name '*.so*' -o -perm -u+x \) | while read -r f; do \
+      if readelf -d "$f" 2>/dev/null | grep -qE 'NEEDED.*\[lib(gnustep-gui|opal|XCTest|tiff|png|jpeg|gif|sndfile|ao|cairo|X|freetype|fontconfig|icns|lcms)'; then rm -f "$f"; fi; \
+    done; \
+    rm -f Local/Library/Libraries/libgnustep-gui.so* Local/Library/Libraries/libopal.so* Local/Library/Libraries/libXCTest.so*
+
 FROM ubuntu:${UBUNTU} AS runtime
 ARG DEBIAN_FRONTEND=noninteractive
 # Through caching proxies that answer with stale indexes, which apt then
@@ -114,7 +129,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libgnutls30 libffi8 libicu70 libxml2 libxslt1.1 zlib1g libcurl3-gnutls libgmp10 \
       libsqlite3-0 libpq5 libmariadb3 libstdc++6 libatomic1 libavahi-compat-libdnssd1 \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=sdk /opt/gnustep /opt/gnustep
+COPY --from=runtime-files /opt/gnustep /opt/gnustep
 COPY --from=sdk /usr/local/share/ois-serve /usr/local/share/ois-serve
 COPY Docker/ois-env /usr/local/bin/ois-env
 # A library the image lacks fails the build here, not a server at start.
