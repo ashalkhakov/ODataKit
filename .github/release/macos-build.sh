@@ -23,29 +23,29 @@ xcodebuild -workspace ODataKit.xcworkspace -scheme Device \
   -derivedDataPath "$RUNNER_TEMP/DerivedData-iOS" build
 
 # Northwind and TripPin: generated models and classes, against the services.
-live() {
-  set -e
-  inc="-ISource/ODataKit/include -ISource/ODataKit/include/ODataKit -ISource/ODataIncrementalStore/include -ISource/ODataIncrementalStore/include/ODataIncrementalStore"
-  client="Source/ODataKit/*.m Source/ODataIncrementalStore/*.m"
-  xcrun momc Examples/Catalog/Catalog.xcdatamodeld "$RUNNER_TEMP/Catalog.momd"
-  xcrun momc Tests/Live/TripPin.xcdatamodeld "$RUNNER_TEMP/TripPin.momd"
-  xcrun momc Tests/Live/Northwind.xcdatamodeld "$RUNNER_TEMP/Northwind.momd"
-  clang -fobjc-arc -fmodules $inc $client Tools/ois-model.m \
-    -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-model"
-  "$RUNNER_TEMP/ois-model" https://services.odata.org/V4/Northwind/Northwind.svc/ "$RUNNER_TEMP/NorthwindGenerated.xcdatamodeld"
-  xcrun momc "$RUNNER_TEMP/NorthwindGenerated.xcdatamodeld" "$RUNNER_TEMP/NorthwindGenerated.momd"
-  clang -fobjc-arc -fmodules $inc $client Tests/Live/ois-live.m \
-    -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-live"
-  "$RUNNER_TEMP/ois-live" "$RUNNER_TEMP"
-  "$RUNNER_TEMP/ois-model" --classes "$RUNNER_TEMP/TripPinClasses" \
-    https://services.odata.org/V4/TripPinServiceRW/ "$RUNNER_TEMP/Generated/TripPin.xcdatamodeld"
-  xcrun momc "$RUNNER_TEMP/Generated/TripPin.xcdatamodeld" "$RUNNER_TEMP/TripPinGenerated.momd"
-  clang -fobjc-arc -fmodules $inc -I"$RUNNER_TEMP/TripPinClasses" \
-    $client "$RUNNER_TEMP"/TripPinClasses/*.m Tests/Live/ois-classes.m \
-    -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-classes"
-  "$RUNNER_TEMP/ois-classes" "$RUNNER_TEMP/TripPinGenerated.momd"
-}
-(live) || echo "::warning::the live service checks failed (services.odata.org)"
+# Their own bash, so a step that fails stops them there (set -e does not hold
+# inside a function called with ||); their failure is a warning.
+bash -euo pipefail <<'LIVE' || echo "::warning::the live service checks failed (services.odata.org)"
+inc="-ISource/ODataKit/include -ISource/ODataKit/include/ODataKit -ISource/ODataIncrementalStore/include -ISource/ODataIncrementalStore/include/ODataIncrementalStore -ISource/OTelKit/include -ISource/OTelKit/include/OTelKit"
+client="Source/ODataKit/*.m Source/ODataIncrementalStore/*.m Source/OTelKit/*.m"
+xcrun momc Examples/Catalog/Catalog.xcdatamodeld "$RUNNER_TEMP/Catalog.momd"
+xcrun momc Tests/Live/TripPin.xcdatamodeld "$RUNNER_TEMP/TripPin.momd"
+xcrun momc Tests/Live/Northwind.xcdatamodeld "$RUNNER_TEMP/Northwind.momd"
+clang -fobjc-arc -fmodules $inc $client Tools/ois-model.m \
+  -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-model"
+"$RUNNER_TEMP/ois-model" https://services.odata.org/V4/Northwind/Northwind.svc/ "$RUNNER_TEMP/NorthwindGenerated.xcdatamodeld"
+xcrun momc "$RUNNER_TEMP/NorthwindGenerated.xcdatamodeld" "$RUNNER_TEMP/NorthwindGenerated.momd"
+clang -fobjc-arc -fmodules $inc $client Tests/Live/ois-live.m \
+  -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-live"
+"$RUNNER_TEMP/ois-live" "$RUNNER_TEMP"
+"$RUNNER_TEMP/ois-model" --classes "$RUNNER_TEMP/TripPinClasses" \
+  https://services.odata.org/V4/TripPinServiceRW/ "$RUNNER_TEMP/Generated/TripPin.xcdatamodeld"
+xcrun momc "$RUNNER_TEMP/Generated/TripPin.xcdatamodeld" "$RUNNER_TEMP/TripPinGenerated.momd"
+clang -fobjc-arc -fmodules $inc -I"$RUNNER_TEMP/TripPinClasses" \
+  $client "$RUNNER_TEMP"/TripPinClasses/*.m Tests/Live/ois-classes.m \
+  -framework Foundation -framework CoreData -o "$RUNNER_TEMP/ois-classes"
+"$RUNNER_TEMP/ois-classes" "$RUNNER_TEMP/TripPinGenerated.momd"
+LIVE
 debug=$RUNNER_TEMP/DerivedData/Build/Products/Debug
 "$debug/Workbench.app/Contents/MacOS/Workbench" --self-test \
   || echo "::warning::the Workbench's online self-test failed"
