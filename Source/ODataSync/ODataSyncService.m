@@ -277,8 +277,11 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     NSArray *rows = record ? ODSMergeRows(context, entityType, keyText, attribute.name) : @[];
     NSManagedObject *horizonRow = ODSMergeRow(rows, ODSMergeHorizonReplica);
     NSData *horizon = [horizonRow valueForKey:@"version"];
+    // No version: a device that asks for the whole state (it could not place
+    // what it was sent), answered all of it, which it merges.
     NSData *theirs = ODSDataOfBase64(item[@"Version"]);
-    if (!theirs.length) theirs = [merger versionOfState:nil];
+    BOOL whole = !theirs.length;
+    if (whole) theirs = [merger versionOfState:nil];
     NSData *state = [object valueForKey:attribute.name];
     if (!etags[object.objectID]) etags[object.objectID] = [service etagOfObject:object];
 
@@ -317,7 +320,7 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     }
     // What the device lacks, before anything is collected: what is collected
     // now it has not seen yet, and is told (then collects it itself).
-    NSData *lacks = [merger deltaOfState:state sinceVersion:theirs];
+    NSData *lacks = [merger deltaOfState:state sinceVersion:whole ? nil : theirs];
     if (!lacks) {
       failed([NSString stringWithFormat:@"%@ is no state its merger reads", item[@"Property"]]);
       continue;

@@ -584,6 +584,25 @@ static NSManagedObjectModel *OSMModel(void)
   [_sync.engine setMerger:_merger forName:@"TwoPhase"];
 }
 
+// A delta the device could not place (as TopoText's, for text typed by what
+// it had collected): the whole state asked for next time, which it merges.
+- (void)testADeltaTheDeviceRefusedComesAgainAsTheWholeState
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  [b setMerger:[[OSMStatesOnlySet alloc] init] forName:@"TwoPhase"];
+  [self edit:@"d1" in:a adding:@[ @"banana" ] deleting:nil];
+  [self sync:a];
+  NSError *error = nil;
+  XCTAssertTrue([b syncWithError:&error], @"%@", error);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], (@[ @"apple" ]), @"the delta refused");
+  [self sync:b];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], (@[ @"apple", @"banana" ]), @"the whole state taken");
+  XCTAssertEqual(b.pendingChanges.count, 0u, @"%@", b.pendingChanges);
+}
+
 // A service that dropped what it was sent: every object's merged attributes
 // exchanged again, both ways, on asking.
 - (void)testAllMergedAttributesExchangedAgain
