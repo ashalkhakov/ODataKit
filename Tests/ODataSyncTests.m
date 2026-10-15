@@ -360,6 +360,35 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
 }
 
+// The service named itself otherwise for a while (its host's own name, its
+// root unset), and the delta links it gave then name that, which may never
+// answer here: the set read again from the remote, not followed there.
+- (void)testADeltaLinkElsewhereIsReadAgainFromTheRemote
+{
+  OSTCountingTransport *counting = [[OSTCountingTransport alloc] init];
+  counting.service = _service;
+  _remote.transport = counting;
+  [self sync];
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSManagedObject *state = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"ODSRemoteState"] error:NULL] firstObject];
+    NSSet *classes = [NSSet setWithObjects:[NSDictionary class], [NSString class], nil];
+    NSDictionary *links = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:[state valueForKey:@"deltaLinks"] error:NULL];
+    XCTAssertTrue(links.count > 0, @"links kept");
+    NSMutableDictionary *elsewhere = [NSMutableDictionary dictionary];
+    for (NSString *name in links)
+      elsewhere[name] = [links[name] stringByReplacingOccurrencesOfString:@"http://example.test/" withString:@"http://ct100:8080/"];
+    [state setValue:[NSKeyedArchiver archivedDataWithRootObject:elsewhere requiringSecureCoding:NO error:NULL] forKey:@"deltaLinks"];
+  }];
+  [self atServer:^(NSManagedObjectContext *context) {
+    [[self object:@"Asset" id:@1 in:context] setValue:@"Pump, renamed" forKey:@"name"];
+  }];
+  counting.requests = [NSMutableArray array];
+  [self sync];
+  XCTAssertTrue([[self values:@"name" of:@"Asset" in:_device] containsObject:@"Pump, renamed"], @"read again");
+  for (NSURLRequest *request in counting.requests)
+    XCTAssertEqualObjects(request.URL.host, @"example.test", @"%@", request.URL);
+}
+
 // The downloader asks for pages of so many rows (a service may have no
 // paging of its own), and follows them however the service cuts them: here
 // a row a page, by the service's maxPageBytes, read whole and by delta link.
