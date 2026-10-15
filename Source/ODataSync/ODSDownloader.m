@@ -338,6 +338,22 @@ static const NSInteger ODSGone = 410;
   return YES;
 }
 
+// Whether a link is the service root's: its scheme, host and port, and
+// under its path.
+static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
+{
+  NSURL *url = [NSURL URLWithString:link];
+  if (!url.host || !root.host) return NO;
+  if ([url.scheme caseInsensitiveCompare:root.scheme] != NSOrderedSame || [url.host caseInsensitiveCompare:root.host] != NSOrderedSame) return NO;
+  NSInteger port = url.port ? url.port.integerValue : [url.scheme.lowercaseString isEqual:@"https"] ? 443 : 80;
+  NSInteger rootPort = root.port ? root.port.integerValue : [root.scheme.lowercaseString isEqual:@"https"] ? 443 : 80;
+  if (port != rootPort) return NO;
+  NSString *path = root.path.length ? root.path : @"/";
+  if (![path hasSuffix:@"/"]) path = [path stringByAppendingString:@"/"];
+  NSString *linkPath = url.path.length ? url.path : @"/";
+  return [[linkPath stringByAppendingString:@"/"] hasPrefix:path];
+}
+
 // By the delta link: rows changed, rows removed. NO with *gone when the
 // remote no longer follows it (410).
 - (BOOL)follow:(NSString *)link entity:(NSEntityDescription *)entity context:(NSManagedObjectContext *)context
@@ -364,6 +380,10 @@ static const NSInteger ODSGone = 410;
   NSString *link = links[entity.name];
   // A filter that changed is another set: read again.
   if (link && !(filters[entity.name] == filter || [filters[entity.name] isEqual:filter])) link = nil;
+  // A link somewhere other than the remote (given by a service that named
+  // itself otherwise for a while: its host's own name, unset its root),
+  // which may never answer here: read again.
+  if (link && !ODSLinkIsUnder(link, _remote.serviceRoot)) link = nil;
   NSString *next = nil;
   BOOL ok = NO;
   if (link) {
