@@ -221,10 +221,15 @@ static NSData *ODSFromBase64(id text)
   NSArray<ODSMergeSlot *> *slots = [self slotsOf:chunk context:context];
   if (!slots.count) return [context save:error] ? 1 : 0;
   // Down: what each has, for what it lacks (and the remote's version).
+  // Failed before (what the remote sent could not be placed: text typed by
+  // what this copy had already collected): no version, so the remote
+  // answers its whole state, which brings back, deleted, what that was
+  // placed by. The same as up, the other way.
   NSMutableArray *items = [NSMutableArray array];
   for (ODSMergeSlot *slot in slots) {
     NSMutableDictionary *item = [slot.item mutableCopy];
-    item[@"Version"] = ODSBase64([slot.merger versionOfState:[slot.object valueForKey:slot.attribute.name]]);
+    BOOL whole = [[slot.entry valueForKey:@"attempts"] integerValue] > 0;
+    item[@"Version"] = whole ? @"" : ODSBase64([slot.merger versionOfState:[slot.object valueForKey:slot.attribute.name]]);
     [items addObject:item];
   }
   BOOL unsupported = NO;
