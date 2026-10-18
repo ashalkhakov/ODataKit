@@ -603,6 +603,36 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqual(b.pendingChanges.count, 0u, @"%@", b.pendingChanges);
 }
 
+// The same after the service collected (it has a horizon, which no copy
+// that sends no version covers): the device that asks for the whole state is
+// answered it, not told to re-base on what it did since the horizon, which
+// would not merge either (TopoText's, for text typed by what the service had
+// collected, then deleted).
+- (void)testARefusedDeltaGoesAgainAsTheWholeStateAfterACollection
+{
+  ODataSyncEngine *a = [self device], *b = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple", @"banana" ] deleting:nil];
+  [self sync:a];
+  [self sync:b];
+  [self edit:@"d1" in:a adding:@[] deleting:@[ @"apple" ]];
+  [self sync:a];
+  [self sync:b];
+  [self sync:a];
+  XCTAssertTrue([[OSMTwoPhaseSet setsOf:[self stateOf:@"d1" in:_server]][@"gone"] containsObject:@"apple"], @"collected");
+  [_sync.engine setMerger:[[OSMStatesOnlySet alloc] init] forName:@"TwoPhase"];
+  [b setMerger:[[OSMStatesOnlySet alloc] init] forName:@"TwoPhase"];
+  [self edit:@"d1" in:b adding:@[ @"cherry" ] deleting:nil];
+  NSError *error = nil;
+  XCTAssertTrue([b syncWithError:&error], @"%@", error);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"banana" ]), @"the delta refused");
+  [self sync:b];
+  NSArray *left = @[ @"banana", @"cherry" ];
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], left, @"the whole state taken");
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:b.coordinator], left);
+  XCTAssertEqual(b.pendingChanges.count, 0u, @"%@", b.pendingChanges);
+  [_sync.engine setMerger:_merger forName:@"TwoPhase"];
+}
+
 // A service that dropped what it was sent: every object's merged attributes
 // exchanged again, both ways, on asking.
 - (void)testAllMergedAttributesExchangedAgain

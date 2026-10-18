@@ -289,7 +289,9 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
     // ever through peers): what it has cannot be merged, nor told what it
     // lacks. It is answered the whole state and the horizon, and re-bases
     // on them (docs/offline-sync.md, 14.4); nothing it sent is taken.
-    if (horizon.length && !ODSCovers(merger, theirs, horizon)) {
+    // (Not one that asks for the whole state: it is answered all of it,
+    // which it merges, as it would not what it did since the horizon.)
+    if (horizon.length && !whole && !ODSCovers(merger, theirs, horizon)) {
       [answers addObject:@{ @"Reset": @YES, @"State": ODSBase64Of(state), @"Horizon": ODSBase64Of(horizon),
                             @"Version": ODSBase64Of([merger versionOfState:state]) }];
       continue;
