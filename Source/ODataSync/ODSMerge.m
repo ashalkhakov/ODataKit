@@ -158,6 +158,13 @@ static NSData *ODSFromBase64(id text)
     }
     tried = since.length > 0;
     merged = tried ? [slot.merger stateByMerging:since intoState:theirs error:&error] : theirs;
+    // What it did since does not merge there (text typed by what the remote
+    // collected, as TopoText's): its whole state, which brings back, deleted,
+    // what that was placed by.
+    if (tried && !merged && horizon.length) {
+      NSData *all = [slot.merger deltaOfState:state sinceVersion:nil];
+      if (all.length) merged = [slot.merger stateByMerging:all intoState:theirs error:&error];
+    }
   } else {
     NSData *delta = ODSFromBase64(answer[@"Delta"]);
     tried = delta.length > 0;
