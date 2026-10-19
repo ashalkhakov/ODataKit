@@ -2294,6 +2294,45 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertEqualObjects([self get:@"Categories/$count"].text, @"3", @"g1 saved, g2 not");
 }
 
+// An exception at a change set's save (a willSave that raises, #44) is
+// answered as a failed save: the group rolled back, its last request 500,
+// the batch going on as continue-on-error says; not left unanswered.
+- (void)testAChangeSetWhoseSaveRaisesIsAnswered
+{
+  _service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    [NSException raise:NSInternalInconsistencyException format:@"a save hook's bug"];
+    return YES;
+  };
+  NSString *count = [self get:@"Categories/$count"].text;
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"http://example.test/odata/$batch"]];
+  request.HTTPMethod = @"POST";
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  NSDictionary *batch = @{ @"requests": @[
+    @{ @"id": @"a", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Categories", @"body": @{ @"CategoryName": @"Seafood" } },
+    @{ @"id": @"b", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Categories", @"body": @{ @"CategoryName": @"Grains" } },
+    @{ @"id": @"r", @"method": @"get", @"url": @"Categories/$count" },
+  ] };
+  request.HTTPBody = [NSJSONSerialization dataWithJSONObject:batch options:0 error:NULL];
+  [request setValue:@"odata.continue-on-error" forHTTPHeaderField:@"Prefer"];
+  OISServiceResponse *r = [self exchange:request];
+  XCTAssertEqual(r.status, 200, @"%@", r.text);
+  NSArray *responses = r.json[@"responses"];
+  XCTAssertEqualObjects([responses valueForKey:@"id"], (@[ @"a", @"b", @"r" ]), @"%@", r.text);
+  XCTAssertEqualObjects([responses.lastObject valueForKey:@"body"], count, @"the change set took no effect");
+  XCTAssertEqualObjects([responses[1] valueForKey:@"status"], @500, @"%@", r.text);
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, count);
+
+  // Without continue-on-error: the batch stops there, answered all the same.
+  [request setValue:nil forHTTPHeaderField:@"Prefer"];
+  r = [self exchange:request];
+  XCTAssertEqual(r.status, 200, @"%@", r.text);
+  XCTAssertEqualObjects([r.json[@"responses"] valueForKey:@"id"], (@[ @"a", @"b" ]), @"%@", r.text);
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, count);
+
+  // And a request alone, as before.
+  XCTAssertEqual(([self send:@"POST" path:@"Categories" headers:nil body:@{ @"CategoryName": @"Seafood" }].status), 500);
+}
+
 - (void)testBatchWaitsForHandlersThatAnswerLater
 {
   OISLaterProducts *handler = [[OISLaterProducts alloc] initWithEntity:OISCatalogEntity(@"Product")];

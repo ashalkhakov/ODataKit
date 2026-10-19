@@ -387,6 +387,10 @@ static void OISAppendText(NSMutableData *data, NSString *text)
 }
 
 // All of it, or none: saved when every request succeeded, else rolled back.
+// An exception at the save (a willSave that raises) is a failed save, the
+// change set's last request answered 500: caught here, as the group ends
+// inside its last request's answer, which has answered already and so
+// cannot answer for it (#44).
 - (void)endGroup
 {
   NSManagedObjectContext *context = _groupContext;
@@ -396,7 +400,16 @@ static void OISAppendText(NSMutableData *data, NSString *text)
     [context performBlockAndWait:^{
       @autoreleasepool {
         NSError *e = nil;
-        saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e);
+        @try {
+          saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e);
+        } @catch (NSException *exception) {
+          OISLog(HSLogLevelError, self->_exchange.request, @"%@ %@: change set %@'s save raised %@: %@", self->_exchange.request.HTTPMethod,
+                 self->_exchange.request.URL, self->_group, exception.name, exception.reason);
+          [self.span addEventNamed:@"exception" attributes:@{ @"exception.type": exception.name ?: @"", @"exception.message": exception.reason ?: @"" }];
+          saved = NO;
+          e = [NSError errorWithDomain:ODataServiceErrorDomain code:500
+                              userInfo:@{ NSLocalizedDescriptionKey: @"The change set failed inside the service" }];
+        }
         if (!saved) [context rollback];
         error = e;
       }
