@@ -2228,6 +2228,48 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertNotEqualObjects([self get:@"Products(1)/UnitPrice/$value"].text, @"7", @"the change set took no effect");
 }
 
+// A UUID attribute is an Edm.Guid, a key too: declared, written as the
+// client gives it or made, and read by it. (Both Core Datas declare
+// NSUUIDAttributeType, 1100; a value of ODataKit's own, 2400, was none.)
+- (void)testUUIDKeys
+{
+  NSEntityDescription *thing = [[NSEntityDescription alloc] init];
+  thing.name = @"Thing";
+  thing.managedObjectClassName = @"NSManagedObject";
+  NSAttributeDescription *key = [[NSAttributeDescription alloc] init];
+  key.name = @"id";
+  key.attributeType = NSUUIDAttributeType;
+  key.optional = NO;
+  key.userInfo = @{ @"OData.key": @"YES" };
+  NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+  name.name = @"name";
+  name.attributeType = NSStringAttributeType;
+  name.optional = YES;
+  thing.properties = @[ key, name ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ thing ];
+  // In SQLite, which takes a UUID attribute's value only as an NSUUID.
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+  [_storeFiles addObject:url];
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator
+                                                          serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  XCTAssertTrue([[self get:@"$metadata"].text containsString:@"<Property Name=\"Id\" Type=\"Edm.Guid\" Nullable=\"false\"/>"],
+                @"%@", [self get:@"$metadata"].text);
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  NSString *given = @"0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  OISServiceResponse *made = [self send:@"POST" path:@"Things" headers:nil body:@{ @"Id": given, @"Name": @"given" }];
+  XCTAssertEqual(made.status, 201, @"%@", made.text);
+  XCTAssertEqualObjects([made.json[@"Id"] lowercaseString], given);
+  NSString *path = [NSString stringWithFormat:@"Things(%@)/Name/$value", given];
+  XCTAssertEqualObjects([self get:path].text, @"given");
+  made = [self send:@"POST" path:@"Things" headers:nil body:@{ @"Name": @"made" }];
+  XCTAssertEqual(made.status, 201, @"%@", made.text);
+  XCTAssertNotNil([[NSUUID alloc] initWithUUIDString:made.json[@"Id"]], @"a key made for it: %@", made.text);
+}
+
 - (void)testJSONBatch
 {
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"http://example.test/odata/$batch"]];
