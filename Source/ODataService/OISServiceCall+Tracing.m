@@ -47,7 +47,9 @@ BOOL OISTimedSave(ODataService *service, NSManagedObjectContext *context, OTSpan
     [span becomeCurrent];
   }
   NSError *failure = nil;
-  BOOL saved = [context save:&failure];
+  BOOL saved = !service.willSave || !context.hasChanges || service.willSave(context, &failure);
+  if (!saved && !failure) failure = ODataServiceError(500, @"The save was refused");
+  saved = saved && [context save:&failure];
   [span resignCurrent];
   NSString *label = entity.length ? entity : @"(batch)";
   [service.metrics observeHistogram:@"odata_store_request_duration_seconds"

@@ -1701,6 +1701,12 @@ authenticator. `OData.annotations` in `userInfo`, and the service's
 ignores a value a body gives a computed property, and refuses to change
 an immutable one; Core Data's validation enforces the rest, and the
 service itself `Validation.MultipleOf` and `Constraint` before it saves.
+An application's rules over several objects, which no one object's
+validation sees, are `willSave`'s: asked before each save of what clients
+write (a request's, a change set's once at its end, a merge's), in the
+context, it may set values worked out from others, saved with the rest,
+or refuse the save with an error, which answers the request (the change
+set) as a failed save does, `400` for a validation error.
 Capabilities say what it does (its conformance level, batches, deep
 inserts and updates, the functions `$filter` takes) and what each set's
 handler allows, including properties `$filter` and `$orderby` may not

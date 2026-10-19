@@ -366,9 +366,11 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
   // else its next write of the row is a conflict of the merge's making).
   // Saved here, the call is its own: inside an atomic $batch change set it
   // would not go or fail with the rest (devices send it alone).
+  // The service's rules first, as for any write (willSave).
   if (context.hasChanges) {
     NSError *error = nil;
-    if (![context save:&error]) {
+    if ((service.willSave && !service.willSave(context, &error)) || ![context save:&error]) {
+      [context rollback];
       [reply failWithError:error ?: ODataServiceError(500, @"The merges could not be saved")];
       return nil;
     }

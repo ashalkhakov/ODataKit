@@ -53,7 +53,7 @@ Along with the read operators (Objects, Store scan…):
 | **Merge**(match; matched, otherwise) | a deep update's nested entity, `Nav@delta`, a delta payload, PUT of a collection | `MERGE`: the Update when the Lookup finds the row, else the Insert |
 | **Temporal**(action, deltas) over a Store scan | `Temporal.Update`, `Upsert`, `Delete` | `MERGE` with a computed source: the changes to the slices, as inserts, updates and deletes |
 | **Call**(operation) | an action or function, after the Lookups of its entity parameters | a stored procedure: the operation's own code |
-| **Commit** | the save: an open type's dynamic properties, each set's handed to its handler at once (`-writeDynamicProperties:ofObjects:request:reply:`), `Validation.MultipleOf` and `Constraint`, then the context's save (in a change set, the change set's) | the statement's end |
+| **Commit** | the save: an open type's dynamic properties, each set's handed to its handler at once (`-writeDynamicProperties:ofObjects:request:reply:`), `Validation.MultipleOf` and `Constraint`, then the service's `willSave` (an application's rules over several objects), then the context's save (in a change set, the change set's) | the statement's end |
 | **Returning** | the response's entities, and their `$expand` | `RETURNING`: the read plan over what was written (`planOfObjects:`) |
 
 A value of an Insert or Update is a constant, a node (a Lookup's row,

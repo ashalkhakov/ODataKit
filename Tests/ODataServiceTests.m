@@ -2160,6 +2160,74 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertEqualObjects([parts valueForKey:@"status"], @[ @400 ], @"no reads in a change set");
 }
 
+// A rule over several objects, which no one object's validation sees: a
+// category has one product of each name. Asked before each save, a change
+// set's once at its end: one broken on the way there and kept at its end
+// is saved; one that breaks it, or a request alone, saves nothing (400).
+// What the hook changes is saved with the rest.
+- (void)testWillSaveKeepsRulesOverSeveralObjects
+{
+  __block NSUInteger asked = 0;
+  _service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    asked++;
+    NSMutableSet *categories = [NSMutableSet set];
+    for (NSManagedObject *object in [context.insertedObjects setByAddingObjectsFromSet:context.updatedObjects]) {
+      if ([object.entity.name isEqualToString:@"Product"]) {
+        if (![object valueForKey:@"quantityPerUnit"]) [object setValue:@"each" forKey:@"quantityPerUnit"];
+        if ([object valueForKey:@"category"]) [categories addObject:[object valueForKey:@"category"]];
+      }
+    }
+    for (NSManagedObject *category in categories) {
+      NSCountedSet *names = [NSCountedSet set];
+      for (NSManagedObject *product in [category valueForKey:@"products"]) {
+        if ([product valueForKey:@"name"]) [names addObject:[product valueForKey:@"name"]];
+      }
+      for (NSString *name in names) {
+        if ([names countForObject:name] < 2) continue;
+        if (error) {
+          *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError
+                                   userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ has two products named %@",
+                                                                           [category valueForKey:@"name"], name] }];
+        }
+        return NO;
+      }
+    }
+    return YES;
+  };
+  NSString *category = [self get:@"Products(1)/Category/CategoryID/$value"].text;
+  NSString *bind = [NSString stringWithFormat:@"Categories(%@)", category];
+  NSString *count = [self get:@"Products/$count"].text;
+
+  // A request alone.
+  OISServiceResponse *twice = [self send:@"POST" path:@"Products" headers:nil
+                                   body:@{ @"ProductName": @"Chai", @"Category@odata.bind": bind }];
+  XCTAssertEqual(twice.status, 400, @"%@", twice.text);
+  XCTAssertTrue([twice.json[@"error"][@"message"] hasSuffix:@"has two products named Chai"], @"%@", twice.text);
+  XCTAssertEqualObjects([self get:@"Products/$count"].text, count, @"nothing saved");
+  XCTAssertEqual(asked, 1u);
+
+  // A change set: broken on the way, kept at its end; asked once.
+  asked = 0;
+  OISServiceResponse *r = [self postBatch:@[ @[
+    @{ @"method": @"POST", @"url": @"Products", @"id": @"1", @"body": @{ @"ProductName": @"Chai", @"Category@odata.bind": bind } },
+    @{ @"method": @"PATCH", @"url": @"Products(1)", @"id": @"2", @"body": @{ @"ProductName": @"Chai (old)" } } ] ] headers:nil];
+  NSArray<ODataBatchPart *> *parts = [self partsOf:r];
+  XCTAssertEqualObjects([parts valueForKey:@"status"], (@[ @201, @204 ]), @"%@", r.text);
+  XCTAssertEqual(asked, 1u, @"once, at the change set's end");
+  XCTAssertEqualObjects([self get:@"Products(1)/ProductName/$value"].text, @"Chai (old)");
+  NSString *made = [NSString stringWithFormat:@"Products(%@)/QuantityPerUnit/$value", [self JSONOf:parts[0]][@"ProductID"]];
+  XCTAssertEqualObjects([self get:made].text, @"each", @"what the hook set was saved");
+
+  // One that breaks it at its end: none of it.
+  r = [self postBatch:@[ @[
+    @{ @"method": @"PATCH", @"url": @"Products(1)", @"id": @"1", @"body": @{ @"UnitPrice": @7 } },
+    @{ @"method": @"POST", @"url": @"Products", @"id": @"2", @"body": @{ @"ProductName": @"Chai", @"Category@odata.bind": bind } } ] ]
+                headers:nil];
+  parts = [self partsOf:r];
+  XCTAssertEqualObjects([parts valueForKey:@"status"], @[ @400 ], @"%@", r.text);
+  XCTAssertNotEqualObjects([self get:@"Products(1)/UnitPrice/$value"].text, @"7", @"the change set took no effect");
+}
+
 - (void)testJSONBatch
 {
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"http://example.test/odata/$batch"]];
