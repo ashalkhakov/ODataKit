@@ -2248,9 +2248,12 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   thing.properties = @[ key, name ];
   NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
   model.entities = @[ thing ];
+  // In SQLite, which takes a UUID attribute's value only as an NSUUID.
   _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
   NSError *error = nil;
-  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+  [_storeFiles addObject:url];
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
   _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator
                                                           serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
   XCTAssertTrue([[self get:@"$metadata"].text containsString:@"<Property Name=\"Id\" Type=\"Edm.Guid\" Nullable=\"false\"/>"],
