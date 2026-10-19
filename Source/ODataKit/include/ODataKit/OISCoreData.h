@@ -16,10 +16,6 @@
 #error "OIS requires Core Data: Apple CoreData.framework, or FreeCoreData on GNUstep (https://github.com/ashalkhakov/FreeCoreData)."
 #endif
 
-#ifndef NSUUIDAttributeType
-#define NSUUIDAttributeType ((NSAttributeType)2400)
-#endif
-
 #ifndef NSCountResultType
 #define NSCountResultType ((NSFetchRequestResultType)0x04)
 #endif
