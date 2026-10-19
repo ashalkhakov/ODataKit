@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "WorkbenchModel.h"
+#import <ODataSync/ODataSyncEngine.h>
 
 @implementation WorkbenchLogEntry
 @end
@@ -52,7 +53,9 @@ NSString * const WorkbenchServedConfiguration = @"Served";
 
 NSManagedObjectModel *WorkbenchBuiltInModel(NSURL *catalogURL)
 {
-  NSManagedObjectModel *model = [[[NSManagedObjectModel alloc] initWithContentsOfURL:catalogURL] copy];
+  // Read from the file, the Workbench's own to change: not a copy of a
+  // loaded model, which can point into it once it is freed (#46).
+  NSManagedObjectModel *model = ODataSyncModelAtURL(catalogURL, NULL);
   NSEntityDescription *product = model.entitiesByName[@"Product"];
   if (!product) return nil;
   NSAttributeDescription *version = WBAttribute(@"version", NSInteger64AttributeType, @"Version", YES, @{ @"OData.etag": @"YES" });

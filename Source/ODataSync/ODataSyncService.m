@@ -428,6 +428,13 @@ void ODSForgetMerges(NSManagedObjectContext *context, NSString *entityType, NSSt
 
 @implementation ODataSyncService
 
++ (NSManagedObjectModel *)modelWithBookkeepingAtURL:(NSURL *)url configuration:(NSString *)configuration error:(NSError **)error
+{
+  NSManagedObjectModel *model = ODataSyncModelAtURL(url, error);
+  if (model) [self addBookkeepingToModel:model configuration:configuration];
+  return model;
+}
+
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
 {
   if (model.entitiesByName[ODSTombstoneEntity]) return;

@@ -35,6 +35,56 @@ id ODSUnarchive(NSData *data)
   return [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:NULL];
 }
 
+// The compiled model's file itself, unarchived: both Core Datas write a
+// .mom as a keyed archive of the model, its root "root". What Apple's
+// -initWithContentsOfURL: gives is immutable at once; this is the caller's.
+NSManagedObjectModel *ODataSyncModelAtURL(NSURL *url, NSError **error)
+{
+  NSString *path = url.path;
+  BOOL directory = NO;
+  if (path && [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&directory] && directory) {
+    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"VersionInfo.plist"]];
+    NSString *current = info[@"NSManagedObjectModel_CurrentVersionName"];
+    NSString *mom = nil;
+    if ([current isKindOfClass:[NSString class]]) {
+      mom = [path stringByAppendingPathComponent:[current stringByAppendingPathExtension:@"mom"]];
+    } else {
+      NSArray *names = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:path error:NULL] sortedArrayUsingSelector:@selector(compare:)];
+      for (NSString *name in names) {
+        if ([name.pathExtension isEqualToString:@"mom"]) {
+          mom = [path stringByAppendingPathComponent:name];
+          break;
+        }
+      }
+    }
+    path = mom;
+  }
+  NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
+  NSManagedObjectModel *model = nil;
+  if (data) {
+    // gnustep-base registers Apple's archive names for predicates and
+    // expressions (NSKeyPathExpression, ...) as these classes initialize.
+    [NSPredicate class];
+    [NSExpression class];
+    // The initializer both Foundations have (Apple's newer one, and the
+    // root key's constant, gnustep-base has not); not secure coding, as a
+    // model's classes are many.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+#pragma clang diagnostic pop
+    @try {
+      id root = [unarchiver decodeObjectForKey:@"root"];
+      if ([root isKindOfClass:[NSManagedObjectModel class]]) model = root;
+    } @catch (NSException *exception) {
+      model = nil;
+    }
+    [unarchiver finishDecoding];
+  }
+  if (!model && error) *error = ODSError(0, [NSString stringWithFormat:@"%@ is not a compiled model", url.path ?: url.absoluteString]);
+  return model;
+}
+
 @implementation ODataSyncEngine {
   NSMutableArray<ODataSyncRemote *> *_remotes;
   NSLock *_running;
@@ -52,6 +102,13 @@ id ODSUnarchive(NSData *data)
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
 {
   [ODSStore addBookkeepingToModel:model configuration:configuration];
+}
+
++ (NSManagedObjectModel *)modelWithBookkeepingAtURL:(NSURL *)url configuration:(NSString *)configuration error:(NSError **)error
+{
+  NSManagedObjectModel *model = ODataSyncModelAtURL(url, error);
+  if (model) [self addBookkeepingToModel:model configuration:configuration];
+  return model;
 }
 
 - (instancetype)initWithCoordinator:(NSPersistentStoreCoordinator *)coordinator

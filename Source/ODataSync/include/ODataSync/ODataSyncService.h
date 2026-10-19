@@ -54,6 +54,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Indexed, and each synced entity (one that keeps a version vector) by its
 // key, as ODataSyncEngine's are.
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(nullable NSString *)configuration;
+// The compiled model at url (ODataSyncModelAtURL), the bookkeeping added:
+// what a server that loads its model from a file calls, rather than copy
+// a loaded one.
++ (nullable NSManagedObjectModel *)modelWithBookkeepingAtURL:(NSURL *)url configuration:(nullable NSString *)configuration error:(NSError **)error;
 // Installs ODataSyncSetHandler on each set of an entity that keeps a
 // version vector and has the default handler (a server's own handler of
 // such a set should be an ODataSyncSetHandler), and counts the server's

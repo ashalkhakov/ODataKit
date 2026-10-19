@@ -1547,6 +1547,15 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
             self.index++;
             continue;
           }
+          // Neither an operation nor a cast: a key with a '.' in it, as a
+          // segment (Users/anna@example.org, Prices/1.5; #47), where it is
+          // a literal of the key's type (a qualified name is not).
+          ODataExpression *literal = ![name hasPrefix:@"$"] && [self.mapper keyAttributesForEntity:OISRootEntity(self.entity)].count == 1
+              ? [self literalForKeySegment:name] : nil;
+          if (literal.kind == ODataExpressionLiteral) {
+            [self findObjectWithParts:@{ @"": literal }];
+            return;
+          }
         }
         [self fail:404 message:[NSString stringWithFormat:@"%@ cannot follow a collection here", name]];
         return;

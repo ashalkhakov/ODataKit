@@ -8,6 +8,7 @@
 #import <ODataSync/ODataSync.h>
 #import <ODataService/ODataService.h>
 #import <ODataKit/ODataError.h>
+#import "OISCatalogModel.h"
 
 // Refuses an inspection whose note is "bad", as a service's rule would.
 @interface OSTPickyInspections : ODataEntitySetHandler
@@ -912,6 +913,64 @@ static NSManagedObjectModel *OSTModel(void)
   ((uint8_t *)file.mutableBytes)[8] = 8;
   XCTAssertFalse([digest isDigestOfData:file]);
   XCTAssertFalse([digest isDigestOfData:[file subdataWithRange:NSMakeRange(0, 100)]]);
+}
+
+// A model to add the bookkeeping to, read from the compiled model itself
+// (#46): editable, the caller's own each time (not a copy of a loaded one,
+// which on Apple's Core Data can point into the original once that is
+// freed), from a .momd or its .mom; the bookkeeping added in one call.
+- (void)testAModelForTheBookkeepingIsReadFromTheCompiledModel
+{
+  NSURL *momd = OISCatalogModelURL();
+  XCTAssertNotNil(momd);
+  NSError *error = nil;
+  NSManagedObjectModel *one = ODataSyncModelAtURL(momd, &error);
+  NSManagedObjectModel *two = ODataSyncModelAtURL(momd, &error);
+  XCTAssertNotNil(one, @"%@", error);
+  XCTAssertNotNil(one.entitiesByName[@"Product"]);
+  XCTAssertTrue(one != two, @"a fresh one each time");
+  NSEntityDescription *product = one.entitiesByName[@"Product"];
+  NSAttributeDescription *added = [[NSAttributeDescription alloc] init];
+  added.name = @"versions";
+  added.attributeType = NSStringAttributeType;
+  added.optional = YES;
+  product.properties = [product.properties arrayByAddingObject:added];
+  NSEntityDescription *untouched = two.entitiesByName[@"Product"];
+  XCTAssertNotNil(product.attributesByName[@"versions"], @"editable");
+  XCTAssertNil(untouched.attributesByName[@"versions"], @"and its own");
+
+  // The .mom inside, by name.
+  NSDictionary *info = [NSDictionary dictionaryWithContentsOfURL:[momd URLByAppendingPathComponent:@"VersionInfo.plist"]];
+  NSString *current = info[@"NSManagedObjectModel_CurrentVersionName"];
+  if (current) {
+    NSURL *mom = [momd URLByAppendingPathComponent:[current stringByAppendingPathExtension:@"mom"]];
+    NSManagedObjectModel *fromMom = ODataSyncModelAtURL(mom, &error);
+    XCTAssertNotNil(fromMom.entitiesByName[@"Category"], @"%@", error);
+  }
+
+  NSManagedObjectModel *service = nil, *device = nil;
+  @autoreleasepool {
+    service = [ODataSyncService modelWithBookkeepingAtURL:momd configuration:nil error:&error];
+    device = [ODataSyncEngine modelWithBookkeepingAtURL:momd configuration:nil error:&error];
+    // Memory churned, as a server's start does.
+    NSMutableArray *churn = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 20000; i++) [churn addObject:[NSString stringWithFormat:@"churn %lu", (unsigned long)i]];
+  }
+  XCTAssertNotNil(service.entitiesByName[@"ODSTombstone"], @"%@", error);
+  XCTAssertNotNil(device.entitiesByName[@"ODSShadow"], @"%@", error);
+  for (NSManagedObjectModel *model in @[ service, device ]) {
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  }
+
+  // No model there.
+  error = nil;
+  XCTAssertNil(ODataSyncModelAtURL([NSURL fileURLWithPath:@"/nonexistent/Model.momd"], &error));
+  XCTAssertEqualObjects(error.domain, ODataSyncErrorDomain);
+  NSString *text = [NSTemporaryDirectory() stringByAppendingPathComponent:@"not-a-model.mom"];
+  [@"not a model" writeToFile:text atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+  XCTAssertNil(ODataSyncModelAtURL([NSURL fileURLWithPath:text], &error), @"a file that is not one");
+  [[NSFileManager defaultManager] removeItemAtPath:text error:NULL];
 }
 
 // Files and images kept outside the store, by default: each synced

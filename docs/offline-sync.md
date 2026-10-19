@@ -110,7 +110,19 @@ The entity set and keys are the service's, as the mapper reads them
 ### 3.3 The library's entities
 
 Added to the app's model by `+[ODataSyncEngine addBookkeepingToModel:]`
-(before the coordinator is made), all in the same store:
+(before the coordinator is made), all in the same store.
+
+The model has to be one the app can change. Apple's
+`-[NSManagedObjectModel initWithContentsOfURL:]` gives one that cannot be
+changed, and a `copy` of it can point into the original once that is freed,
+and crash. So read a compiled model with `ODataSyncModelAtURL` (a `.momd`,
+its current version, or a `.mom`): a fresh model, the app's own, on both
+Core Datas. Or have the bookkeeping added in the same call:
+`+[ODataSyncEngine modelWithBookkeepingAtURL:configuration:error:]`, and
+`+[ODataSyncService modelWithBookkeepingAtURL:configuration:error:]` on a
+server.
+
+The bookkeeping's entities:
 
 - **ODSRemoteState**: per remote, its delta links (one per entity set),
   the history token the uploader has read up to, and for peers the peer

@@ -287,9 +287,8 @@ NSString *WorkbenchServiceStamp(NSString *previous)
 }
 
 // A model of the service's own, whose products are WorkbenchProducts: the
-// client's model is the same file, with plain managed objects. A copy,
-// since a model loaded again may be the one the client already uses, which
-// can no longer change.
+// client's model is the same file, with plain managed objects, each read
+// from it afresh (WorkbenchBuiltInModel).
 - (BOOL)startService
 {
   NSManagedObjectModel *model = WorkbenchBuiltInModel(_modelURL);

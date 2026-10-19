@@ -38,8 +38,17 @@
   ODataResourceIdentifier *product = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Products" keys:@{ @"ProductID": @1 }];
   XCTAssertEqualObjects([product pathWithKeyAsSegment:YES], @"Products/1");
   XCTAssertEqualObjects([product pathWithKeyAsSegment:NO], @"Products(1)");
-  ODataResourceIdentifier *person = [[ODataResourceIdentifier alloc] initWithEntitySet:@"People" keys:@{ @"UserName": @"o'neil/x y" }];
-  XCTAssertEqualObjects([person pathWithKeyAsSegment:YES], @"People/o'neil%2Fx%20y", @"unquoted, and a '/' in it escaped");
+  ODataResourceIdentifier *person = [[ODataResourceIdentifier alloc] initWithEntitySet:@"People" keys:@{ @"UserName": @"o'neil x y" }];
+  XCTAssertEqualObjects([person pathWithKeyAsSegment:YES], @"People/o'neil%20x%20y", @"unquoted, and escaped");
+  // Where a segment could read as something else (#47): in parentheses.
+  NSDictionary *ambiguous = @{ @"anna@example.org": @"Users('anna@example.org')", @"a/b": @"Users('a%2Fb')", @"$count": @"Users('$count')",
+                               @"f(x)": @"Users('f(x)')", @"": @"Users('')" };
+  for (NSString *key in ambiguous) {
+    ODataResourceIdentifier *user = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Users" keys:@{ @"Email": key }];
+    XCTAssertEqualObjects([user pathWithKeyAsSegment:YES], ambiguous[key]);
+  }
+  ODataResourceIdentifier *price = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Prices" keys:@{ @"Amount": @1.5 }];
+  XCTAssertEqualObjects([price pathWithKeyAsSegment:YES], @"Prices(1.5)", @"a decimal's '.'");
   ODataResourceIdentifier *line = [[ODataResourceIdentifier alloc] initWithEntitySet:@"Order_Details"
                                                                                 keys:@{ @"OrderID": @10248, @"ProductID": @11 }];
   XCTAssertEqualObjects([line pathWithKeyAsSegment:YES], @"Order_Details(OrderID=10248,ProductID=11)", @"a compound key keeps parentheses");
