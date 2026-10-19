@@ -184,6 +184,24 @@
 @interface OISServedProduct : NSManagedObject <OISProductFunctions, OISProductActions>
 @end
 
+// A Product that counts how many of it are alive.
+static _Atomic long OISCountedProductsAlive;
+
+@interface OISCountedProduct : NSManagedObject
+@end
+
+@implementation OISCountedProduct
++ (instancetype)allocWithZone:(struct _NSZone *)zone
+{
+  OISCountedProductsAlive++;
+  return [super allocWithZone:zone];
+}
+- (void)dealloc
+{
+  OISCountedProductsAlive--;
+}
+@end
+
 @implementation OISServedProduct
 
 + (NSDictionary *)ODataOperationTypes
@@ -1799,6 +1817,45 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertTrue([backing save:&error], @"%@", error);
   [seasoning setValue:[NSDecimalNumber decimalNumberWithString:@"24"] forKey:@"unitPrice"];
   XCTAssertFalse([context save:&error]);
+}
+
+#pragma mark Memory
+
+// What a request reads is let go when it is answered, whoever asks and
+// whatever pool they drain: an in-process client asking page after page
+// from one autorelease pool (as ORMKit's tests do) does not keep every
+// page's objects (#40: on GNUstep, 50 MB a request, never given back).
+- (void)testARequestKeepsNothingOfWhatItRead
+{
+  NSManagedObjectModel *model = [OISCatalogModel() conformsToProtocol:@protocol(NSCopying)]
+      ? [OISCatalogModel() copy]
+      : [[NSManagedObjectModel alloc] initWithContentsOfURL:OISCatalogModelURL()];
+  NSEntityDescription *product = model.entitiesByName[@"Product"];
+  product.managedObjectClassName = @"OISCountedProduct";
+  [self serveModel:model storeType:NSSQLiteStoreType];
+  @autoreleasepool {
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    context.persistentStoreCoordinator = _coordinator;
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Category"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"id == 1"];
+    NSManagedObject *beverages = [[context executeFetchRequest:fetch error:NULL] firstObject];
+    for (NSInteger i = 100; i < 400; i++) {
+      [self insert:@"Product" into:context values:@{ @"id": @(i), @"name": [NSString stringWithFormat:@"Product %ld", (long)i],
+                                                    @"unitPrice": [NSDecimalNumber decimalNumberWithString:@"1"], @"discontinued": @NO,
+                                                    @"category": beverages }];
+    }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+  }
+  long before = OISCountedProductsAlive;
+  for (NSInteger page = 0; page < 30; page++) {
+    NSString *path = [NSString stringWithFormat:@"Products?$filter=Category/Products/any()&$select=ProductID,ProductName"
+                                                @"&$expand=Category($select=CategoryID)&$orderby=ProductID&$top=10&$skip=%ld", (long)(page * 10)];
+    OISServiceResponse *response = [self get:path];
+    XCTAssertEqual(response.status, 200, @"%@", response.text);
+    XCTAssertEqual([response.json[@"value"] count], 10u);
+  }
+  XCTAssertLessThan(OISCountedProductsAlive - before, 50, @"products kept after their requests were answered");
 }
 
 #pragma mark Operations
