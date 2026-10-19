@@ -563,6 +563,18 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // $metadata says. Actions still write: what one changes in the request
 // context it is handed is saved, as in any service. Default: NO.
 @property (nonatomic, getter=isReadOnly) BOOL readOnly;
+// Asked before each save of what clients write: a request's (an insert,
+// update or delete, an action's changes, a merge's), or a change set's
+// (an atomicity group's) once, at its end, when all of its requests have
+// succeeded. Inside the context's queue; its inserted, updated and deleted
+// objects are what the save writes. For the rules of a model that span
+// objects, which no one object's validation sees, and values worked out
+// from others: what it changes in the context is saved with the rest. NO,
+// with an error, refuses the save: nothing is saved, and the request (the
+// change set) is answered as a failed save is, 400 for a validation error
+// (NSValidationMultipleErrorsError's each a detail). Not asked where
+// nothing is to be saved. Default: nil.
+@property (nonatomic, copy, nullable) BOOL (^willSave)(NSManagedObjectContext *context, NSError **error);
 // The model's configuration whose entities it serves: each root entity
 // the configuration lists, with its sub-entities, which the configuration
 // lists too. nil, the default: every entity that has a key. One not served
