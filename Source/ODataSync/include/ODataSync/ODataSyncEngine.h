@@ -70,6 +70,14 @@ FOUNDATION_EXPORT NSString * const ODataSyncVersionsKey;     // @"ODataSync.vers
 // that reads a row for its key does not read its files.
 FOUNDATION_EXPORT NSString * const ODataSyncExternalKey;   // @"ODataSync.external"
 FOUNDATION_EXPORT NSString * const ODataSyncErrorDomain;
+
+// A model to add the bookkeeping to, read from a compiled model: a .momd
+// (its current version, as its VersionInfo.plist says) or a .mom. A fresh
+// one, the caller's own and editable, on Apple's Core Data and
+// FreeCoreData alike. Not a copy: Apple's loaded model cannot be changed,
+// and a copy of it can point into the original once that is freed, and
+// crash (#46). nil, and error set, when there is no model there.
+FOUNDATION_EXPORT NSManagedObjectModel *_Nullable ODataSyncModelAtURL(NSURL *url, NSError **error);
 // The transaction author of what the engine writes: what came down from a
 // remote (ODataSyncDownAuthorPrefix and the remote's identifier), and its
 // own bookkeeping. What came from a remote is not sent back to it, and is
@@ -321,6 +329,8 @@ typedef NS_ENUM(NSInteger, ODataSyncPhase) {
 // or sort by is the app's to index (docs/offline-sync.md, 3.3). A store
 // made before an index does not get it.
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(nullable NSString *)configuration;
+// The compiled model at url (ODataSyncModelAtURL), the bookkeeping added.
++ (nullable NSManagedObjectModel *)modelWithBookkeepingAtURL:(NSURL *)url configuration:(nullable NSString *)configuration error:(NSError **)error;
 
 // The coordinator's store (the one with the synced entities) must keep
 // persistent history (NSPersistentHistoryTrackingKey).

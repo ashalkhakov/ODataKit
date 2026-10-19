@@ -27,11 +27,23 @@ static NSString *OISPathEncode(NSString *literal);
   return self;
 }
 
+// A key as a segment where it reads as nothing else (Part 2 section
+// 4.3.6): not one a service could read as a cast or an operation (a '.',
+// as in an email address or a decimal), a system segment ('$'), a path
+// ('/'), a key predicate or a call ('(', ')'), or no segment at all (empty).
+// Those go in parentheses, Set('anna@example.org'), which every service
+// reads alike (#47).
 - (NSString *)pathWithKeyAsSegment:(BOOL)keyAsSegment
 {
   if (!keyAsSegment || self.keys.count != 1) return self.path;
   id value = self.keys.allValues.firstObject;
   NSString *bare = [value isKindOfClass:[NSString class]] ? value : OISKeyLiteral(value);
+  static NSCharacterSet *ambiguous;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    ambiguous = [NSCharacterSet characterSetWithCharactersInString:@"./$()"];
+  });
+  if (!bare.length || [bare rangeOfCharacterFromSet:ambiguous].location != NSNotFound) return self.path;
   return [NSString stringWithFormat:@"%@/%@", self.entitySet, OISPathEncode(bare)];
 }
 

@@ -2270,6 +2270,41 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertNotNil([[NSUUID alloc] initWithUUIDString:made.json[@"Id"]], @"a key made for it: %@", made.text);
 }
 
+// A string key with a '.' (an email address), as a segment: read as the
+// key once it is neither an operation nor a cast (#47), as it is in
+// parentheses.
+- (void)testAKeyWithADotAsASegment
+{
+  NSEntityDescription *user = [[NSEntityDescription alloc] init];
+  user.name = @"User";
+  user.managedObjectClassName = @"NSManagedObject";
+  NSAttributeDescription *email = [[NSAttributeDescription alloc] init];
+  email.name = @"email";
+  email.attributeType = NSStringAttributeType;
+  email.optional = NO;
+  email.userInfo = @{ @"OData.key": @"YES" };
+  NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+  name.name = @"name";
+  name.attributeType = NSStringAttributeType;
+  name.optional = YES;
+  user.properties = @[ email, name ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ user ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator
+                                                          serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  OISServiceResponse *made = [self send:@"POST" path:@"Users" headers:nil body:@{ @"Email": @"anna@example.org", @"Name": @"Anna" }];
+  XCTAssertEqual(made.status, 201, @"%@", made.text);
+  OISServiceResponse *read = [self get:@"Users/anna@example.org"];
+  XCTAssertEqual(read.status, 200, @"%@", read.text);
+  XCTAssertEqualObjects(read.json[@"Name"], @"Anna");
+  XCTAssertEqualObjects([self get:@"Users/anna@example.org/Name/$value"].text, @"Anna");
+  XCTAssertEqualObjects([self get:@"Users('anna@example.org')"].json[@"Name"], @"Anna");
+  XCTAssertEqual([self get:@"Users/bob@example.org"].status, 404, @"no such user");
+}
+
 - (void)testJSONBatch
 {
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"http://example.test/odata/$batch"]];
