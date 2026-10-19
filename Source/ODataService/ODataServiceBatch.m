@@ -394,8 +394,12 @@ static void OISAppendText(NSMutableData *data, NSString *text)
   __block BOOL saved = NO;
   if (!_groupFailure) {
     [context performBlockAndWait:^{
-      saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &error);
-      if (!saved) [context rollback];
+      @autoreleasepool {
+        NSError *e = nil;
+        saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e);
+        if (!saved) [context rollback];
+        error = e;
+      }
     }];
   } else {
     [context performBlockAndWait:^{

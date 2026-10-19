@@ -5581,9 +5581,11 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   __block BOOL pruned = NO;
   __block NSError *failure = nil;
   [context performBlockAndWait:^{
-    NSError *e = nil;
-    pruned = [context executeRequest:[NSPersistentHistoryChangeRequest deleteHistoryBeforeDate:date] error:&e] != nil;
-    failure = e;
+    @autoreleasepool {
+      NSError *e = nil;
+      pruned = [context executeRequest:[NSPersistentHistoryChangeRequest deleteHistoryBeforeDate:date] error:&e] != nil;
+      failure = e;
+    }
   }];
   if (pruned) {
     // How far: a delta token given before this has expired. No further
@@ -5903,15 +5905,22 @@ static NSDateFormatter *OISHTTPDateFormatter(void)
     [call.span setAttribute:exchange.request.URL.query forKey:@"url.query"];
     [call.span setAttribute:[exchange.request valueForHTTPHeaderField:@"X-Request-ID"] forKey:@"request.id"];
   }
+  // In a pool of its own: performBlockAndWait: has none (as Apple's
+  // documents), and runs on the caller's thread, so what a request reads
+  // and autoreleases would otherwise wait for the caller's pool, which an
+  // in-process client asking page after page may not drain for many
+  // requests (#40).
   [context performBlockAndWait:^{
-    @try {
-      [call run];
-    } @catch (NSException *exception) {
-      OISLog(HSLogLevelError, exchange.request, @"%@ %@ raised %@: %@", call.request.method, exchange.request.URL, exception.name,
-             exception.reason);
-      [call.span addEventNamed:@"exception" attributes:@{ @"exception.type": exception.name ?: @"", @"exception.message": exception.reason ?: @"" }];
-      [context rollback];
-      [call respondError:ODataServiceError(500, @"The request failed inside the service")];
+    @autoreleasepool {
+      @try {
+        [call run];
+      } @catch (NSException *exception) {
+        OISLog(HSLogLevelError, exchange.request, @"%@ %@ raised %@: %@", call.request.method, exchange.request.URL, exception.name,
+               exception.reason);
+        [call.span addEventNamed:@"exception" attributes:@{ @"exception.type": exception.name ?: @"", @"exception.message": exception.reason ?: @"" }];
+        [context rollback];
+        [call respondError:ODataServiceError(500, @"The request failed inside the service")];
+      }
     }
   }];
   return call.request;
