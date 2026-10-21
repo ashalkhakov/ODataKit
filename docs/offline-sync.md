@@ -832,7 +832,11 @@ kept.
   the incoming version included in this one is old news, not applied,
   and this one is sent back where it is newer; one that includes this one
   is applied, conflict or not (it saw this side's change); neither is a
-  conflict, for the resolver. Equal versions are agreed on. This replaces
+  conflict, for the resolver, unless the incoming one has the values of
+  the version agreed on (a change there that came to nothing: a replica
+  that took the remote's version over its own still counts its own), when
+  only this side changed it: its change goes, its version now including
+  the incoming one's. Equal versions are agreed on. This replaces
   the stamp rules of section 7 with exact ones; last writer wins stays,
   as a rule for real conflicts.
 - **Deletions**: a tombstone keeps the deleted version's vector, raised

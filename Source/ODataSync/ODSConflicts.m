@@ -347,6 +347,16 @@ static NSString *ODSFingerprint(NSDictionary *values)
     [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
     return;
   }
+  // Histories apart, but the remote's values are the version agreed on: a
+  // change there that came to nothing (one that took this side's version
+  // over its own, and counted its own all the same). Only this side
+  // changed it; its version sees the remote's history too, so that the
+  // change goes over it.
+  if (known && order == ODSOrderConcurrent && base && remoteValues && !ODSChangedNames(base, remoteValues).count) {
+    [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
+    if (object) [self setVersionsOf:object seen:localVersions and:remoteVersions changed:NO];
+    return;
+  }
   NSMutableSet *everything = [NSMutableSet set];
   for (NSEntityDescription *side in @[ entity, remoteEntity ]) {
     [everything addObjectsFromArray:[[model attributesOf:side] valueForKey:@"name"]];
