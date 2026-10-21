@@ -40,10 +40,13 @@
 }
 @end
 
-// The service, with the requests sent to it counted.
+// The service, with the requests sent to it counted; refusesCasts, it
+// answers a read that expands behind a type cast (Default.FillUp/Unit) 501,
+// as ODataKit's service did before 0.3.11.
 @interface OSTCountingTransport : NSObject <ODataTransport>
 @property (nonatomic, strong) ODataService *service;
 @property (atomic, strong) NSMutableArray<NSURLRequest *> *requests;
+@property (atomic) BOOL refusesCasts;
 @end
 
 @implementation OSTCountingTransport
@@ -52,6 +55,16 @@
   @synchronized (self) {
     if (!_requests) _requests = [NSMutableArray array];
     [_requests addObject:exchange.request];
+  }
+  NSString *query = exchange.request.URL.query.stringByRemovingPercentEncoding ?: @"";
+  NSRange expand = [query rangeOfString:@"$expand="];
+  if (self.refusesCasts && expand.location != NSNotFound && [[query substringFromIndex:expand.location] rangeOfString:@"Default.FillUp/"].location != NSNotFound) {
+    exchange.URLResponse = [[NSHTTPURLResponse alloc] initWithURL:exchange.request.URL statusCode:501 HTTPVersion:@"HTTP/1.1"
+                                                     headerFields:@{ @"Content-Type": @"application/json" }];
+    exchange.data = [@"{\"error\":{\"code\":\"501\",\"message\":\"$expand=Default.FillUp/Unit is not supported\"}}"
+        dataUsingEncoding:NSUTF8StringEncoding];
+    [exchange finish];
+    return;
   }
   [_service startExchange:exchange];
 }
@@ -1553,6 +1566,30 @@ static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
   [self sync:offline];
   XCTAssertEqualObjects([self record:identifier in:basement][@"entity"], @"FillUp");
   XCTAssertEqualObjects([self unitOf:identifier in:basement], @"gal", @"from the peer");
+}
+
+// A service that takes no type cast in $expand (ODataKit's before 0.3.11):
+// the sync goes on without them, as before them (a sub-entity's own to-ones
+// do not come down), asked for once and then no more.
+- (void)testASubEntitysToOnesFromAServiceThatTakesNoCast
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:YES server:&server device:&device service:&syncing];
+  _records.refusesCasts = YES;
+  [self makeUnits:@[ @"L" ] in:server];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:server];
+  [self sync:engine];
+  NSDictionary *record = [self record:identifier in:device];
+  XCTAssertEqualObjects(record[@"entity"], @"FillUp", @"%@", record);
+  XCTAssertEqualObjects(record[@"driver"], @"Ann");
+  [self set:@"Bea" forKey:@"driver" ofRecord:identifier in:server];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"driver"], @"Bea", @"by the delta link");
+  NSArray *urls = [[_records.requests valueForKeyPath:@"URL.query"] valueForKey:@"stringByRemovingPercentEncoding"];
+  NSArray *casts = [urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.FillUp/'"]];
+  XCTAssertEqual(casts.count, 1u, @"refused once, then left out: %@", urls);
 }
 
 // A conflict of a sub-entity's object has its own properties, on each side
