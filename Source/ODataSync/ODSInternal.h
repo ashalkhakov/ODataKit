@@ -49,6 +49,8 @@ FOUNDATION_EXPORT NSString *ODSShortReplica(NSString *replicaID);
 FOUNDATION_EXPORT NSError *ODSError(NSInteger code, NSString *message);
 FOUNDATION_EXPORT NSData *ODSArchive(id _Nullable plist);
 FOUNDATION_EXPORT id _Nullable ODSUnarchive(NSData *_Nullable data);
+// The same, and why it could not be read.
+FOUNDATION_EXPORT id _Nullable ODSUnarchiveReporting(NSData *_Nullable data, NSError *_Nullable *_Nullable error);
 
 // How the engine's objects are written and read as OData: by the mapper's
 // names, the value coder's values. What an entity is (its keys, synced

@@ -337,6 +337,7 @@ FillUp's properties.
 | DELETE 404 | done: it is already gone |
 | 412 (`both`) | a conflict (section 6) |
 | 400, 403, 409, 422 | refused: the entry is quarantined with the error, the app told; the rest go on |
+| (not sent) | an entry whose key cannot be read back (its archive does not unarchive): quarantined as if refused, status 0, the error saying why, and logged; never dropped |
 | 401 | credentials (the remote's credential provider), then again |
 | 5xx, no answer | left as it is, sent again later (backoff) |
 
@@ -348,6 +349,14 @@ fixes the record (the next change clears the mark and it is sent again)
 or discards it (`-[ODataSyncEngine discardIssue:]`, which also reverts
 the local object to its shadow, or deletes it when it never reached the
 service).
+
+An entry the uploader cannot read is quarantined the same way, never
+dropped: one whose key does not unarchive (kept by a Foundation that
+could write it, read by one that cannot) is set aside with status 0 and
+the message "The change's key could not be read: ...", logged, and kept
+through every sync until the app discards it; retried, it is read again
+(after an update of the app, it is retried by itself, as refused
+changes are).
 
 ## 6. Conflicts
 

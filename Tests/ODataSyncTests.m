@@ -829,6 +829,44 @@ static NSManagedObjectModel *OSTRecordsModel(BOOL service, BOOL versions, BOOL s
   XCTAssertEqual([_engine issues].count, 0u);
 }
 
+// A change whose key cannot be read back (kept by a Foundation that could
+// write it, read by one that cannot): set aside with why, not dropped, and
+// kept so through later syncs, and when it is retried.
+- (void)testAChangeWhoseKeyCannotBeReadIsSetAside
+{
+  [self sync];
+  NSString *unreadable = [self inspect:@"unreadable" asset:@1];
+  [self inspect:@"good" asset:@2];
+  XCTAssertEqual([_engine pendingChanges].count, 2u);
+  __block NSUInteger spoilt = 0;
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"ODSOutboxEntry"];
+    for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
+      if ([[entry valueForKey:@"keyText"] rangeOfString:unreadable].location == NSNotFound) continue;
+      [entry setValue:[@"not an archive" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"key"];
+      spoilt++;
+    }
+  }];
+  XCTAssertEqual(spoilt, 1u);
+  [self sync];
+  XCTAssertEqualObjects([self values:@"note" of:@"Inspection" in:_server], (@[ @"good" ]), @"the rest went");
+  XCTAssertEqual(_engine.lastResult.refused, 1u, @"%@", _engine.lastResult);
+  NSArray<ODataSyncIssue *> *issues = [_engine issues];
+  XCTAssertEqual(issues.count, 1u, @"%@", issues);
+  XCTAssertEqualObjects(issues.firstObject.entityName, @"Inspection");
+  XCTAssertTrue([issues.firstObject.message hasPrefix:@"The change's key could not be read"], @"%@", issues.firstObject.message);
+  XCTAssertEqual(_delegate.setAside.count, 1u);
+
+  // Kept through the next sync, and set aside again when retried.
+  [self sync];
+  XCTAssertEqual([_engine issues].count, 1u, @"not dropped");
+  [_engine retryIssue:[_engine issues].firstObject];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.refused, 1u, @"%@", _engine.lastResult);
+  XCTAssertEqual([_engine issues].count, 1u, @"not dropped when retried");
+  XCTAssertEqual([_engine pendingChanges].count, 1u);
+}
+
 #pragma mark Both
 
 - (NSString *)makeTask:(NSString *)title
