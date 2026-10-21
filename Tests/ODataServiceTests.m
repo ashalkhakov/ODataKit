@@ -3050,6 +3050,170 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   }
 }
 
+// Deleting an object and what it cascades to (#52): the service cascades
+// too, so a dependent's DELETE after its owner's finds nothing (404) and
+// fails the change set. Each dependent goes first, across entities (a
+// record's attachments) and within one (a folder's subfolders). Objects
+// that cascade to each other (a one-to-one, Cascade both ways) have no such
+// order: the save fails, naming them, and sends nothing.
+- (void)testDeletesThatCascadeGoDependentsFirst
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSRelationshipDescription *(^relationship)(NSString *, NSEntityDescription *, BOOL, NSDeleteRule) =
+      ^(NSString *name, NSEntityDescription *destination, BOOL many, NSDeleteRule rule) {
+        NSRelationshipDescription *r = [[NSRelationshipDescription alloc] init];
+        r.name = name;
+        r.destinationEntity = destination;
+        r.maxCount = many ? 0 : 1;
+        r.optional = YES;
+        r.deleteRule = rule;
+        return r;
+      };
+  NSEntityDescription *record = [[NSEntityDescription alloc] init], *attachment = [[NSEntityDescription alloc] init];
+  NSEntityDescription *folder = [[NSEntityDescription alloc] init];
+  NSEntityDescription *person = [[NSEntityDescription alloc] init], *passport = [[NSEntityDescription alloc] init];
+  record.name = @"Record";
+  attachment.name = @"Attachment";
+  folder.name = @"Folder";
+  person.name = @"Person";
+  passport.name = @"Passport";
+  for (NSEntityDescription *e in @[ record, attachment, folder, person, passport ]) e.managedObjectClassName = @"NSManagedObject";
+  NSRelationshipDescription *holds = relationship(@"passport", passport, NO, NSCascadeDeleteRule);
+  NSRelationshipDescription *holder = relationship(@"person", person, NO, NSCascadeDeleteRule);
+  holds.inverseRelationship = holder;
+  holder.inverseRelationship = holds;
+  person.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), holds ];
+  passport.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"number", NSStringAttributeType, NO), holder ];
+  NSRelationshipDescription *attachments = relationship(@"attachments", attachment, YES, NSCascadeDeleteRule);
+  NSRelationshipDescription *owner = relationship(@"record", record, NO, NSNullifyDeleteRule);
+  attachments.inverseRelationship = owner;
+  owner.inverseRelationship = attachments;
+  NSRelationshipDescription *children = relationship(@"children", folder, YES, NSCascadeDeleteRule);
+  NSRelationshipDescription *parent = relationship(@"parent", folder, NO, NSNullifyDeleteRule);
+  children.inverseRelationship = parent;
+  parent.inverseRelationship = children;
+  record.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"note", NSStringAttributeType, NO), attachments ];
+  attachment.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), owner ];
+  folder.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), children, parent ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ record, attachment, folder, person, passport ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+  seed.persistentStoreCoordinator = _coordinator;
+  NSManagedObject *reading = [self insert:@"Record" into:seed values:@{ @"id": @1, @"note": @"Meter reading" }];
+  for (NSInteger i = 1; i <= 5; i++) {
+    [self insert:@"Attachment" into:seed values:@{ @"id": @(i), @"name": [NSString stringWithFormat:@"Photo %ld", (long)i], @"record": reading }];
+  }
+  NSManagedObject *top = [self insert:@"Folder" into:seed values:@{ @"id": @1, @"name": @"Top" }];
+  NSManagedObject *middle = [self insert:@"Folder" into:seed values:@{ @"id": @2, @"name": @"Middle", @"parent": top }];
+  [self insert:@"Folder" into:seed values:@{ @"id": @3, @"name": @"Bottom", @"parent": middle }];
+  [self insert:@"Folder" into:seed values:@{ @"id": @4, @"name": @"Beside", @"parent": top }];
+  NSManagedObject *ann = [self insert:@"Person" into:seed values:@{ @"id": @1, @"name": @"Ann" }];
+  [self insert:@"Passport" into:seed values:@{ @"id": @1, @"number": @"X123", @"person": ann }];
+  XCTAssertTrue([seed save:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:@{ ODataIncrementalStoreTransportOption: recorder } error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  // The DELETEs sent, in order, as Set/key or Set(key): alone, or in a
+  // $batch (multipart or JSON).
+  NSString *(^entityPath)(NSString *) = ^NSString *(NSString *url) {
+    NSRange root = [url rangeOfString:@"odata/"];
+    return [(root.location == NSNotFound ? url : [url substringFromIndex:root.location + root.length]) stringByRemovingPercentEncoding];
+  };
+  NSArray *(^deletes)(void) = ^NSArray *(void) {
+    NSMutableArray *paths = [NSMutableArray array];
+    for (NSURLRequest *request in recorder.requests) {
+      if ([request.HTTPMethod isEqualToString:@"DELETE"]) [paths addObject:entityPath(request.URL.absoluteString)];
+      if (![request.URL.path hasSuffix:@"$batch"] || !request.HTTPBody) continue;
+      id json = [NSJSONSerialization JSONObjectWithData:request.HTTPBody options:0 error:NULL];
+      if ([json isKindOfClass:[NSDictionary class]]) {
+        for (NSDictionary *part in json[@"requests"]) {
+          if ([[part[@"method"] uppercaseString] isEqualToString:@"DELETE"]) [paths addObject:entityPath(part[@"url"])];
+        }
+        continue;
+      }
+      NSString *body = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding];
+      for (NSString *line in [body componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        if ([line hasPrefix:@"DELETE "]) [paths addObject:entityPath([line componentsSeparatedByString:@" "][1])];
+      }
+    }
+    return paths;
+  };
+  NSUInteger (^place)(NSArray *, NSString *, NSInteger) = ^NSUInteger(NSArray *paths, NSString *set, NSInteger key) {
+    NSArray *forms = @[ [NSString stringWithFormat:@"%@/%ld", set, (long)key], [NSString stringWithFormat:@"%@(%ld)", set, (long)key] ];
+    for (NSUInteger i = 0; i < paths.count; i++) {
+      if ([forms containsObject:paths[i]]) return i;
+    }
+    return NSNotFound;
+  };
+
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+  NSManagedObject *gone = [[context executeFetchRequest:fetch error:&error] firstObject];
+  XCTAssertEqual([[gone valueForKey:@"attachments"] count], 5u, @"%@", error);
+  [context deleteObject:gone];
+  XCTAssertTrue([context save:&error], @"the record and its attachments: %@", error);
+  NSArray *paths = deletes();
+  XCTAssertEqual(paths.count, 6u, @"%@", paths);
+  for (NSInteger i = 1; i <= 5; i++) {
+    XCTAssertLessThan(place(paths, @"Attachments", i), place(paths, @"Records", 1), @"the record after its attachments: %@", paths);
+  }
+  XCTAssertEqualObjects([self get:@"Attachments/$count"].text, @"0");
+  XCTAssertEqualObjects([self get:@"Records/$count"].text, @"0");
+
+  [recorder.requests removeAllObjects];
+  fetch = [NSFetchRequest fetchRequestWithEntityName:@"Folder"];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"id == 1"];
+  NSManagedObject *topHere = [[context executeFetchRequest:fetch error:&error] firstObject];
+  NSManagedObject *middleHere = nil;
+  for (NSManagedObject *child in [topHere valueForKey:@"children"]) {
+    if ([[child valueForKey:@"id"] isEqual:@2]) middleHere = child;
+  }
+  XCTAssertEqual([[middleHere valueForKey:@"children"] count], 1u, @"the tree read");
+  [context deleteObject:topHere];
+  XCTAssertTrue([context save:&error], @"the folder and its subfolders: %@", error);
+  paths = deletes();
+  XCTAssertEqual(paths.count, 4u, @"%@", paths);
+  XCTAssertLessThan(place(paths, @"Folders", 3), place(paths, @"Folders", 2), @"%@", paths);
+  XCTAssertLessThan(place(paths, @"Folders", 2), place(paths, @"Folders", 1), @"%@", paths);
+  XCTAssertLessThan(place(paths, @"Folders", 4), place(paths, @"Folders", 1), @"%@", paths);
+  XCTAssertEqualObjects([self get:@"Folders/$count"].text, @"0");
+
+  // A person and their passport, each cascading to the other: refused.
+  [recorder.requests removeAllObjects];
+  fetch = [NSFetchRequest fetchRequestWithEntityName:@"Person"];
+  NSManagedObject *annHere = [[context executeFetchRequest:fetch error:&error] firstObject];
+  XCTAssertNotNil([annHere valueForKey:@"passport"], @"%@", error);
+  [context deleteObject:annHere];
+  error = nil;
+  XCTAssertFalse([context save:&error], @"objects that cascade to each other");
+  XCTAssertEqualObjects(error.domain, ODataIncrementalStoreErrorDomain);
+  XCTAssertEqual(error.code, ODataIncrementalStoreErrorUnsupportedRequest, @"%@", error);
+  XCTAssertTrue([error.localizedDescription containsString:@"cascade to each other"], @"%@", error.localizedDescription);
+  XCTAssertTrue([error.localizedDescription containsString:@"Passport"] && [error.localizedDescription containsString:@"Person"],
+                @"names them: %@", error.localizedDescription);
+  XCTAssertEqual(deletes().count, 0u, @"nothing sent");
+  XCTAssertEqualObjects([self get:@"Persons/$count"].text, @"1");
+  XCTAssertEqualObjects([self get:@"Passports/$count"].text, @"1");
+  [context rollback];
+}
+
 - (void)testTypeCasts
 {
   [self serveStaff];

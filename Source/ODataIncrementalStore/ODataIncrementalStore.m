@@ -533,6 +533,125 @@ typedef NS_ENUM(NSInteger, OISWriteMode) {
   return order;
 }
 
+// Deletions in the order a service takes them: what an object cascades to
+// (its delete rule) before the object, for the service cascades too, and a
+// dependent deleted after its owner is no longer there (404), failing the
+// change set (#52). By the model first, owned entities before their owners,
+// which needs no related object; then, among those, by the objects' own
+// cascading relationships (a folder's subfolders before it). Objects that
+// cascade to each other (a one-to-one with Cascade on both sides) have no
+// such order: whichever goes first, the service deletes the other with it.
+// nil then, and the error names them; nothing is sent.
+- (NSArray *)deleteOrder:(NSArray *)objects error:(NSError **)error
+{
+  NSMutableDictionary<NSString *, NSNumber *> *depths = [NSMutableDictionary dictionary];
+  NSArray *entities = self.persistentStoreCoordinator.managedObjectModel.entities;
+  __block NSInteger (^depth)(NSEntityDescription *, NSMutableSet *) = nil;
+  NSInteger (^depthOf)(NSEntityDescription *, NSMutableSet *) = ^NSInteger(NSEntityDescription *entity, NSMutableSet *path) {
+    NSNumber *known = depths[entity.name];
+    if (known) return known.integerValue;
+    if ([path containsObject:entity.name]) return 0;
+    [path addObject:entity.name];
+    NSInteger deepest = 0;
+    // Owned by each entity with a cascading relationship to it (or to a
+    // type it is of), one deeper than that owner.
+    for (NSEntityDescription *owner in entities) {
+      for (NSRelationshipDescription *rel in owner.relationshipsByName.allValues) {
+        if (rel.deleteRule != NSCascadeDeleteRule || !rel.destinationEntity || owner == entity) continue;
+        if (![entity isKindOfEntity:rel.destinationEntity]) continue;
+        deepest = MAX(deepest, depth(owner, path) + 1);
+      }
+    }
+    [path removeObject:entity.name];
+    depths[entity.name] = @(deepest);
+    return deepest;
+  };
+  depth = depthOf;
+  NSArray *byModel = [objects sortedArrayWithOptions:NSSortStable usingComparator:^NSComparisonResult(NSManagedObject *a, NSManagedObject *b) {
+    NSInteger da = depth(a.entity, [NSMutableSet set]), db = depth(b.entity, [NSMutableSet set]);
+    return da == db ? NSOrderedSame : (da > db ? NSOrderedAscending : NSOrderedDescending);
+  }];
+  depth = nil;
+
+  // Who cascades to whom among these: by what the store last read of them
+  // (a deleted object's relationships are cleared by its context's cascade
+  // before the save; nothing is read from the service for them here): a
+  // dependent's to-one to its owner, an owner's members, else what the
+  // context still holds.
+  NSMutableDictionary<NSManagedObjectID *, NSManagedObject *> *byID = [NSMutableDictionary dictionary];
+  for (NSManagedObject *o in objects) byID[o.objectID] = o;
+  NSMutableDictionary<NSManagedObjectID *, NSMutableArray *> *dependents = [NSMutableDictionary dictionary];
+  void (^owns)(NSManagedObjectID *, NSManagedObjectID *) = ^(NSManagedObjectID *owner, NSManagedObjectID *dependent) {
+    if (!owner || !dependent || [owner isEqual:dependent] || !byID[owner] || !byID[dependent]) return;
+    NSMutableArray *list = dependents[owner] ?: (dependents[owner] = [NSMutableArray array]);
+    if (![list containsObject:dependent]) [list addObject:dependent];
+  };
+  [_lock lock];
+  for (NSManagedObject *object in objects) {
+    NSIncrementalStoreNode *node = _nodeCache[object.objectID];
+    for (NSRelationshipDescription *rel in object.entity.relationshipsByName.allValues) {
+      if (!rel.isToMany && rel.inverseRelationship.deleteRule == NSCascadeDeleteRule) {
+        id owner = node ? [node valueForPropertyDescription:rel] : nil;
+        if (![owner isKindOfClass:[NSManagedObjectID class]]) {
+          id held = [object hasFaultForRelationshipNamed:rel.name] ? nil : [object primitiveValueForKey:rel.name];
+          owner = [held isKindOfClass:[NSManagedObject class]] ? [held objectID] : nil;
+        }
+        owns(owner, object.objectID);
+      }
+      if (rel.deleteRule != NSCascadeDeleteRule) continue;
+      NSMutableArray *members = [NSMutableArray arrayWithArray:_members[object.objectID][rel.name] ?: @[]];
+      if (!rel.isToMany) {
+        id one = node ? [node valueForPropertyDescription:rel] : nil;
+        if ([one isKindOfClass:[NSManagedObjectID class]]) [members addObject:one];
+      }
+      id held = [object hasFaultForRelationshipNamed:rel.name] ? nil : [object primitiveValueForKey:rel.name];
+      for (id member in rel.isToMany ? ([held respondsToSelector:@selector(allObjects)] ? [held allObjects] : @[]) : (held ? @[ held ] : @[])) {
+        if ([member isKindOfClass:[NSManagedObject class]]) [members addObject:[member objectID]];
+      }
+      for (NSManagedObjectID *member in members) owns(object.objectID, member);
+    }
+  }
+  [_lock unlock];
+
+  NSMutableArray *order = [NSMutableArray array];
+  NSMutableSet *done = [NSMutableSet set];
+  NSMutableArray<NSManagedObjectID *> *path = [NSMutableArray array];
+  __block NSArray<NSManagedObjectID *> *cycle = nil;
+  __block void (^visit)(NSManagedObject *) = nil;
+  void (^visitor)(NSManagedObject *) = ^(NSManagedObject *object) {
+    NSManagedObjectID *oid = object.objectID;
+    if (cycle || [done containsObject:oid]) return;
+    NSUInteger at = [path indexOfObject:oid];
+    if (at != NSNotFound) {
+      cycle = [[path subarrayWithRange:NSMakeRange(at, path.count - at)] arrayByAddingObject:oid];
+      return;
+    }
+    [path addObject:oid];
+    for (NSManagedObjectID *dependent in dependents[oid]) visit(byID[dependent]);
+    [path removeLastObject];
+    [done addObject:oid];
+    [order addObject:object];
+  };
+  visit = visitor;
+  for (NSManagedObject *object in byModel) visit(object);
+  visit = nil;
+  if (cycle) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSManagedObjectID *oid in cycle) {
+      [names addObject:[self identifierFromObjectID:oid error:NULL].path ?: oid.entity.name];
+    }
+    if (error) {
+      *error = OISError(ODataIncrementalStoreErrorUnsupportedRequest,
+                        [NSString stringWithFormat:@"These objects cascade to each other, and cannot be deleted in one save: %@. "
+                                                   @"Deleting either deletes the other at the service; give one side of the "
+                                                   @"relationship a delete rule other than Cascade.",
+                                                   [names componentsJoinedByString:@" -> "]]);
+    }
+    return nil;
+  }
+  return order;
+}
+
 #pragma mark - Messages
 
 // Core.Messages in a JSON body, as a notification.
@@ -1372,7 +1491,9 @@ static void OISSetKeyPath(NSMutableDictionary *row, NSString *keyPath, id value)
     if (![self addPatchOf:write object:object to:operations error:error]) return nil;
     if (write.references.count) [referenced addObject:object];
   }
-  for (NSManagedObject *object in save.deletedObjects) {
+  NSArray *deletions = [self deleteOrder:save.deletedObjects.allObjects error:error];
+  if (!deletions) return nil;
+  for (NSManagedObject *object in deletions) {
     NSURL *url = [self editURLForObjectID:object.objectID error:error];
     NSMutableURLRequest *request = url ? [_client requestWithMethod:@"DELETE" URL:url body:nil
                                                                etag:[self currentETagForObjectID:object.objectID] error:error] : nil;
