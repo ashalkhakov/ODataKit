@@ -369,7 +369,35 @@ static NSURL *OISURLWithoutCastExpansions(NSURL *url)
   return exchange;
 }
 
+// Any read: a derived type's to-ones, asked for behind its cast
+// ($expand=Ns.Type/Nav), refused (400, 501): asked again without them, and
+// left out from then on; each is then read when it is asked for. The store's
+// reads and ODataSync's alike.
 - (ODataHTTPResponse *)sendRequest:(NSURLRequest *)request error:(NSError **)error
+{
+  BOOL read = [request.HTTPMethod ?: @"GET" isEqualToString:@"GET"];
+  NSURL *plain = read && _castExpansionsRefused ? OISURLWithoutCastExpansions(request.URL) : nil;
+  if (plain) {
+    NSMutableURLRequest *without = [request mutableCopy];
+    without.URL = plain;
+    request = without;
+  }
+  NSError *failure = nil;
+  ODataHTTPResponse *response = [self sendRequestOnce:request error:&failure];
+  NSInteger status = [failure.userInfo[ODataErrorHTTPStatusKey] integerValue];
+  plain = read && !response && (status == 400 || status == 501) ? OISURLWithoutCastExpansions(request.URL) : nil;
+  if (plain) {
+    _castExpansionsRefused = YES;
+    NSMutableURLRequest *without = [request mutableCopy];
+    without.URL = plain;
+    failure = nil;
+    response = [self sendRequestOnce:without error:&failure];
+  }
+  if (!response && error) *error = failure;
+  return response;
+}
+
+- (ODataHTTPResponse *)sendRequestOnce:(NSURLRequest *)request error:(NSError **)error
 {
   NSError *failure = nil;
   // Its repeatability headers once, so that a repeat is the same request.
@@ -416,26 +444,11 @@ static NSURL *OISURLWithoutCastExpansions(NSURL *url)
 
 - (id)JSONAtURL:(NSURL *)url headers:(NSDictionary *)headers error:(NSError **)error
 {
-  if (_castExpansionsRefused) url = OISURLWithoutCastExpansions(url) ?: url;
   NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
   req.HTTPMethod = @"GET";
   for (NSString *name in headers) [req setValue:headers[name] forHTTPHeaderField:name];
-  NSError *failure = nil;
-  ODataHTTPResponse *response = [self sendRequest:req error:&failure];
-  // A derived type's to-ones, prefetched behind its cast, refused: read
-  // without them (each is then read when asked for), and so from now on.
-  NSInteger status = [failure.userInfo[ODataErrorHTTPStatusKey] integerValue];
-  NSURL *plain = !response && (status == 400 || status == 501) ? OISURLWithoutCastExpansions(url) : nil;
-  if (plain) {
-    _castExpansionsRefused = YES;
-    req.URL = plain;
-    failure = nil;
-    response = [self sendRequest:req error:&failure];
-  }
-  if (!response) {
-    if (error) *error = failure;
-    return nil;
-  }
+  ODataHTTPResponse *response = [self sendRequest:req error:error];
+  if (!response) return nil;
   if (response.status == 204) return [NSNull null];
   return [response JSONWithError:error];
 }

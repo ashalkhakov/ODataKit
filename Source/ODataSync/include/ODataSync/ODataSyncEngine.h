@@ -182,6 +182,8 @@ FOUNDATION_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
 // agreed on. Values by Core Data property name: an attribute's value, a
 // to-one's related key (by its attributes' names), NSNull for none.
 @interface ODataSyncConflict : NSObject
+// The object's own entity (a sub-entity's, not its root's): the versions
+// have its properties.
 @property (nonatomic, readonly) NSEntityDescription *entity;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, id> *key;
 // The version both last agreed on; nil when not known (an object made on

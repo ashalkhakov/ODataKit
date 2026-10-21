@@ -255,11 +255,12 @@ static const NSInteger ODSConflictRounds = 3;
 - (NSDictionary *)requestOf:(NSManagedObject *)entry context:(NSManagedObjectContext *)context
 {
   NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
-  NSDictionary *key = ODSUnarchive([entry valueForKey:@"key"]);
-  if (!root || !key) {
+  if (!root) {
     [context deleteObject:entry];
     return nil;
   }
+  NSDictionary *key = [self keyOf:entry context:context];
+  if (!key) return nil;
   ODataSyncOperation operation = [[entry valueForKey:@"operation"] integerValue];
   if (operation == ODataSyncOperationRefresh) return nil;  // read, not sent (-refreshIn:)
   if (operation == ODataSyncOperationMerge) return nil;    // exchanged after the batch (ODSMergeExchange)
@@ -288,7 +289,7 @@ static const NSInteger ODSConflictRounds = 3;
       // would put an older version over a newer one. The remote's is taken:
       // the version agreed on, or, when it keeps a file only as its digest,
       // read again from the remote (-refreshIn:, at the next sync).
-      if ([_codec shadowHasDigests:agreed entity:root]) {
+      if ([_codec shadowHasDigests:agreed entity:object.entity]) {
         [entry setValue:@(ODataSyncOperationRefresh) forKey:@"operation"];
         return nil;
       }
@@ -298,7 +299,7 @@ static const NSInteger ODSConflictRounds = 3;
     }
     // What the remote has already (passed on there by another way, or come
     // from it): not sent again.
-    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromShadow:agreed entity:root]);
+    NSSet *differ = ODSChangedNames([_codec valuesOfObject:object], [_codec valuesFromShadow:agreed entity:[_codec entityOfRow:agreed entity:object.entity]]);
     if (!differ.count) {
       [context deleteObject:entry];
       return nil;
@@ -390,6 +391,23 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
 
 #pragma mark Answers
 
+// An entry's key; nil when it cannot be read (unarchived), and then the
+// entry is set aside with why, not dropped: what the change was is still
+// there, for the app to show, and to send again (an update that reads it)
+// or discard.
+- (NSDictionary *)keyOf:(NSManagedObject *)entry context:(NSManagedObjectContext *)context
+{
+  NSError *failure = nil;
+  id key = ODSUnarchiveReporting([entry valueForKey:@"key"], &failure);
+  if ([key isKindOfClass:[NSDictionary class]]) return key;
+  NSString *why = failure.localizedDescription ?: @"it is not a dictionary";
+  NSString *message = [NSString stringWithFormat:@"The change's key could not be read: %@", why];
+  NSLog(@"ODataSync: a change to %@ %@ for %@ is set aside: %@", [entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"],
+        _remote.identifier, message);
+  [self setAside:entry status:0 message:message context:context];
+  return nil;
+}
+
 - (void)setAside:(NSManagedObject *)entry status:(NSInteger)status message:(NSString *)message context:(NSManagedObjectContext *)context
 {
   [entry setValue:@YES forKey:@"setAside"];
@@ -432,12 +450,14 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
 - (BOOL)refreshIn:(NSManagedObjectContext *)context error:(NSError **)error
 {
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
-  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND operation == %d", _remote.identifier, (int)ODataSyncOperationRefresh];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"remote == %@ AND operation == %d AND setAside != YES", _remote.identifier,
+                                                     (int)ODataSyncOperationRefresh];
   ODSDownloader *down = [[ODSDownloader alloc] initWithEngine:_engine remote:_remote];
   for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
     NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
-    NSDictionary *key = ODSUnarchive([entry valueForKey:@"key"]);
-    if (root && key && ![down refreshObjectOfEntity:root key:key context:context error:error]) return NO;
+    NSDictionary *key = root ? [self keyOf:entry context:context] : nil;
+    if (root && !key) continue;
+    if (root && ![down refreshObjectOfEntity:root key:key context:context error:error]) return NO;
     [context deleteObject:entry];
   }
   return YES;

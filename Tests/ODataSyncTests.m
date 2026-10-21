@@ -40,10 +40,13 @@
 }
 @end
 
-// The service, with the requests sent to it counted.
+// The service, with the requests sent to it counted; refusesCasts, it
+// answers a read that expands behind a type cast (Default.FillUp/Unit) 501,
+// as ODataKit's service did before 0.3.11.
 @interface OSTCountingTransport : NSObject <ODataTransport>
 @property (nonatomic, strong) ODataService *service;
 @property (atomic, strong) NSMutableArray<NSURLRequest *> *requests;
+@property (atomic) BOOL refusesCasts;
 @end
 
 @implementation OSTCountingTransport
@@ -52,6 +55,16 @@
   @synchronized (self) {
     if (!_requests) _requests = [NSMutableArray array];
     [_requests addObject:exchange.request];
+  }
+  NSString *query = exchange.request.URL.query.stringByRemovingPercentEncoding ?: @"";
+  NSRange expand = [query rangeOfString:@"$expand="];
+  if (self.refusesCasts && expand.location != NSNotFound && [[query substringFromIndex:expand.location] rangeOfString:@"Default.FillUp/"].location != NSNotFound) {
+    exchange.URLResponse = [[NSHTTPURLResponse alloc] initWithURL:exchange.request.URL statusCode:501 HTTPVersion:@"HTTP/1.1"
+                                                     headerFields:@{ @"Content-Type": @"application/json" }];
+    exchange.data = [@"{\"error\":{\"code\":\"501\",\"message\":\"$expand=Default.FillUp/Unit is not supported\"}}"
+        dataUsingEncoding:NSUTF8StringEncoding];
+    [exchange finish];
+    return;
   }
   [_service startExchange:exchange];
 }
@@ -159,6 +172,98 @@ static NSManagedObjectModel *OSTModel(void)
   return model;
 }
 
+// Records (both, with version vectors when asked, and a modified stamp)
+// and fill-ups, a record of their own kind served in the Records set
+// (OData.type names each type), each in a unit (down): a to-one of the
+// sub-entity's own.
+static NSManagedObjectModel *OSTRecordsModel(BOOL service, BOOL versions, BOOL stamped)
+{
+  NSEntityDescription *unit = [[NSEntityDescription alloc] init];
+  unit.name = @"Unit";
+  unit.managedObjectClassName = @"NSManagedObject";
+  unit.userInfo = @{ @"OData.entitySet": @"Units", @"OData.type": @"Default.Unit", ODataSyncDirectionKey: @"down" };
+  NSEntityDescription *record = [[NSEntityDescription alloc] init];
+  record.name = @"Record";
+  record.managedObjectClassName = @"NSManagedObject";
+  NSMutableDictionary *info = [@{ @"OData.entitySet": @"Records", @"OData.type": @"Default.Record", ODataSyncDirectionKey: @"both" } mutableCopy];
+  NSMutableArray *properties = [@[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"note", NSStringAttributeType, NO),
+                                    OSTAttribute(@"amount", NSDecimalAttributeType, NO) ] mutableCopy];
+  if (stamped) {
+    info[ODataSyncModifiedKey] = @"modified";
+    [properties addObject:OSTAttribute(@"modified", NSStringAttributeType, NO)];
+  }
+  if (versions) {
+    info[ODataSyncVersionsKey] = @"versions";
+    [properties addObject:OSTAttribute(@"versions", NSStringAttributeType, NO)];
+  }
+  record.userInfo = info;
+  record.properties = properties;
+  NSEntityDescription *fillUp = [[NSEntityDescription alloc] init];
+  fillUp.name = @"FillUp";
+  fillUp.managedObjectClassName = @"NSManagedObject";
+  fillUp.userInfo = @{ @"OData.type": @"Default.FillUp" };
+
+  NSRelationshipDescription *inUnit = [[NSRelationshipDescription alloc] init];
+  inUnit.name = @"unit";
+  inUnit.destinationEntity = unit;
+  inUnit.maxCount = 1;
+  inUnit.optional = YES;
+  inUnit.deleteRule = NSNullifyDeleteRule;
+  NSRelationshipDescription *fillUps = [[NSRelationshipDescription alloc] init];
+  fillUps.name = @"fillUps";
+  fillUps.destinationEntity = fillUp;
+  fillUps.maxCount = 0;
+  fillUps.optional = YES;
+  fillUps.deleteRule = NSNullifyDeleteRule;
+  inUnit.inverseRelationship = fillUps;
+  fillUps.inverseRelationship = inUnit;
+
+  unit.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), fillUps ];
+  fillUp.properties = @[ OSTAttribute(@"driver", NSStringAttributeType, NO), OSTAttribute(@"litres", NSDoubleAttributeType, NO), inUnit ];
+  record.subentities = @[ fillUp ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ unit, record, fillUp ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
+// Vehicles (both) keyed by a UUID attribute, and trucks among them.
+static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
+{
+  NSEntityDescription *vehicle = [[NSEntityDescription alloc] init];
+  vehicle.name = @"Vehicle";
+  vehicle.managedObjectClassName = @"NSManagedObject";
+  vehicle.userInfo = @{ @"OData.entitySet": @"Vehicles", @"OData.type": @"Default.Vehicle", ODataSyncDirectionKey: @"both",
+                        ODataSyncVersionsKey: @"versions", ODataSyncModifiedKey: @"modified" };
+  vehicle.properties = @[ OSTAttribute(@"id", NSUUIDAttributeType, YES), OSTAttribute(@"name", NSStringAttributeType, NO),
+                          OSTAttribute(@"versions", NSStringAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+  NSEntityDescription *truck = [[NSEntityDescription alloc] init];
+  truck.name = @"Truck";
+  truck.managedObjectClassName = @"NSManagedObject";
+  truck.userInfo = @{ @"OData.type": @"Default.Truck" };
+  truck.properties = @[ OSTAttribute(@"axles", NSInteger32AttributeType, NO) ];
+  vehicle.subentities = @[ truck ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ vehicle, truck ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
+// Keeps this side's, and the conflict it saw.
+@interface OSTKeepingResolver : NSObject <ODataSyncResolving>
+@property (atomic, strong) ODataSyncConflict *last;
+@end
+
+@implementation OSTKeepingResolver
+- (ODataSyncResolution *)resolveConflict:(ODataSyncConflict *)conflict
+{
+  self.last = conflict;
+  return [ODataSyncResolution keepLocal];
+}
+@end
+
 @interface ODataSyncTests : XCTestCase
 @end
 
@@ -171,6 +276,7 @@ static NSManagedObjectModel *OSTModel(void)
   ODataSyncRemote *_remote;
   OSTDelegate *_delegate;
   NSMutableArray<ODataSyncPeerServer *> *_peerServers;
+  OSTCountingTransport *_records;
 }
 
 - (NSPersistentStoreCoordinator *)coordinatorWithModel:(NSManagedObjectModel *)model
@@ -759,6 +865,44 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertEqual([_engine issues].count, 0u);
 }
 
+// A change whose key cannot be read back (kept by a Foundation that could
+// write it, read by one that cannot): set aside with why, not dropped, and
+// kept so through later syncs, and when it is retried.
+- (void)testAChangeWhoseKeyCannotBeReadIsSetAside
+{
+  [self sync];
+  NSString *unreadable = [self inspect:@"unreadable" asset:@1];
+  [self inspect:@"good" asset:@2];
+  XCTAssertEqual([_engine pendingChanges].count, 2u);
+  __block NSUInteger spoilt = 0;
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"ODSOutboxEntry"];
+    for (NSManagedObject *entry in [context executeFetchRequest:fetch error:NULL]) {
+      if ([[entry valueForKey:@"keyText"] rangeOfString:unreadable].location == NSNotFound) continue;
+      [entry setValue:[@"not an archive" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"key"];
+      spoilt++;
+    }
+  }];
+  XCTAssertEqual(spoilt, 1u);
+  [self sync];
+  XCTAssertEqualObjects([self values:@"note" of:@"Inspection" in:_server], (@[ @"good" ]), @"the rest went");
+  XCTAssertEqual(_engine.lastResult.refused, 1u, @"%@", _engine.lastResult);
+  NSArray<ODataSyncIssue *> *issues = [_engine issues];
+  XCTAssertEqual(issues.count, 1u, @"%@", issues);
+  XCTAssertEqualObjects(issues.firstObject.entityName, @"Inspection");
+  XCTAssertTrue([issues.firstObject.message hasPrefix:@"The change's key could not be read"], @"%@", issues.firstObject.message);
+  XCTAssertEqual(_delegate.setAside.count, 1u);
+
+  // Kept through the next sync, and set aside again when retried.
+  [self sync];
+  XCTAssertEqual([_engine issues].count, 1u, @"not dropped");
+  [_engine retryIssue:[_engine issues].firstObject];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.refused, 1u, @"%@", _engine.lastResult);
+  XCTAssertEqual([_engine issues].count, 1u, @"not dropped when retried");
+  XCTAssertEqual([_engine pendingChanges].count, 1u);
+}
+
 #pragma mark Both
 
 - (NSString *)makeTask:(NSString *)title
@@ -1224,6 +1368,385 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertTrue([_engine uploadToRemote:_remote error:&error], @"%@", error);
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_server], (@[ @"Server's" ]));
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_device], (@[ @"Server's" ]), @"the remote wins");
+}
+
+#pragma mark Derived types
+
+// The entity and properties of the record with this key, or nil.
+- (NSDictionary *)record:(NSString *)identifier in:(NSPersistentStoreCoordinator *)coordinator
+{
+  __block NSDictionary *found = nil;
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    NSManagedObject *record = [self object:@"Record" id:identifier in:context];
+    if (!record) return;
+    NSMutableDictionary *values = [[record dictionaryWithValuesForKeys:record.entity.attributesByName.allKeys] mutableCopy];
+    values[@"entity"] = record.entity.name;
+    found = values;
+  }];
+  return found;
+}
+
+// A fill-up made on a device: sent by upsert to the Records set, it is
+// made a fill-up there (the body says its type), with its own properties;
+// changed, the change follows. To a peer's server the same.
+- (void)testADerivedTypeIsCreatedAsItself
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTRecordsModel(YES, YES, NO)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTRecordsModel(NO, YES, NO)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = service;
+  [engine addRemote:remote];
+
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self in:device do:^(NSManagedObjectContext *context) {
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [fillUp setValue:identifier forKey:@"id"];
+    [fillUp setValue:@"Full tank" forKey:@"note"];
+    [fillUp setValue:@"Ann" forKey:@"driver"];
+    [fillUp setValue:@41.5 forKey:@"litres"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.lastResult.uploaded, 1u, @"%@", engine.lastResult);
+  NSDictionary *served = [self record:identifier in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Ann");
+  XCTAssertEqualObjects(served[@"litres"], @41.5);
+  XCTAssertEqualObjects(served[@"note"], @"Full tank");
+
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self object:@"Record" id:identifier in:context] setValue:@"Bob" forKey:@"driver"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.lastResult.uploaded, 1u, @"%@", engine.lastResult);
+  served = [self record:identifier in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Bob", @"the change followed");
+  XCTAssertEqualObjects(served[@"litres"], @41.5);
+
+  // Another device, that reaches only this one: its fill-up goes to this
+  // device's peer server, and on to the service.
+  NSPersistentStoreCoordinator *basement = [self coordinatorWithModel:OSTRecordsModel(NO, YES, NO)];
+  ODataSyncEngine *offline = [[ODataSyncEngine alloc] initWithCoordinator:basement];
+  [offline addRemote:[self peerOf:engine]];
+  NSString *other = [NSUUID UUID].UUIDString;
+  [self in:basement do:^(NSManagedObjectContext *context) {
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [fillUp setValue:other forKey:@"id"];
+    [fillUp setValue:@"Carol" forKey:@"driver"];
+    [fillUp setValue:@12 forKey:@"litres"];
+  }];
+  [self sync:offline];
+  XCTAssertEqual(offline.lastResult.uploaded, 1u, @"%@", offline.lastResult);
+  NSDictionary *relayed = [self record:other in:device];
+  XCTAssertEqualObjects(relayed[@"entity"], @"FillUp", @"%@", relayed);
+  XCTAssertEqualObjects(relayed[@"driver"], @"Carol");
+  [self in:basement do:^(NSManagedObjectContext *context) {
+    [[self object:@"Record" id:other in:context] setValue:@"Dan" forKey:@"driver"];
+  }];
+  [self sync:offline];
+  XCTAssertEqualObjects([self record:other in:device][@"driver"], @"Dan", @"the change followed");
+  [self sync:engine];
+  served = [self record:other in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Dan");
+  XCTAssertEqualObjects(served[@"litres"], @12);
+}
+
+// A service and a device over the records model: the server's store, the
+// device's, and the device's engine.
+- (ODataSyncEngine *)recordsWithVersions:(BOOL)versions server:(NSPersistentStoreCoordinator **)server
+                                  device:(NSPersistentStoreCoordinator **)device service:(ODataSyncService **)syncing
+{
+  return [self recordsWithVersions:versions stamped:NO server:server device:device service:syncing];
+}
+
+- (ODataSyncEngine *)recordsWithVersions:(BOOL)versions stamped:(BOOL)stamped server:(NSPersistentStoreCoordinator **)server
+                                  device:(NSPersistentStoreCoordinator **)device service:(ODataSyncService **)syncing
+{
+  *server = [self coordinatorWithModel:OSTRecordsModel(YES, versions, stamped)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:*server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  *syncing = [[ODataSyncService alloc] initWithService:service];
+  *device = [self coordinatorWithModel:OSTRecordsModel(NO, versions, stamped)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:*device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  _records = [[OSTCountingTransport alloc] init];
+  _records.service = service;
+  remote.transport = _records;
+  [engine addRemote:remote];
+  return engine;
+}
+
+- (void)fillUp:(NSString *)identifier driver:(NSString *)driver unit:(NSString *)unit in:(NSPersistentStoreCoordinator *)coordinator
+{
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [fillUp setValue:identifier forKey:@"id"];
+    [fillUp setValue:driver forKey:@"driver"];
+    [fillUp setValue:@30 forKey:@"litres"];
+    if (unit) [fillUp setValue:[self object:@"Unit" id:unit in:context] forKey:@"unit"];
+  }];
+}
+
+- (void)makeUnits:(NSArray<NSString *> *)units in:(NSPersistentStoreCoordinator *)coordinator
+{
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    for (NSString *identifier in units) {
+      [[NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context] setValue:identifier forKey:@"id"];
+    }
+  }];
+}
+
+- (void)set:(id)value forKey:(NSString *)key ofRecord:(NSString *)identifier in:(NSPersistentStoreCoordinator *)coordinator
+{
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    NSManagedObject *record = [self object:@"Record" id:identifier in:context];
+    [record setValue:[key isEqualToString:@"unit"] ? [self object:@"Unit" id:value in:context] : value forKey:key];
+  }];
+}
+
+// The bodies of the PATCHes the device sent last (in its last $batch).
+- (NSArray<NSDictionary *> *)lastPatches
+{
+  NSMutableArray *bodies = [NSMutableArray array];
+  for (NSURLRequest *request in _records.requests.reverseObjectEnumerator) {
+    if (![request.HTTPMethod isEqualToString:@"POST"] || ![request.URL.path hasSuffix:@"$batch"]) continue;
+    NSDictionary *batch = [NSJSONSerialization JSONObjectWithData:request.HTTPBody options:0 error:NULL];
+    for (NSDictionary *item in batch[@"requests"]) {
+      if ([item[@"method"] isEqualToString:@"PATCH"]) [bodies addObject:item[@"body"]];
+    }
+    break;
+  }
+  return bodies;
+}
+
+// The id of the unit of the record with this key.
+- (NSString *)unitOf:(NSString *)identifier in:(NSPersistentStoreCoordinator *)coordinator
+{
+  __block NSString *unit = nil;
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    unit = [[self object:@"Record" id:identifier in:context] valueForKeyPath:@"unit.id"];
+  }];
+  return unit;
+}
+
+// A sub-entity's own to-one comes down with its row (expanded behind its
+// type's cast): read whole, by a delta link, and from a peer.
+- (void)testASubEntitysToOnesComeDown
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:YES server:&server device:&device service:&syncing];
+  [self makeUnits:@[ @"L", @"gal" ] in:server];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:server];
+  [self sync:engine];
+  NSDictionary *record = [self record:identifier in:device];
+  XCTAssertEqualObjects(record[@"entity"], @"FillUp", @"%@", record);
+  XCTAssertEqualObjects(record[@"driver"], @"Ann");
+  XCTAssertEqualObjects([self unitOf:identifier in:device], @"L", @"its own to-one, read whole");
+
+  [self set:@"gal" forKey:@"unit" ofRecord:identifier in:server];
+  [self sync:engine];
+  XCTAssertEqualObjects([self unitOf:identifier in:device], @"gal", @"by the delta link");
+  [self set:@"Bea" forKey:@"driver" ofRecord:identifier in:server];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"driver"], @"Bea");
+  XCTAssertEqualObjects([self unitOf:identifier in:device], @"gal", @"kept when only another property changed");
+
+  // From a peer: this device's server, to another device.
+  NSPersistentStoreCoordinator *basement = [self coordinatorWithModel:OSTRecordsModel(NO, YES, NO)];
+  ODataSyncEngine *offline = [[ODataSyncEngine alloc] initWithCoordinator:basement];
+  [offline addRemote:[self peerOf:engine]];
+  [self sync:offline];
+  XCTAssertEqualObjects([self record:identifier in:basement][@"entity"], @"FillUp");
+  XCTAssertEqualObjects([self unitOf:identifier in:basement], @"gal", @"from the peer");
+}
+
+// A service that takes no type cast in $expand (ODataKit's before 0.3.11):
+// the sync goes on without them, as before them (a sub-entity's own to-ones
+// do not come down), asked for once and then no more.
+- (void)testASubEntitysToOnesFromAServiceThatTakesNoCast
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:YES server:&server device:&device service:&syncing];
+  _records.refusesCasts = YES;
+  [self makeUnits:@[ @"L" ] in:server];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:server];
+  [self sync:engine];
+  NSDictionary *record = [self record:identifier in:device];
+  XCTAssertEqualObjects(record[@"entity"], @"FillUp", @"%@", record);
+  XCTAssertEqualObjects(record[@"driver"], @"Ann");
+  [self set:@"Bea" forKey:@"driver" ofRecord:identifier in:server];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"driver"], @"Bea", @"by the delta link");
+  NSArray *urls = [[_records.requests valueForKeyPath:@"URL.query"] valueForKey:@"stringByRemovingPercentEncoding"];
+  NSArray *casts = [urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.FillUp/'"]];
+  XCTAssertEqual(casts.count, 1u, @"refused once, then left out: %@", urls);
+}
+
+// A conflict of a sub-entity's object has its own properties, on each side
+// and in what each changed; with nothing changed but what both did, the
+// rest are no change (the version agreed on knows its type too).
+- (void)testAConflictOfASubEntityHasItsProperties
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:NO server:&server device:&device service:&syncing];
+  OSTKeepingResolver *keeping = [[OSTKeepingResolver alloc] init];
+  [engine setResolver:keeping forEntityName:@"Record"];
+  [self makeUnits:@[ @"L" ] in:server];
+  [self sync:engine];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:device];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:server][@"entity"], @"FillUp");
+  XCTAssertEqualObjects([self unitOf:identifier in:server], @"L");
+
+  // Changed on both sides: a conflict.
+  [self set:@"Server" forKey:@"driver" ofRecord:identifier in:server];
+  [self set:@"Device" forKey:@"driver" ofRecord:identifier in:device];
+  [self sync:engine];
+  ODataSyncConflict *conflict = keeping.last;
+  XCTAssertNotNil(conflict);
+  XCTAssertEqualObjects(conflict.entity.name, @"FillUp");
+  XCTAssertEqualObjects(conflict.base[@"driver"], @"Ann", @"%@", conflict.base);
+  XCTAssertEqualObjects(conflict.local[@"driver"], @"Device", @"%@", conflict.local);
+  XCTAssertEqualObjects(conflict.remote[@"driver"], @"Server", @"%@", conflict.remote);
+  XCTAssertEqualObjects(conflict.remote[@"litres"], @30);
+  XCTAssertEqualObjects(conflict.remote[@"unit"], @{ @"id": @"L" });
+  XCTAssertEqualObjects(conflict.localChanges, [NSSet setWithObject:@"driver"]);
+  XCTAssertEqualObjects(conflict.remoteChanges, [NSSet setWithObject:@"driver"]);
+  XCTAssertEqualObjects([self record:identifier in:server][@"driver"], @"Device", @"this side's kept");
+  XCTAssertEqualObjects([self unitOf:identifier in:server], @"L");
+
+  // Changed here only, after a change there of another property: no conflict.
+  keeping.last = nil;
+  [self set:@40 forKey:@"litres" ofRecord:identifier in:server];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"litres"], @40);
+  XCTAssertEqualObjects([self unitOf:identifier in:device], @"L");
+  [self set:@"Dee" forKey:@"driver" ofRecord:identifier in:device];
+  [self sync:engine];
+  XCTAssertNil(keeping.last, @"no conflict");
+  XCTAssertEqualObjects([self lastPatches], (@[ @{ @"@odata.type": @"#Default.FillUp", @"Driver": @"Dee" } ]),
+                        @"only what changed since the version agreed on");
+  XCTAssertEqualObjects([self record:identifier in:server][@"driver"], @"Dee");
+  XCTAssertEqualObjects([self record:identifier in:server][@"litres"], @40);
+}
+
+// Two devices, a fill-up each has: B's change of the note goes up; A
+// changes it too, and takes the service's (its history now has a change
+// that came to nothing); B's later change of the driver meets that
+// version on its way up, and is no conflict with it: it goes up.
+- (void)testAChangeMeetingOneThatCameToNothingGoesUp
+{
+  NSPersistentStoreCoordinator *server = nil, *b = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engineB = [self recordsWithVersions:YES stamped:YES server:&server device:&b service:&syncing];
+  OSTCountingTransport *toB = _records;
+  NSPersistentStoreCoordinator *a = [self coordinatorWithModel:OSTRecordsModel(NO, YES, YES)];
+  ODataSyncEngine *engineA = [[ODataSyncEngine alloc] initWithCoordinator:a];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = toB.service;
+  [engineA addRemote:remote];
+
+  [self makeUnits:@[ @"L" ] in:server];
+  [self sync:engineA];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:a];
+  [self set:[NSDecimalNumber decimalNumberWithString:@"68.4"] forKey:@"amount" ofRecord:identifier in:a];
+  [self sync:engineA];
+  [self sync:engineB];
+  XCTAssertEqualObjects([self record:identifier in:b][@"entity"], @"FillUp");
+
+  // 1. B changes the note (the root's), and sends it.
+  [self set:@"Ben's note" forKey:@"note" ofRecord:identifier in:b];
+  [self sync:engineB];
+  XCTAssertEqualObjects([self record:identifier in:server][@"note"], @"Ben's note");
+  // 2. A changes it too, offline; syncing, it takes the service's.
+  [self set:@"Ann's note" forKey:@"note" ofRecord:identifier in:a];
+  [self sync:engineA];
+  XCTAssertEqualObjects([self record:identifier in:a][@"note"], @"Ben's note");
+  // 3. B changes the driver (the fill-up's own), and sends it.
+  [self set:@"Ben" forKey:@"driver" ofRecord:identifier in:b];
+  [self sync:engineB];
+  XCTAssertEqualObjects([self record:identifier in:server][@"driver"], @"Ben", @"%@", [self lastPatches]);
+  [self sync:engineA];
+  XCTAssertEqualObjects([self record:identifier in:a][@"driver"], @"Ben");
+  // And once more, with nothing to download first.
+  [self set:@"Bo" forKey:@"driver" ofRecord:identifier in:b];
+  [self sync:engineB];
+  XCTAssertEqualObjects([self record:identifier in:server][@"driver"], @"Bo", @"%@", [self lastPatches]);
+}
+
+// A decimal goes up as written and is kept so (68.4, not 68.40000000000001
+// as a double read back has it): the next change sends only itself.
+- (void)testADecimalIsKeptAsSent
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:YES server:&server device:&device service:&syncing];
+  [self makeUnits:@[ @"L" ] in:server];
+  [self sync:engine];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:device];
+  [self set:[NSDecimalNumber decimalNumberWithString:@"68.4"] forKey:@"amount" ofRecord:identifier in:device];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:server][@"amount"], [NSDecimalNumber decimalNumberWithString:@"68.4"]);
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"amount"], [NSDecimalNumber decimalNumberWithString:@"68.4"]);
+  [self set:@"Bea" forKey:@"driver" ofRecord:identifier in:device];
+  [self sync:engine];
+  NSDictionary *patch = [self lastPatches].firstObject;
+  XCTAssertEqualObjects([NSSet setWithArray:patch.allKeys], ([NSSet setWithObjects:@"@odata.type", @"Driver", @"Versions", nil]), @"%@", patch);
+}
+
+// Objects keyed by a UUID, made on a device (one of a sub-entity): each
+// waits to be sent, goes up, and reaches another device.
+- (void)testObjectsKeyedByAUUIDGoUp
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTVehiclesModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  NSMutableArray<ODataSyncEngine *> *engines = [NSMutableArray array];
+  NSMutableArray<NSPersistentStoreCoordinator *> *devices = [NSMutableArray array];
+  for (NSUInteger i = 0; i < 2; i++) {
+    NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTVehiclesModel(NO)];
+    ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+    ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+    remote.transport = service;
+    [engine addRemote:remote];
+    [devices addObject:device];
+    [engines addObject:engine];
+  }
+  [self sync:engines[0]];
+  NSUUID *car = [NSUUID UUID], *truck = [NSUUID UUID];
+  [self in:devices[0] do:^(NSManagedObjectContext *context) {
+    NSManagedObject *one = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+    [one setValue:car forKey:@"id"];
+    [one setValue:@"Car" forKey:@"name"];
+    NSManagedObject *two = [NSEntityDescription insertNewObjectForEntityForName:@"Truck" inManagedObjectContext:context];
+    [two setValue:truck forKey:@"id"];
+    [two setValue:@"Truck" forKey:@"name"];
+    [two setValue:@3 forKey:@"axles"];
+  }];
+  XCTAssertEqual([engines[0] pendingChanges].count, 2u, @"%@", [engines[0] pendingChanges]);
+  [self sync:engines[0]];
+  XCTAssertEqual(engines[0].lastResult.uploaded, 2u, @"%@", engines[0].lastResult);
+  XCTAssertEqualObjects([NSSet setWithArray:[self values:@"name" of:@"Vehicle" in:server]], ([NSSet setWithObjects:@"Car", @"Truck", nil]));
+  [self sync:engines[1]];
+  XCTAssertEqualObjects([NSSet setWithArray:[self values:@"name" of:@"Vehicle" in:devices[1]]], ([NSSet setWithObjects:@"Car", @"Truck", nil]));
+  XCTAssertEqualObjects([self values:@"axles" of:@"Truck" in:devices[1]], (@[ @3 ]));
 }
 
 #pragma mark Peers

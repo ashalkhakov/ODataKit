@@ -77,9 +77,8 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
 - (NSArray<NSEntityDescription *> *)rootEntitiesGoing:(NSSet<NSNumber *> *)directions toward:(ODataSyncRemote *)remote
 {
   NSMutableArray *roots = [NSMutableArray array];
-  for (NSEntityDescription *entity in [self.model.entities sortedArrayUsingComparator:^NSComparisonResult(NSEntityDescription *a, NSEntityDescription *b) {
-         return [a.name compare:b.name];
-       }]) {
+  NSArray *byName = [self.model.entities sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+  for (NSEntityDescription *entity in byName) {
     if (entity.superentity || ![directions containsObject:@([self directionOfEntity:entity toward:remote])]) continue;
     if (![self.mapper keyAttributesForEntity:entity].count) continue;
     [roots addObject:entity];
@@ -87,19 +86,30 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
   // Parents first: depth-first, an entity after the destinations of its to-ones.
   NSMutableArray *ordered = [NSMutableArray array];
   NSMutableSet *visiting = [NSMutableSet set];
-  __block void (^visit)(NSEntityDescription *);
-  __weak __block void (^weakVisit)(NSEntityDescription *);
-  weakVisit = visit = ^(NSEntityDescription *entity) {
-    if ([ordered containsObject:entity] || [visiting containsObject:entity.name]) return;
-    [visiting addObject:entity.name];
-    for (NSRelationshipDescription *toOne in [self toOnesOf:entity]) {
-      NSEntityDescription *destination = [self rootOf:toOne.destinationEntity];
-      if ([roots containsObject:destination]) weakVisit(destination);
-    }
-    [ordered addObject:entity];
-  };
-  for (NSEntityDescription *entity in roots) visit(entity);
+  for (NSEntityDescription *entity in roots) [self visit:entity roots:roots visiting:visiting ordered:ordered];
   return ordered;
+}
+
+// A root after the destinations of its to-ones, and of its sub-entities'
+// (a fill-up's unit before the records that are fill-ups).
+- (void)visit:(NSEntityDescription *)entity roots:(NSArray *)roots visiting:(NSMutableSet *)visiting ordered:(NSMutableArray *)ordered
+{
+  if ([ordered containsObject:entity] || [visiting containsObject:entity.name]) return;
+  [visiting addObject:entity.name];
+  [self visitDestinationsOf:entity roots:roots visiting:visiting ordered:ordered];
+  [ordered addObject:entity];
+}
+
+- (void)visitDestinationsOf:(NSEntityDescription *)entity roots:(NSArray *)roots visiting:(NSMutableSet *)visiting
+                    ordered:(NSMutableArray *)ordered
+{
+  for (NSRelationshipDescription *toOne in [self toOnesOf:entity]) {
+    NSEntityDescription *destination = [self rootOf:toOne.destinationEntity];
+    if ([roots containsObject:destination]) [self visit:destination roots:roots visiting:visiting ordered:ordered];
+  }
+  for (NSEntityDescription *subentity in entity.subentities) {
+    [self visitDestinationsOf:subentity roots:roots visiting:visiting ordered:ordered];
+  }
 }
 
 - (BOOL)checkNames:(NSError **)error

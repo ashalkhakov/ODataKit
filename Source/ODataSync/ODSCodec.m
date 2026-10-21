@@ -276,10 +276,20 @@ static ODataSyncDigest *ODSDigestOfMarker(id marker)
   return NO;
 }
 
+- (NSEntityDescription *)entityOfRow:(NSDictionary *)row entity:(NSEntityDescription *)entity
+{
+  id type = [row isKindOfClass:[NSDictionary class]] ? row[@"@odata.type"] : nil;
+  if (![type isKindOfClass:[NSString class]]) return entity;
+  return [self.mapper entity:[self.model rootOf:entity] forTypeName:type];
+}
+
 - (NSDictionary *)rowOfObject:(NSManagedObject *)object
 {
   ODataValueCoder *coder = self.mapper.values;
   NSMutableDictionary *row = [NSMutableDictionary dictionary];
+  if ([self.mapper entityIsDerivedInItsSet:object.entity]) {
+    row[@"@odata.type"] = [@"#" stringByAppendingString:[self.mapper qualifiedTypeForEntity:object.entity]];
+  }
   for (NSAttributeDescription *attribute in [self.model attributesOf:object.entity]) {
     id value = [object valueForKey:attribute.name];
     row[[self.mapper propertyForAttribute:attribute]] = value ? [coder JSONForCoreDataValue:value attribute:attribute] : [NSNull null];

@@ -220,6 +220,14 @@ Per remote, per `down` and `both` entity set:
    in one save. A crash before it loses nothing: the old link is read
    again.
 
+A set of a root with sub-entities (Records, with FillUps among them) is
+read with each sub-entity's own to-ones expanded behind its type's cast
+(`$expand=Unit($select=Id),Default.FillUp/Volume($select=Id)`, for a
+sub-entity that names its type with `OData.type`), whole, by delta link,
+by key after a 412, and from a peer alike; each row is made an object of
+the type its `@odata.type` names. The sets go in an order that puts the
+destinations of the sub-entities' to-ones first too.
+
 A removed `down` row that local `up` records still point to: the
 relationship's delete rule decides (Nullify keeps the records; Deny makes
 the downloader keep the row and report it). A `both` object with an
@@ -315,6 +323,12 @@ there is none, and otherwise updates it. An `up` insert and an `up` update
 are the same request with more or fewer properties, so a repeat, after a
 crash or by a peer that relayed it, ends as the first did.
 
+An object of a derived entity (a sub-entity, FillUp, kept in its root's
+set, `Records`) is sent to the root's set, and its body says its type
+(`"@odata.type": "#NS.FillUp"`, from the sub-entity's `OData.type`), so
+that the upsert creating it creates a FillUp, not a Record without
+FillUp's properties.
+
 ### 5.3 Answers
 
 | Answer | What the uploader does |
@@ -323,6 +337,7 @@ crash or by a peer that relayed it, ends as the first did.
 | DELETE 404 | done: it is already gone |
 | 412 (`both`) | a conflict (section 6) |
 | 400, 403, 409, 422 | refused: the entry is quarantined with the error, the app told; the rest go on |
+| (not sent) | an entry whose key cannot be read back (its archive does not unarchive): quarantined as if refused, status 0, the error saying why, and logged; never dropped |
 | 401 | credentials (the remote's credential provider), then again |
 | 5xx, no answer | left as it is, sent again later (backoff) |
 
@@ -334,6 +349,14 @@ fixes the record (the next change clears the mark and it is sent again)
 or discards it (`-[ODataSyncEngine discardIssue:]`, which also reverts
 the local object to its shadow, or deletes it when it never reached the
 service).
+
+An entry the uploader cannot read is quarantined the same way, never
+dropped: one whose key does not unarchive (kept by a Foundation that
+could write it, read by one that cannot) is set aside with status 0 and
+the message "The change's key could not be read: ...", logged, and kept
+through every sync until the app discards it; retried, it is read again
+(after an update of the app, it is retried by itself, as refused
+changes are).
 
 ## 6. Conflicts
 
@@ -356,7 +379,9 @@ after the 412), and the properties each side changed since the base. A
 
 `ODataSyncConflict` has the entity, key, the three versions as property
 dictionaries, the changed names on each side, and for deletes which side
-deleted. `ODataSyncResolution` is one of: **take remote** (the local
+deleted. The entity is the object's own (a sub-entity's, FillUp, not its
+root's), and each version has that type's properties: the row's by its
+`@odata.type`, the version agreed on by the type its shadow keeps. `ODataSyncResolution` is one of: **take remote** (the local
 object becomes the remote version; the entry is dropped), **keep local**
 (the entry is sent again with If-Match of the remote's ETag), **merged**
 (these values: applied locally, and sent with If-Match of the remote's
@@ -816,7 +841,11 @@ kept.
   the incoming version included in this one is old news, not applied,
   and this one is sent back where it is newer; one that includes this one
   is applied, conflict or not (it saw this side's change); neither is a
-  conflict, for the resolver. Equal versions are agreed on. This replaces
+  conflict, for the resolver, unless the incoming one has the values of
+  the version agreed on (a change there that came to nothing: a replica
+  that took the remote's version over its own still counts its own), when
+  only this side changed it: its change goes, its version now including
+  the incoming one's. Equal versions are agreed on. This replaces
   the stamp rules of section 7 with exact ones; last writer wins stays,
   as a rule for real conflicts.
 - **Deletions**: a tombstone keeps the deleted version's vector, raised

@@ -100,19 +100,35 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   return items;
 }
 
-// $expand of the to-ones' keys, for reading an entity's rows.
+// $expand of the to-ones' keys, for reading an entity's rows: its own, and
+// each sub-entity's own behind its type's cast (Default.FillUp/Unit), so
+// that a derived row comes with all of its to-ones.
 - (NSArray<ODataExpandItem *> *)expandOfEntity:(NSEntityDescription *)entity error:(NSError **)error
 {
   NSMutableArray *items = [NSMutableArray array];
+  return [self addExpandOfEntity:entity cast:nil into:items error:error] ? items : nil;
+}
+
+- (BOOL)addExpandOfEntity:(NSEntityDescription *)entity cast:(NSString *)cast into:(NSMutableArray *)items error:(NSError **)error
+{
   for (NSRelationshipDescription *toOne in [_model toOnesOf:entity]) {
+    if (cast && entity.superentity.relationshipsByName[toOne.name]) continue;  // the base type's, expanded already
     ODataMutableQueryOptions *keys = [[ODataMutableQueryOptions alloc] init];
     keys.select = [self selectOfKeyOfEntity:toOne.destinationEntity error:error];
-    if (!keys.select) return nil;
-    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ [_model.mapper propertyForRelationship:toOne] ] options:keys error:error];
-    if (!item) return nil;
+    if (!keys.select) return NO;
+    NSString *name = [_model.mapper propertyForRelationship:toOne];
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:cast ? @[ cast, name ] : @[ name ] options:keys error:error];
+    if (!item) return NO;
     [items addObject:item];
   }
-  return items;
+  // A sub-entity names its type (OData.type) to be cast to; one that does
+  // not is read as its base type is.
+  NSArray *subentities = [entity.subentities sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+  for (NSEntityDescription *subentity in subentities) {
+    NSString *qualified = [_model.mapper qualifiedTypeForEntity:subentity];
+    if (qualified && ![self addExpandOfEntity:subentity cast:qualified into:items error:error]) return NO;
+  }
+  return YES;
 }
 
 // A filter naming these keys (k eq 1 or k eq 2; (a eq 1 and b eq 2) or ...).
@@ -236,7 +252,20 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   if (checked && insert && !etag) headers[@"If-None-Match"] = @"*";
   else if (checked) headers[@"If-Match"] = etag ?: ODSUnknownVersion;
   return @{ @"method": @"PATCH", @"url": [_codec pathOfEntity:root key:key], @"headers": headers,
-            @"body": [_codec JSONOfObject:object properties:insert ? nil : properties] };
+            @"body": [self bodyOf:object properties:insert ? nil : properties] };
+}
+
+// An upsert's body: the object's properties and, for a derived type in its
+// root's set (FillUp among Records), the type it is (@odata.type, from its
+// OData.type), so that the upsert creating it creates one of that type.
+- (NSDictionary *)bodyOf:(NSManagedObject *)object properties:(NSSet<NSString *> *)properties
+{
+  NSDictionary *json = [_codec JSONOfObject:object properties:properties];
+  ODataPropertyMapper *mapper = _model.mapper;
+  if (![mapper entityIsDerivedInItsSet:object.entity]) return json;
+  NSMutableDictionary *typed = [json mutableCopy];
+  typed[@"@odata.type"] = [@"#" stringByAppendingString:[mapper qualifiedTypeForEntity:object.entity]];
+  return typed;
 }
 
 - (NSDictionary *)deletionOf:(NSEntityDescription *)root key:(NSDictionary *)key checked:(BOOL)checked etag:(NSString *)etag

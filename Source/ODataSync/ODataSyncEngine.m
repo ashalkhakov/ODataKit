@@ -29,10 +29,21 @@ NSData *ODSArchive(id plist)
 
 id ODSUnarchive(NSData *data)
 {
-  if (!data.length) return nil;
+  return ODSUnarchiveReporting(data, NULL);
+}
+
+id ODSUnarchiveReporting(NSData *data, NSError **error)
+{
+  if (!data.length) {
+    if (error) *error = ODSError(0, @"nothing was kept");
+    return nil;
+  }
   NSSet *classes = [NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSString class], [NSNumber class], [NSDate class],
                                          [NSUUID class], [NSDecimalNumber class], [NSData class], [NSNull class], [NSSet class], nil];
-  return [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:NULL];
+  NSError *failure = nil;
+  id object = [NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:&failure];
+  if (!object && error) *error = failure ?: ODSError(0, @"it is not an archive");
+  return object;
 }
 
 // The compiled model's file itself, unarchived: both Core Datas write a
