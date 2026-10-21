@@ -1589,6 +1589,28 @@ static NSManagedObjectModel *OSTRecordsModel(BOOL service, BOOL versions, BOOL s
   XCTAssertEqualObjects([self record:identifier in:server][@"driver"], @"Bo", @"%@", [self lastPatches]);
 }
 
+// A decimal goes up as written and is kept so (68.4, not 68.40000000000001
+// as a double read back has it): the next change sends only itself.
+- (void)testADecimalIsKeptAsSent
+{
+  NSPersistentStoreCoordinator *server = nil, *device = nil;
+  ODataSyncService *syncing = nil;
+  ODataSyncEngine *engine = [self recordsWithVersions:YES server:&server device:&device service:&syncing];
+  [self makeUnits:@[ @"L" ] in:server];
+  [self sync:engine];
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self fillUp:identifier driver:@"Ann" unit:@"L" in:device];
+  [self set:[NSDecimalNumber decimalNumberWithString:@"68.4"] forKey:@"amount" ofRecord:identifier in:device];
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:server][@"amount"], [NSDecimalNumber decimalNumberWithString:@"68.4"]);
+  [self sync:engine];
+  XCTAssertEqualObjects([self record:identifier in:device][@"amount"], [NSDecimalNumber decimalNumberWithString:@"68.4"]);
+  [self set:@"Bea" forKey:@"driver" ofRecord:identifier in:device];
+  [self sync:engine];
+  NSDictionary *patch = [self lastPatches].firstObject;
+  XCTAssertEqualObjects([NSSet setWithArray:patch.allKeys], ([NSSet setWithObjects:@"@odata.type", @"Driver", @"Versions", nil]), @"%@", patch);
+}
+
 #pragma mark Peers
 
 // Another device: its store and engine, with the service as a remote when asked.

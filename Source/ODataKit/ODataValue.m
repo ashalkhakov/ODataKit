@@ -463,10 +463,21 @@ static NSNumber *OISInteger(id json)
   return ([scanner scanLongLong:&value] && scanner.isAtEnd) ? @(value) : nil;
 }
 
+// A decimal from JSON: a number a parser made a double of by the text it
+// was written as (the shortest that reads back as it: 68.4, where the
+// double's -decimalValue is 68.40000000000001), so that a decimal sent
+// as 68.4 is kept as 68.4.
 static NSDecimalNumber *OISDecimal(id json)
 {
   if ([json isKindOfClass:[NSDecimalNumber class]]) return json;
-  if ([json isKindOfClass:[NSNumber class]]) return [NSDecimalNumber decimalNumberWithDecimal:[json decimalValue]];
+  if ([json isKindOfClass:[NSNumber class]]) {
+    const char *type = [json objCType];
+    if (type[0] == 'd' || type[0] == 'f') {
+      double x = [json doubleValue];
+      if (isfinite(x)) return [NSDecimalNumber decimalNumberWithString:OISDoubleString(x) locale:@{ NSLocaleDecimalSeparator: @"." }];
+    }
+    return [NSDecimalNumber decimalNumberWithDecimal:[json decimalValue]];
+  }
   if (![json isKindOfClass:[NSString class]]) return nil;
   NSDecimalNumber *d = [NSDecimalNumber decimalNumberWithString:json locale:@{ NSLocaleDecimalSeparator: @"." }];
   return [d isEqual:[NSDecimalNumber notANumber]] ? nil : d;

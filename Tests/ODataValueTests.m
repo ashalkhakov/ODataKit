@@ -116,6 +116,20 @@
                         @"1200000000000000000000");
 }
 
+// A decimal written as a JSON number, which a parser reads as a double:
+// the decimal it was written as, not the double's (68.40000000000001).
+- (void)testADecimalReadAsADoubleIsTheDecimalWritten
+{
+  NSAttributeDescription *attr = [self attribute:NSDecimalAttributeType edm:nil];
+  NSArray *parsed = [NSJSONSerialization JSONObjectWithData:[@"[68.4, 0.1, 1e-7, 12, -3.25]" dataUsingEncoding:NSUTF8StringEncoding]
+                                                    options:0 error:NULL];
+  NSArray *written = @[ @"68.4", @"0.1", @"0.0000001", @"12", @"-3.25" ];
+  for (NSUInteger i = 0; i < written.count; i++) {
+    XCTAssertEqualObjects([_coder coreDataValueForJSON:parsed[i] attribute:attr], [NSDecimalNumber decimalNumberWithString:written[i]]);
+  }
+  XCTAssertEqualObjects([_coder coreDataValueForJSON:@68.4 attribute:attr], [NSDecimalNumber decimalNumberWithString:@"68.4"]);
+}
+
 - (void)testDecimalsMayComeWithAnExponent
 {
   // JSON Format 4.01 section 7.1: a service may write 1.5E3 for 1500.
