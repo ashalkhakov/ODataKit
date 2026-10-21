@@ -315,6 +315,12 @@ there is none, and otherwise updates it. An `up` insert and an `up` update
 are the same request with more or fewer properties, so a repeat, after a
 crash or by a peer that relayed it, ends as the first did.
 
+An object of a derived entity (a sub-entity, FillUp, kept in its root's
+set, `Records`) is sent to the root's set, and its body says its type
+(`"@odata.type": "#NS.FillUp"`, from the sub-entity's `OData.type`), so
+that the upsert creating it creates a FillUp, not a Record without
+FillUp's properties.
+
 ### 5.3 Answers
 
 | Answer | What the uploader does |

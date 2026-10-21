@@ -159,6 +159,30 @@ static NSManagedObjectModel *OSTModel(void)
   return model;
 }
 
+// Records (both, with version vectors) and fill-ups, a record of their own
+// kind served in the Records set (OData.type names each type).
+static NSManagedObjectModel *OSTRecordsModel(BOOL service)
+{
+  NSEntityDescription *record = [[NSEntityDescription alloc] init];
+  record.name = @"Record";
+  record.managedObjectClassName = @"NSManagedObject";
+  record.userInfo = @{ @"OData.entitySet": @"Records", @"OData.type": @"Default.Record", ODataSyncDirectionKey: @"both",
+                       ODataSyncVersionsKey: @"versions" };
+  record.properties = @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"note", NSStringAttributeType, NO),
+                         OSTAttribute(@"versions", NSStringAttributeType, NO) ];
+  NSEntityDescription *fillUp = [[NSEntityDescription alloc] init];
+  fillUp.name = @"FillUp";
+  fillUp.managedObjectClassName = @"NSManagedObject";
+  fillUp.userInfo = @{ @"OData.type": @"Default.FillUp" };
+  fillUp.properties = @[ OSTAttribute(@"driver", NSStringAttributeType, NO), OSTAttribute(@"litres", NSDoubleAttributeType, NO) ];
+  record.subentities = @[ fillUp ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ record, fillUp ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
 @interface ODataSyncTests : XCTestCase
 @end
 
@@ -1224,6 +1248,93 @@ static NSManagedObjectModel *OSTModel(void)
   XCTAssertTrue([_engine uploadToRemote:_remote error:&error], @"%@", error);
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_server], (@[ @"Server's" ]));
   XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_device], (@[ @"Server's" ]), @"the remote wins");
+}
+
+#pragma mark Derived types
+
+// The entity and properties of the record with this key, or nil.
+- (NSDictionary *)record:(NSString *)identifier in:(NSPersistentStoreCoordinator *)coordinator
+{
+  __block NSDictionary *found = nil;
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    NSManagedObject *record = [self object:@"Record" id:identifier in:context];
+    if (!record) return;
+    NSMutableDictionary *values = [[record dictionaryWithValuesForKeys:record.entity.attributesByName.allKeys] mutableCopy];
+    values[@"entity"] = record.entity.name;
+    found = values;
+  }];
+  return found;
+}
+
+// A fill-up made on a device: sent by upsert to the Records set, it is
+// made a fill-up there (the body says its type), with its own properties;
+// changed, the change follows. To a peer's server the same.
+- (void)testADerivedTypeIsCreatedAsItself
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTRecordsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTRecordsModel(NO)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = service;
+  [engine addRemote:remote];
+
+  NSString *identifier = [NSUUID UUID].UUIDString;
+  [self in:device do:^(NSManagedObjectContext *context) {
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [fillUp setValue:identifier forKey:@"id"];
+    [fillUp setValue:@"Full tank" forKey:@"note"];
+    [fillUp setValue:@"Ann" forKey:@"driver"];
+    [fillUp setValue:@41.5 forKey:@"litres"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.lastResult.uploaded, 1u, @"%@", engine.lastResult);
+  NSDictionary *served = [self record:identifier in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Ann");
+  XCTAssertEqualObjects(served[@"litres"], @41.5);
+  XCTAssertEqualObjects(served[@"note"], @"Full tank");
+
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self object:@"Record" id:identifier in:context] setValue:@"Bob" forKey:@"driver"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.lastResult.uploaded, 1u, @"%@", engine.lastResult);
+  served = [self record:identifier in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Bob", @"the change followed");
+  XCTAssertEqualObjects(served[@"litres"], @41.5);
+
+  // Another device, that reaches only this one: its fill-up goes to this
+  // device's peer server, and on to the service.
+  NSPersistentStoreCoordinator *basement = [self coordinatorWithModel:OSTRecordsModel(NO)];
+  ODataSyncEngine *offline = [[ODataSyncEngine alloc] initWithCoordinator:basement];
+  [offline addRemote:[self peerOf:engine]];
+  NSString *other = [NSUUID UUID].UUIDString;
+  [self in:basement do:^(NSManagedObjectContext *context) {
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [fillUp setValue:other forKey:@"id"];
+    [fillUp setValue:@"Carol" forKey:@"driver"];
+    [fillUp setValue:@12 forKey:@"litres"];
+  }];
+  [self sync:offline];
+  XCTAssertEqual(offline.lastResult.uploaded, 1u, @"%@", offline.lastResult);
+  NSDictionary *relayed = [self record:other in:device];
+  XCTAssertEqualObjects(relayed[@"entity"], @"FillUp", @"%@", relayed);
+  XCTAssertEqualObjects(relayed[@"driver"], @"Carol");
+  [self in:basement do:^(NSManagedObjectContext *context) {
+    [[self object:@"Record" id:other in:context] setValue:@"Dan" forKey:@"driver"];
+  }];
+  [self sync:offline];
+  XCTAssertEqualObjects([self record:other in:device][@"driver"], @"Dan", @"the change followed");
+  [self sync:engine];
+  served = [self record:other in:server];
+  XCTAssertEqualObjects(served[@"entity"], @"FillUp", @"%@", served);
+  XCTAssertEqualObjects(served[@"driver"], @"Dan");
+  XCTAssertEqualObjects(served[@"litres"], @12);
 }
 
 #pragma mark Peers

@@ -236,7 +236,20 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   if (checked && insert && !etag) headers[@"If-None-Match"] = @"*";
   else if (checked) headers[@"If-Match"] = etag ?: ODSUnknownVersion;
   return @{ @"method": @"PATCH", @"url": [_codec pathOfEntity:root key:key], @"headers": headers,
-            @"body": [_codec JSONOfObject:object properties:insert ? nil : properties] };
+            @"body": [self bodyOf:object properties:insert ? nil : properties] };
+}
+
+// An upsert's body: the object's properties and, for a derived type in its
+// root's set (FillUp among Records), the type it is (@odata.type, from its
+// OData.type), so that the upsert creating it creates one of that type.
+- (NSDictionary *)bodyOf:(NSManagedObject *)object properties:(NSSet<NSString *> *)properties
+{
+  NSDictionary *json = [_codec JSONOfObject:object properties:properties];
+  ODataPropertyMapper *mapper = _model.mapper;
+  if (![mapper entityIsDerivedInItsSet:object.entity]) return json;
+  NSMutableDictionary *typed = [json mutableCopy];
+  typed[@"@odata.type"] = [@"#" stringByAppendingString:[mapper qualifiedTypeForEntity:object.entity]];
+  return typed;
 }
 
 - (NSDictionary *)deletionOf:(NSEntityDescription *)root key:(NSDictionary *)key checked:(BOOL)checked etag:(NSString *)etag
