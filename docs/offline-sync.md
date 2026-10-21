@@ -220,6 +220,14 @@ Per remote, per `down` and `both` entity set:
    in one save. A crash before it loses nothing: the old link is read
    again.
 
+A set of a root with sub-entities (Records, with FillUps among them) is
+read with each sub-entity's own to-ones expanded behind its type's cast
+(`$expand=Unit($select=Id),Default.FillUp/Volume($select=Id)`, for a
+sub-entity that names its type with `OData.type`), whole, by delta link,
+by key after a 412, and from a peer alike; each row is made an object of
+the type its `@odata.type` names. The sets go in an order that puts the
+destinations of the sub-entities' to-ones first too.
+
 A removed `down` row that local `up` records still point to: the
 relationship's delete rule decides (Nullify keeps the records; Deny makes
 the downloader keep the row and report it). A `both` object with an
@@ -362,7 +370,9 @@ after the 412), and the properties each side changed since the base. A
 
 `ODataSyncConflict` has the entity, key, the three versions as property
 dictionaries, the changed names on each side, and for deletes which side
-deleted. `ODataSyncResolution` is one of: **take remote** (the local
+deleted. The entity is the object's own (a sub-entity's, FillUp, not its
+root's), and each version has that type's properties: the row's by its
+`@odata.type`, the version agreed on by the type its shadow keeps. `ODataSyncResolution` is one of: **take remote** (the local
 object becomes the remote version; the entry is dropped), **keep local**
 (the entry is sent again with If-Match of the remote's ETag), **merged**
 (these values: applied locally, and sent with If-Match of the remote's

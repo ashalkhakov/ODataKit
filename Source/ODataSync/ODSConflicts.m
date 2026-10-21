@@ -197,7 +197,8 @@ static NSString *ODSFingerprint(NSDictionary *values)
   }
   if (etag) [shadow setValue:etag forKey:@"etag"];
   // Large binaries as their digests: what a comparison needs of them.
-  [shadow setValue:[NSJSONSerialization dataWithJSONObject:[self.codec shadowOfRow:row entity:root] options:0 error:NULL] forKey:@"values"];
+  NSDictionary *kept = [self.codec shadowOfRow:row entity:[self.codec entityOfRow:row entity:root]];
+  [shadow setValue:[NSJSONSerialization dataWithJSONObject:kept options:0 error:NULL] forKey:@"values"];
 }
 
 // The outbox entry, after a resolution: what this side still has to send
@@ -248,7 +249,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
   NSString *keyText = [codec keyTextOf:key entity:root];
   [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
   NSManagedObject *entry = [self.store newEntryOf:root key:key operation:ODataSyncOperationUpdate remote:remote context:context];
-  [self sendWhatDiffers:object from:[codec valuesFromJSON:row entity:root] entry:entry context:context];
+  [self sendWhatDiffers:object from:[codec valuesFromJSON:row entity:[codec entityOfRow:row entity:object.entity]] entry:entry context:context];
   return YES;
 }
 
@@ -270,11 +271,13 @@ static NSString *ODSFingerprint(NSDictionary *values)
   [object setValue:ODSTextOfVersions(versions) forKey:attribute.name];
 }
 
-- (NSManagedObject *)objectToWrite:(NSEntityDescription *)root key:(NSDictionary *)key context:(NSManagedObjectContext *)context
+// The object with this key; made, of this entity (the row's), when there
+// is none.
+- (NSManagedObject *)objectToWrite:(NSEntityDescription *)entity key:(NSDictionary *)key context:(NSManagedObjectContext *)context
 {
-  NSManagedObject *object = [self.codec objectOfEntity:root key:key inContext:context];
+  NSManagedObject *object = [self.codec objectOfEntity:entity key:key inContext:context];
   if (object) return object;
-  object = [[NSManagedObject alloc] initWithEntity:root insertIntoManagedObjectContext:context];
+  object = [[NSManagedObject alloc] initWithEntity:entity insertIntoManagedObjectContext:context];
   for (NSString *name in key) [object setValue:key[name] forKey:name];
   return object;
 }
@@ -289,11 +292,17 @@ static NSString *ODSFingerprint(NSDictionary *values)
   NSManagedObject *shadow = [self.store shadowOf:root.name keyText:keyText remote:remote inContext:context make:NO];
   NSData *kept = [shadow valueForKey:@"values"];
   id baseRow = kept.length ? [NSJSONSerialization JSONObjectWithData:kept options:0 error:NULL] : nil;
-  NSMutableDictionary *base = [baseRow isKindOfClass:[NSDictionary class]] ? [[codec valuesFromShadow:baseRow entity:root] mutableCopy] : nil;
   BOOL deletedHere = [[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationDelete;
   NSManagedObject *object = deletedHere ? nil : [codec objectOfEntity:root key:key inContext:context];
+  // Each side's values as its own type has them (a sub-entity's own
+  // properties too): the object's; the row's, by its @odata.type; the
+  // version agreed on, by the type its shadow names (else the object's).
+  NSEntityDescription *remoteEntity = [codec entityOfRow:row entity:object.entity ?: root];
+  NSEntityDescription *entity = object ? object.entity : remoteEntity;
+  NSEntityDescription *baseEntity = [codec entityOfRow:baseRow entity:entity];
+  NSMutableDictionary *base = [baseRow isKindOfClass:[NSDictionary class]] ? [[codec valuesFromShadow:baseRow entity:baseEntity] mutableCopy] : nil;
   NSMutableDictionary *local = object ? [[codec valuesOfObject:object] mutableCopy] : nil;
-  NSMutableDictionary *remoteValues = row ? [[codec valuesFromJSON:row entity:root] mutableCopy] : nil;
+  NSMutableDictionary *remoteValues = row ? [[codec valuesFromJSON:row entity:remoteEntity] mutableCopy] : nil;
   NSAttributeDescription *stamp = [model modifiedAttributeOf:root];
   if (stamp && remoteValues) [self.clock witness:remoteValues[stamp.name]];
   // What each version has seen: the vectors, which the values compared
@@ -316,7 +325,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
     [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
     if (object && known && order != ODSOrderAfter) {
       [self setVersionsOf:object seen:localVersions and:remoteVersions changed:NO];
-      [self sendWhatDiffers:object from:remoteValues ? [codec valuesFromJSON:row entity:root] : nil entry:entry context:context];
+      [self sendWhatDiffers:object from:remoteValues ? [codec valuesFromJSON:row entity:remoteEntity] : nil entry:entry context:context];
     } else {
       if (object && known) [self setVersionsOf:object seen:localVersions and:remoteVersions changed:NO];
       [context deleteObject:entry];
@@ -325,7 +334,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
   }
   // The remote's version saw this side's change: no conflict; it is newer.
   if (known && order == ODSOrderAfter) {
-    if (row) [codec applyJSON:row toObject:[self objectToWrite:root key:key context:context]];
+    if (row) [codec applyJSON:row toObject:[self objectToWrite:remoteEntity key:key context:context]];
     else if (object) [context deleteObject:object];
     [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
     [context deleteObject:entry];
@@ -338,17 +347,20 @@ static NSString *ODSFingerprint(NSDictionary *values)
     [self agreeOn:row etag:etag of:root keyText:keyText remote:remote context:context];
     return;
   }
-  NSArray *all = [[[model attributesOf:root] valueForKey:@"name"] arrayByAddingObjectsFromArray:[[model toOnesOf:root] valueForKey:@"name"]];
-  NSMutableSet *everything = [NSMutableSet setWithArray:all];
+  NSMutableSet *everything = [NSMutableSet set];
+  for (NSEntityDescription *side in @[ entity, remoteEntity ]) {
+    [everything addObjectsFromArray:[[model attributesOf:side] valueForKey:@"name"]];
+    [everything addObjectsFromArray:[[model toOnesOf:side] valueForKey:@"name"]];
+  }
   if (versionsAttribute) [everything removeObject:versionsAttribute.name];
   NSSet *localChanges = base && local ? ODSChangedNames(base, local) : everything;
   NSSet *remoteChanges = base && remoteValues ? ODSChangedNames(base, remoteValues) : everything;
-  ODataSyncConflict *conflict = [[ODataSyncConflict alloc] initWithEntity:root key:key base:base local:local remote:remoteValues
+  ODataSyncConflict *conflict = [[ODataSyncConflict alloc] initWithEntity:entity key:key base:base local:local remote:remoteValues
                                                              localChanges:localChanges remoteChanges:remoteChanges
                                                                  withPeer:remote.peer];
   ODataSyncResolution *resolution = [[self resolverFor:root remote:remote] resolveConflict:conflict] ?: [ODataSyncResolution takeRemote];
   [self count:@"conflicts" by:1];
-  NSDictionary *remoteWhole = row ? [codec valuesFromJSON:row entity:root] : nil;
+  NSDictionary *remoteWhole = row ? [codec valuesFromJSON:row entity:remoteEntity] : nil;
   // A merge that names a file by its digest (the base's): that side's
   // bytes; neither side's, and there are none to write - set aside.
   ODataSyncResolutionKind kind = resolution.kind;
@@ -369,7 +381,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
   switch (kind) {
     case ODataSyncTakeRemote:
       if (row) {
-        object = [self objectToWrite:root key:key context:context];
+        object = [self objectToWrite:remoteEntity key:key context:context];
         [codec applyJSON:row toObject:object];
       } else if ((object = [codec objectOfEntity:root key:key inContext:context])) {
         [context deleteObject:object];
@@ -396,7 +408,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
       }
       break;
     case ODataSyncMerge: {
-      object = [self objectToWrite:root key:key context:context];
+      object = [self objectToWrite:entity key:key context:context];
       [codec applyValues:mergedValues toObject:object];
       if (stamp && [mergedValues objectForKey:stamp.name] == nil) [object setValue:[self.clock tick] forKey:stamp.name];
       if (known || versionsAttribute) {

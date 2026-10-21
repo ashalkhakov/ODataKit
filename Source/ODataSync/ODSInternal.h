@@ -86,8 +86,12 @@ FOUNDATION_EXPORT id _Nullable ODSUnarchive(NSData *_Nullable data);
 - (NSDictionary *)valuesOfObject:(NSManagedObject *)object;
 - (NSDictionary *)valuesFromJSON:(NSDictionary *)json entity:(NSEntityDescription *)entity;
 - (void)applyValues:(NSDictionary *)values toObject:(NSManagedObject *)object;
+// The entity a row is of: the one derived from entity (or entity) its
+// @odata.type names; entity when it names none.
+- (NSEntityDescription *)entityOfRow:(nullable NSDictionary *)row entity:(NSEntityDescription *)entity;
 // An object as a row: what a shadow keeps of a version (wire names, its
-// to-ones' keys expanded).
+// to-ones' keys expanded, and the type of a derived one, as a row read
+// from its set has it).
 - (NSDictionary *)rowOfObject:(NSManagedObject *)object;
 // A row as a shadow keeps it: each binary value larger than
 // ODataSyncShadowDigestBytes replaced by its digest

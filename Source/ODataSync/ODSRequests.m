@@ -100,19 +100,35 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   return items;
 }
 
-// $expand of the to-ones' keys, for reading an entity's rows.
+// $expand of the to-ones' keys, for reading an entity's rows: its own, and
+// each sub-entity's own behind its type's cast (Default.FillUp/Unit), so
+// that a derived row comes with all of its to-ones.
 - (NSArray<ODataExpandItem *> *)expandOfEntity:(NSEntityDescription *)entity error:(NSError **)error
 {
   NSMutableArray *items = [NSMutableArray array];
+  return [self addExpandOfEntity:entity cast:nil into:items error:error] ? items : nil;
+}
+
+- (BOOL)addExpandOfEntity:(NSEntityDescription *)entity cast:(NSString *)cast into:(NSMutableArray *)items error:(NSError **)error
+{
   for (NSRelationshipDescription *toOne in [_model toOnesOf:entity]) {
+    if (cast && entity.superentity.relationshipsByName[toOne.name]) continue;  // the base type's, expanded already
     ODataMutableQueryOptions *keys = [[ODataMutableQueryOptions alloc] init];
     keys.select = [self selectOfKeyOfEntity:toOne.destinationEntity error:error];
-    if (!keys.select) return nil;
-    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ [_model.mapper propertyForRelationship:toOne] ] options:keys error:error];
-    if (!item) return nil;
+    if (!keys.select) return NO;
+    NSString *name = [_model.mapper propertyForRelationship:toOne];
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:cast ? @[ cast, name ] : @[ name ] options:keys error:error];
+    if (!item) return NO;
     [items addObject:item];
   }
-  return items;
+  // A sub-entity names its type (OData.type) to be cast to; one that does
+  // not is read as its base type is.
+  NSArray *subentities = [entity.subentities sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+  for (NSEntityDescription *subentity in subentities) {
+    NSString *qualified = [_model.mapper qualifiedTypeForEntity:subentity];
+    if (qualified && ![self addExpandOfEntity:subentity cast:qualified into:items error:error]) return NO;
+  }
+  return YES;
 }
 
 // A filter naming these keys (k eq 1 or k eq 2; (a eq 1 and b eq 2) or ...).
