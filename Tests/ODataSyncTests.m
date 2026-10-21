@@ -215,6 +215,29 @@ static NSManagedObjectModel *OSTRecordsModel(BOOL service, BOOL versions, BOOL s
   return model;
 }
 
+// Vehicles (both) keyed by a UUID attribute, and trucks among them.
+static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
+{
+  NSEntityDescription *vehicle = [[NSEntityDescription alloc] init];
+  vehicle.name = @"Vehicle";
+  vehicle.managedObjectClassName = @"NSManagedObject";
+  vehicle.userInfo = @{ @"OData.entitySet": @"Vehicles", @"OData.type": @"Default.Vehicle", ODataSyncDirectionKey: @"both",
+                        ODataSyncVersionsKey: @"versions", ODataSyncModifiedKey: @"modified" };
+  vehicle.properties = @[ OSTAttribute(@"id", NSUUIDAttributeType, YES), OSTAttribute(@"name", NSStringAttributeType, NO),
+                          OSTAttribute(@"versions", NSStringAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+  NSEntityDescription *truck = [[NSEntityDescription alloc] init];
+  truck.name = @"Truck";
+  truck.managedObjectClassName = @"NSManagedObject";
+  truck.userInfo = @{ @"OData.type": @"Default.Truck" };
+  truck.properties = @[ OSTAttribute(@"axles", NSInteger32AttributeType, NO) ];
+  vehicle.subentities = @[ truck ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ vehicle, truck ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
 // Keeps this side's, and the conflict it saw.
 @interface OSTKeepingResolver : NSObject <ODataSyncResolving>
 @property (atomic, strong) ODataSyncConflict *last;
@@ -1647,6 +1670,46 @@ static NSManagedObjectModel *OSTRecordsModel(BOOL service, BOOL versions, BOOL s
   [self sync:engine];
   NSDictionary *patch = [self lastPatches].firstObject;
   XCTAssertEqualObjects([NSSet setWithArray:patch.allKeys], ([NSSet setWithObjects:@"@odata.type", @"Driver", @"Versions", nil]), @"%@", patch);
+}
+
+// Objects keyed by a UUID, made on a device (one of a sub-entity): each
+// waits to be sent, goes up, and reaches another device.
+- (void)testObjectsKeyedByAUUIDGoUp
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTVehiclesModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  NSMutableArray<ODataSyncEngine *> *engines = [NSMutableArray array];
+  NSMutableArray<NSPersistentStoreCoordinator *> *devices = [NSMutableArray array];
+  for (NSUInteger i = 0; i < 2; i++) {
+    NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTVehiclesModel(NO)];
+    ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+    ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+    remote.transport = service;
+    [engine addRemote:remote];
+    [devices addObject:device];
+    [engines addObject:engine];
+  }
+  [self sync:engines[0]];
+  NSUUID *car = [NSUUID UUID], *truck = [NSUUID UUID];
+  [self in:devices[0] do:^(NSManagedObjectContext *context) {
+    NSManagedObject *one = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+    [one setValue:car forKey:@"id"];
+    [one setValue:@"Car" forKey:@"name"];
+    NSManagedObject *two = [NSEntityDescription insertNewObjectForEntityForName:@"Truck" inManagedObjectContext:context];
+    [two setValue:truck forKey:@"id"];
+    [two setValue:@"Truck" forKey:@"name"];
+    [two setValue:@3 forKey:@"axles"];
+  }];
+  XCTAssertEqual([engines[0] pendingChanges].count, 2u, @"%@", [engines[0] pendingChanges]);
+  [self sync:engines[0]];
+  XCTAssertEqual(engines[0].lastResult.uploaded, 2u, @"%@", engines[0].lastResult);
+  XCTAssertEqualObjects([NSSet setWithArray:[self values:@"name" of:@"Vehicle" in:server]], ([NSSet setWithObjects:@"Car", @"Truck", nil]));
+  [self sync:engines[1]];
+  XCTAssertEqualObjects([NSSet setWithArray:[self values:@"name" of:@"Vehicle" in:devices[1]]], ([NSSet setWithObjects:@"Car", @"Truck", nil]));
+  XCTAssertEqualObjects([self values:@"axles" of:@"Truck" in:devices[1]], (@[ @3 ]));
 }
 
 #pragma mark Peers
