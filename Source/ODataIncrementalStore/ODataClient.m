@@ -89,7 +89,86 @@ static NSString *OISHeaderOf(NSHTTPURLResponse *response, NSString *name)
 
 #pragma mark - The client
 
-@implementation ODataClient
+// $expand's items, at its top level: A($select=B,C),D is A($select=B,C) and D.
+static NSArray<NSString *> *OISTopLevelItems(NSString *list)
+{
+  NSMutableArray *items = [NSMutableArray array];
+  NSInteger depth = 0;
+  BOOL quoted = NO;
+  NSUInteger start = 0;
+  for (NSUInteger i = 0; i < list.length; i++) {
+    unichar c = [list characterAtIndex:i];
+    if (c == '\'') quoted = !quoted;
+    else if (quoted) continue;
+    else if (c == '(') depth++;
+    else if (c == ')') depth--;
+    else if (c == ',' && depth == 0) {
+      [items addObject:[list substringWithRange:NSMakeRange(start, i - start)]];
+      start = i + 1;
+    }
+  }
+  [items addObject:[list substringFromIndex:start]];
+  return items;
+}
+
+// An $expand item behind a type cast: Ns.Type/Nav(...).
+static BOOL OISIsCastExpansion(NSString *item)
+{
+  NSRange open = [item rangeOfString:@"("];
+  NSString *path = open.location == NSNotFound ? item : [item substringToIndex:open.location];
+  NSRange slash = [path rangeOfString:@"/"];
+  return slash.location != NSNotFound && [[path substringToIndex:slash.location] rangeOfString:@"."].location != NSNotFound;
+}
+
+static NSString *OISEncodeQueryValue(NSString *value)
+{
+  static const char hex[] = "0123456789ABCDEF";
+  NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
+  const unsigned char *bytes = data.bytes;
+  NSMutableString *out = [NSMutableString stringWithCapacity:data.length * 3];
+  for (NSUInteger i = 0; i < data.length; i++) {
+    unsigned char c = bytes[i];
+    BOOL unreserved = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';
+    if (unreserved) [out appendFormat:@"%c", c];
+    else [out appendFormat:@"%%%c%c", hex[c >> 4], hex[c & 15]];
+  }
+  return out;
+}
+
+// The URL without $expand's items behind a type cast (a derived type's
+// own navigation properties, Ns.Type/Nav), which a service may not take
+// (ODataKit's before 0.3.11 answers 501); nil when it has none.
+static NSURL *OISURLWithoutCastExpansions(NSURL *url)
+{
+  NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+  NSString *query = components.percentEncodedQuery;
+  if (!query.length) return nil;
+  NSMutableArray *parts = [NSMutableArray array];
+  BOOL changed = NO;
+  for (NSString *part in [query componentsSeparatedByString:@"&"]) {
+    NSRange equals = [part rangeOfString:@"="];
+    NSString *name = equals.location == NSNotFound ? part : [[part substringToIndex:equals.location] stringByRemovingPercentEncoding];
+    if (![name isEqualToString:@"$expand"]) {
+      [parts addObject:part];
+      continue;
+    }
+    NSString *value = [[part substringFromIndex:equals.location + 1] stringByRemovingPercentEncoding] ?: @"";
+    NSMutableArray *kept = [NSMutableArray array];
+    for (NSString *item in OISTopLevelItems(value)) {
+      if (OISIsCastExpansion(item)) changed = YES;
+      else [kept addObject:item];
+    }
+    if (kept.count) [parts addObject:[NSString stringWithFormat:@"%@=%@", [part substringToIndex:equals.location], OISEncodeQueryValue([kept componentsJoinedByString:@","])]];
+  }
+  if (!changed) return nil;
+  components.percentEncodedQuery = parts.count ? [parts componentsJoinedByString:@"&"] : nil;
+  return components.URL;
+}
+
+@implementation ODataClient {
+  // A service refused $expand's type casts: left out from then on.
+  BOOL _castExpansionsRefused;
+}
 
 - (instancetype)initWithConfiguration:(ODataConfiguration *)configuration
 {
@@ -337,11 +416,26 @@ static NSString *OISHeaderOf(NSHTTPURLResponse *response, NSString *name)
 
 - (id)JSONAtURL:(NSURL *)url headers:(NSDictionary *)headers error:(NSError **)error
 {
+  if (_castExpansionsRefused) url = OISURLWithoutCastExpansions(url) ?: url;
   NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
   req.HTTPMethod = @"GET";
   for (NSString *name in headers) [req setValue:headers[name] forHTTPHeaderField:name];
-  ODataHTTPResponse *response = [self sendRequest:req error:error];
-  if (!response) return nil;
+  NSError *failure = nil;
+  ODataHTTPResponse *response = [self sendRequest:req error:&failure];
+  // A derived type's to-ones, prefetched behind its cast, refused: read
+  // without them (each is then read when asked for), and so from now on.
+  NSInteger status = [failure.userInfo[ODataErrorHTTPStatusKey] integerValue];
+  NSURL *plain = !response && (status == 400 || status == 501) ? OISURLWithoutCastExpansions(url) : nil;
+  if (plain) {
+    _castExpansionsRefused = YES;
+    req.URL = plain;
+    failure = nil;
+    response = [self sendRequest:req error:&failure];
+  }
+  if (!response) {
+    if (error) *error = failure;
+    return nil;
+  }
   if (response.status == 204) return [NSNull null];
   return [response JSONWithError:error];
 }

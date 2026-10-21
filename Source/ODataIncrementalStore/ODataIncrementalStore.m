@@ -2383,13 +2383,41 @@ static NSDictionary *OISDynamicChanges(id old, id now)
   return raw && raw != [NSNull null] ? [_mapper.values coreDataValueForJSON:raw attribute:attribute] : nil;
 }
 
+// The type cast a single entity's context ends with, if any:
+// $metadata#Events/Default.Service(Id,Default.Service/Garage)/$entity is
+// Default.Service (its select list, which has '/'s of its own, set aside).
+static NSString *OISCastInContext(id context)
+{
+  if (![context isKindOfClass:[NSString class]]) return nil;
+  NSRange hash = [context rangeOfString:@"#"];
+  if (hash.location == NSNotFound) return nil;
+  NSString *path = [context substringFromIndex:hash.location + 1];
+  if (![path hasSuffix:@"/$entity"]) return nil;
+  path = [path substringToIndex:path.length - @"/$entity".length];
+  if ([path hasSuffix:@")"]) {
+    NSInteger depth = 0;
+    for (NSInteger i = (NSInteger)path.length - 1; i >= 0; i--) {
+      unichar c = [path characterAtIndex:(NSUInteger)i];
+      if (c == ')') depth++;
+      else if (c == '(' && --depth == 0) {
+        path = [path substringToIndex:(NSUInteger)i];
+        break;
+      }
+    }
+  }
+  NSString *last = [path componentsSeparatedByString:@"/"].lastObject;
+  return [last rangeOfString:@"."].location != NSNotFound && ![last hasPrefix:@"$"] && [last rangeOfString:@"("].location == NSNotFound ? last : nil;
+}
+
 - (NSManagedObjectID *)objectIDFromPayload:(NSDictionary *)payload
                                     entity:(NSEntityDescription *)entity
                                      error:(NSError **)error
 {
   // A row of a derived type says so (JSON Format section 4.5.3): its object
-  // is of the sub-entity standing for that type.
-  entity = [_mapper entity:entity forTypeName:payload[@"@odata.type"]];
+  // is of the sub-entity standing for that type. A single entity may say it
+  // only by its context's cast (Employees(3)/Manager answered as
+  // #Employees/Default.Manager/$entity), which the type is then (#49).
+  entity = [_mapper entity:entity forTypeName:payload[@"@odata.type"] ?: OISCastInContext(payload[@"@odata.context"])];
   NSArray *keyAttrs = [_mapper keyAttributesForEntity:entity];
   if (!keyAttrs.count) {
     if (error) *error = OISError(ODataIncrementalStoreErrorMissingKey, entity.name ?: @"?");
