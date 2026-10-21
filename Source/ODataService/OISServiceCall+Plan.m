@@ -222,10 +222,8 @@ static void OISAddFilters(NSArray<ODataApplyTransformation *> *transformations, 
     }
   }
   for (ODataExpandItem *item in options.expand) {
-    NSPropertyDescription *property = item.path.count == 1 && !item.isStar ? [self.mapper propertyForWireName:item.path[0] entity:entity] : nil;
-    if ([property isKindOfClass:[NSRelationshipDescription class]]) {
-      [self addSpansOf:item.options entity:((NSRelationshipDescription *)property).destinationEntity into:spans];
-    }
+    NSRelationshipDescription *relationship = [self relationshipOfExpand:item entity:entity];
+    if (relationship) [self addSpansOf:item.options entity:relationship.destinationEntity into:spans];
   }
 }
 
@@ -636,8 +634,7 @@ static NSSet<NSString *> *OISJoinAliases(ODataQueryOptions *options)
     OISPlanNode *nest = [OISPlanNode operator:OISPlanNest input:nil];
     nest.item = item;
     nest.entity = entity;
-    NSPropertyDescription *property = item.path.count == 1 && !item.isStar ? [self.mapper propertyForWireName:item.path[0] entity:entity] : nil;
-    NSEntityDescription *destination = [property isKindOfClass:[NSRelationshipDescription class]] ? ((NSRelationshipDescription *)property).destinationEntity : nil;
+    NSEntityDescription *destination = [self relationshipOfExpand:item entity:entity].destinationEntity;
     nest.nests = destination ? [self nestsOf:item.options entity:destination] : @[];
     [nests addObject:nest];
   }
@@ -1575,14 +1572,17 @@ static const NSUInteger OISRowsForAPageOfBytes = 1000;
         if ([self.service handlerForEntity:relationship.destinationEntity]) [relationships addObject:relationship];
       }
     } else {
-      if (item.path.count != 1) {
+      BOOL casted = item.path.count == 2 && [item.path[0] rangeOfString:@"."].location != NSNotFound;
+      if (item.path.count != 1 && !casted) {
         [self fail:501 message:[NSString stringWithFormat:@"$expand=%@ is not supported", [item.path componentsJoinedByString:@"/"]]];
         return NO;
       }
-      NSPropertyDescription *property = [self.mapper propertyForWireName:item.path[0] entity:object.entity];
-      if (![property isKindOfClass:[NSRelationshipDescription class]]
-          || ![self.service handlerForEntity:((NSRelationshipDescription *)property).destinationEntity]) {
-        [self fail:400 message:[NSString stringWithFormat:@"%@ has no navigation property %@", object.entity.name, item.path[0]]];
+      // A derived type's own (Ns.Type/Nav): a row of another type has none.
+      NSEntityDescription *derived = casted ? [self entityForTypeName:item.path[0]] : nil;
+      if (derived && ![object.entity isKindOfEntity:derived]) continue;
+      NSRelationshipDescription *property = [self relationshipOfExpand:item entity:object.entity];
+      if (!property || ![self.service handlerForEntity:property.destinationEntity]) {
+        [self fail:400 message:[NSString stringWithFormat:@"%@ has no navigation property %@", object.entity.name, item.path.lastObject]];
         return NO;
       }
       [relationships addObject:property];
@@ -1834,8 +1834,8 @@ static const NSUInteger OISRowsForAPageOfBytes = 1000;
         if ([self.service handlerForEntity:relationship.destinationEntity]) [destinations addObject:relationship.destinationEntity];
       }
     } else {
-      NSPropertyDescription *property = nest.item.path.count == 1 ? [self.mapper propertyForWireName:nest.item.path[0] entity:nest.entity] : nil;
-      if ([property isKindOfClass:[NSRelationshipDescription class]]) [destinations addObject:((NSRelationshipDescription *)property).destinationEntity];
+      NSEntityDescription *destination = [self relationshipOfExpand:nest.item entity:nest.entity].destinationEntity;
+      if (destination) [destinations addObject:destination];
     }
     for (NSEntityDescription *destination in destinations) {
       [entities addObjectsFromArray:[destination.subentitiesByName.allValues arrayByAddingObject:destination]];

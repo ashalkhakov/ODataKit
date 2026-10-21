@@ -761,6 +761,29 @@ static _Atomic long OISCountedProductsAlive;
 }
 @end
 
+// Answers 501 to a read whose $expand has a type cast, as ODataKit's
+// service did before 0.3.11; records what it is sent.
+@interface OISCastRefusingTransport : OISRecordingTransport
+@end
+
+@implementation OISCastRefusingTransport
+- (void)startExchange:(ODataExchange *)exchange
+{
+  if (!self.requests) self.requests = [NSMutableArray array];
+  [self.requests addObject:exchange.request];
+  NSString *query = exchange.request.URL.query.stringByRemovingPercentEncoding ?: @"";
+  NSRange expand = [query rangeOfString:@"$expand="];
+  if (expand.location != NSNotFound && [[query substringFromIndex:expand.location] rangeOfString:@"Default.Reminder/"].location != NSNotFound) {
+    exchange.URLResponse = [[NSHTTPURLResponse alloc] initWithURL:exchange.request.URL statusCode:501 HTTPVersion:@"HTTP/1.1"
+                                                     headerFields:@{ @"Content-Type": @"application/json" }];
+    exchange.data = [@"{\"error\":{\"code\":\"501\",\"message\":\"$expand=Default.Reminder/Event is not supported\"}}" dataUsingEncoding:NSUTF8StringEncoding];
+    [exchange finish];
+    return;
+  }
+  [self.next startExchange:exchange];
+}
+@end
+
 // Answers a media resource's PUT as TripPin does: 200 with the entity,
 // whose @odata.mediaEtag is the new one, and no ETag header. The service
 // behind it answers at once.
@@ -2907,6 +2930,124 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
 - (NSArray *)employeeNames:(OISServiceResponse *)response
 {
   return [response.json[@"value"] valueForKey:@"Name"];
+}
+
+// A single entity of a derived type, read alone or through a navigation
+// declared as its base type, says its type in @odata.type, not only in the
+// context's cast; and the client makes an object of that sub-entity (#49:
+// a Reminder's Event that was a Service came as an Event).
+- (void)testADerivedEntityReadAloneSaysItsType
+{
+  [self serveStaff];
+  OISServiceResponse *bob = [self get:@"Employees(3)/Manager"];
+  XCTAssertEqual(bob.status, 200, @"%@", bob.text);
+  XCTAssertEqualObjects(bob.json[@"@odata.type"], @"#Default.Manager", @"%@", bob.text);
+  XCTAssertEqualObjects([self get:@"Employees(2)"].json[@"@odata.type"], @"#Default.Manager");
+  XCTAssertEqualObjects([self get:@"Employees(3)/Manager?$select=Name"].json[@"@odata.type"], @"#Default.Manager");
+  XCTAssertNil([self get:@"Employees(3)"].json[@"@odata.type"], @"the set's own type: none");
+  XCTAssertEqualObjects([self get:@"Employees(3)?$expand=Manager"].json[@"Manager"][@"@odata.type"], @"#Default.Manager");
+}
+
+// Logbook's shape (#49): a Reminder (a kind of Record) whose Event, declared
+// an Event, is a Service (a kind of Event). Faulted through the client, it
+// is a Service; prefetched with the fetch (Default.Reminder/Event), from a
+// service that takes a cast in $expand, and read when asked from one that
+// does not.
+- (void)testATooneDeclaredOnADerivedTypeIsOfItsTargetsType
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSEntityDescription *(^entity)(NSString *, NSString *) = ^(NSString *name, NSString *set) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    if (set) e.userInfo = @{ @"OData.entitySet": set };
+    return e;
+  };
+  NSEntityDescription *event = entity(@"Event", @"Events"), *service = entity(@"Service", nil);
+  NSEntityDescription *record = entity(@"Record", @"Records"), *reminder = entity(@"Reminder", nil);
+  NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init];
+  of.name = @"event";
+  of.destinationEntity = event;
+  of.maxCount = 1;
+  of.optional = YES;
+  NSRelationshipDescription *reminders = [[NSRelationshipDescription alloc] init];
+  reminders.name = @"reminders";
+  reminders.destinationEntity = reminder;
+  reminders.maxCount = 0;
+  reminders.optional = YES;
+  of.inverseRelationship = reminders;
+  reminders.inverseRelationship = of;
+  event.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"title", NSStringAttributeType, NO), reminders ];
+  service.properties = @[ attribute(@"garage", NSStringAttributeType, NO) ];
+  event.subentities = @[ service ];
+  record.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"note", NSStringAttributeType, NO) ];
+  reminder.properties = @[ attribute(@"due", NSDateAttributeType, NO), of ];
+  record.subentities = @[ reminder ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ event, service, record, reminder ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+  seed.persistentStoreCoordinator = _coordinator;
+  NSManagedObject *oilChange = [self insert:@"Service" into:seed values:@{ @"id": @1, @"title": @"Oil change", @"garage": @"Kwik" }];
+  [self insert:@"Reminder" into:seed values:@{ @"id": @1, @"note": @"Next oil change", @"event": oilChange }];
+  [self insert:@"Record" into:seed values:@{ @"id": @2, @"note": @"Bought the car" }];
+  XCTAssertTrue([seed save:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  OISServiceResponse *read = [self get:@"Records(1)/Default.Reminder/Event"];
+  XCTAssertEqual(read.status, 200, @"%@", read.text);
+  XCTAssertEqualObjects(read.json[@"@odata.type"], @"#Default.Service", @"%@", read.text);
+
+  OISServiceResponse *expanded = [self get:@"Records?$expand=Default.Reminder/Event($select=Id)&$orderby=Id"];
+  XCTAssertEqual(expanded.status, 200, @"%@", expanded.text);
+  XCTAssertEqualObjects(expanded.json[@"value"][0][@"Event"][@"@odata.type"], @"#Default.Service", @"%@", expanded.text);
+  XCTAssertNil(expanded.json[@"value"][1][@"Event"], @"a Record has no Event: %@", expanded.text);
+
+  [ODataIncrementalStore registerStore];
+  for (Class transport in @[ [OISRecordingTransport class], [OISCastRefusingTransport class] ]) {
+    OISRecordingTransport *recorder = [[transport alloc] init];
+    recorder.next = _service;
+    NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                   URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                               options:@{ ODataIncrementalStoreTransportOption: recorder } error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    context.persistentStoreCoordinator = client;
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+    fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+    NSArray *records = [context executeFetchRequest:fetch error:&error];
+    XCTAssertEqual(records.count, 2u, @"%@: %@", transport, error);
+    NSManagedObject *due = records.firstObject;
+    XCTAssertEqualObjects(due.entity.name, @"Reminder");
+    XCTAssertEqualObjects([records.lastObject entity].name, @"Record");
+    NSManagedObject *done = [due valueForKey:@"event"];
+    XCTAssertEqualObjects(done.entity.name, @"Service", @"%@", transport);
+    XCTAssertEqualObjects([done valueForKey:@"garage"], @"Kwik");
+    NSArray *urls = [[recorder.requests valueForKeyPath:@"URL.absoluteString"] valueForKey:@"stringByRemovingPercentEncoding"];
+    NSArray *asked = [urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Records/1/Event'"]];
+    if (transport == [OISRecordingTransport class]) {
+      XCTAssertEqual(asked.count, 0u, @"prefetched, not asked for: %@", urls);
+      XCTAssertEqual([urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Reminder/Event($select=Id)'"]].count, 1u,
+                     @"%@", urls);
+    } else {
+      XCTAssertEqual(asked.count, 1u, @"refused, then read when asked: %@", urls);
+      NSArray *refused = [urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Reminder/Event($select'"]];
+      XCTAssertEqual(refused.count, 1u, @"asked once, then no more: %@", urls);
+      [context reset];
+      XCTAssertEqual([context executeFetchRequest:fetch error:&error].count, 2u, @"%@", error);
+      urls = [[recorder.requests valueForKeyPath:@"URL.absoluteString"] valueForKey:@"stringByRemovingPercentEncoding"];
+      XCTAssertEqual([urls filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Reminder/Event($select'"]].count, 1u,
+                     @"not again: %@", urls);
+    }
+  }
 }
 
 - (void)testTypeCasts

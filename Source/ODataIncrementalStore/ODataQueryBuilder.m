@@ -116,31 +116,53 @@ static NSString *OISPercentEncode(NSString *value)
 // Core Data asks for every to-one relationship as soon as a fault fires,
 // and a row does not name its related entities; without this, firing N
 // faults costs N more requests. A service that ignores the nested $select
-// sends the whole related entity, which is cached too.
+// sends the whole related entity, which is cached too. A subentity's own
+// behind its type's cast, Ns.Type/Nav($select=Key) (#49): a row of that
+// type brings it, the others nothing.
 - (NSArray<ODataExpandItem *> *)toOneKeyExpansionsForEntity:(NSEntityDescription *)entity except:(NSSet *)expanded error:(NSError **)error
 {
   NSMutableArray *out = [NSMutableArray array];
+  if (![self addToOneKeyExpansionsOf:entity cast:nil except:expanded root:entity into:out error:error]) return nil;
+  return out;
+}
+
+- (BOOL)addToOneKeyExpansionsOf:(NSEntityDescription *)entity
+                           cast:(NSString *)cast
+                         except:(NSSet *)expanded
+                           root:(NSEntityDescription *)root
+                           into:(NSMutableArray *)out
+                          error:(NSError **)error
+{
   NSArray *names = [entity.relationshipsByName.allKeys sortedArrayUsingSelector:@selector(compare:)];
   for (NSString *name in names) {
     NSRelationshipDescription *rel = entity.relationshipsByName[name];
+    // A subentity's inherited ones are its base's, expanded already.
+    if (cast && entity.superentity.relationshipsByName[name]) continue;
     // One the service does not serve is kept by the store, not read.
     if (rel.isToMany || !rel.destinationEntity || ![self.mapper servesProperty:rel]) continue;
     NSString *wire = [self.mapper propertyForRelationship:rel];
-    if ([expanded containsObject:wire] || ![self expands:wire entity:entity]) continue;
+    if ((!cast && [expanded containsObject:wire]) || ![self expands:wire entity:root]) continue;
     NSMutableArray *keys = [NSMutableArray array];
     for (NSAttributeDescription *key in [self.mapper keyAttributesForEntity:rel.destinationEntity]) {
       ODataSelectItem *item = [ODataSelectItem itemWithPath:@[ [self.mapper propertyForAttribute:key] ] error:error];
-      if (!item) return nil;
+      if (!item) return NO;
       [keys addObject:item];
     }
     if (!keys.count) continue;
     ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
     options.select = keys;
-    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ wire ] options:options error:error];
-    if (!item) return nil;
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:cast ? @[ cast, wire ] : @[ wire ] options:options error:error];
+    if (!item) return NO;
     [out addObject:item];
   }
-  return out;
+  // Only a subentity whose type the service names ($metadata), as $select's.
+  if (!self.mapper.schema) return YES;
+  NSArray *subentities = [entity.subentities sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+  for (NSEntityDescription *subentity in subentities) {
+    NSString *qualified = [self.mapper entityTypeForEntity:subentity] ? [self.mapper qualifiedTypeForEntity:subentity] : nil;
+    if (qualified && ![self addToOneKeyExpansionsOf:subentity cast:qualified except:expanded root:root into:out error:error]) return NO;
+  }
+  return YES;
 }
 
 // $select items of paths as OData writes them (Name, Zoo.Lion/MaxRoar).

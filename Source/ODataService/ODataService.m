@@ -1725,6 +1725,23 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
   return [self permitsTo:OISAccessRead entity:entity];
 }
 
+- (NSRelationshipDescription *)relationshipOfExpand:(ODataExpandItem *)item entity:(NSEntityDescription *)entity
+{
+  if (item.isStar || !entity) return nil;
+  NSEntityDescription *at = entity;
+  NSString *name = item.path.firstObject;
+  if (item.path.count == 2 && [name rangeOfString:@"."].location != NSNotFound) {
+    NSEntityDescription *derived = [self entityForTypeName:name];
+    if (!derived || !([derived isKindOfEntity:entity] || [entity isKindOfEntity:derived])) return nil;
+    at = [entity isKindOfEntity:derived] ? entity : derived;
+    name = item.path[1];
+  } else if (item.path.count != 1) {
+    return nil;
+  }
+  NSPropertyDescription *property = [self.mapper propertyForWireName:name entity:at];
+  return [property isKindOfClass:[NSRelationshipDescription class]] ? (NSRelationshipDescription *)property : nil;
+}
+
 - (ODataExpression *)literalForKeySegment:(NSString *)text
 {
   NSAttributeDescription *key = [self.mapper keyAttributesForEntity:OISRootEntity(self.entity)].firstObject;
@@ -2169,16 +2186,20 @@ static const NSInteger OISMaxLevels = 32;
       if ([self.service handlerForEntity:relationship.destinationEntity]) [relationships addObject:relationship];
     }
   } else {
-    if (item.path.count != 1) {
+    BOOL casted = item.path.count == 2 && [item.path[0] rangeOfString:@"."].location != NSNotFound;
+    if (item.path.count != 1 && !casted) {
       if (error) *error = ODataServiceError(501, [NSString stringWithFormat:@"$expand=%@ is not supported", [item.path componentsJoinedByString:@"/"]]);
       return NO;
     }
-    NSPropertyDescription *property = [self.mapper propertyForWireName:item.path[0] entity:object.entity];
-    if (![property isKindOfClass:[NSRelationshipDescription class]]) {
-      if (error) *error = ODataServiceError(400, [NSString stringWithFormat:@"%@ has no navigation property %@", object.entity.name, item.path[0]]);
+    // A derived type's own (Ns.Type/Nav): a row of another type has none.
+    NSEntityDescription *derived = casted ? [self entityForTypeName:item.path[0]] : nil;
+    if (derived && ![object.entity isKindOfEntity:derived]) return YES;
+    NSRelationshipDescription *relationship = [self relationshipOfExpand:item entity:object.entity];
+    if (!relationship) {
+      if (error) *error = ODataServiceError(400, [NSString stringWithFormat:@"%@ has no navigation property %@", object.entity.name, item.path.lastObject]);
       return NO;
     }
-    [relationships addObject:(NSRelationshipDescription *)property];
+    [relationships addObject:relationship];
   }
 
   for (NSRelationshipDescription *relationship in relationships) {
@@ -4381,7 +4402,10 @@ static BOOL OISPredicateReadsOnlyKept(NSPredicate *predicate, NSDictionary *valu
 - (NSDictionary *)entityBodyFor:(NSManagedObject *)object error:(NSError **)error
 {
   ODataQueryOptions *options = self.responseOptions ?: self.request.options;
-  NSMutableDictionary *json = [self JSONForObject:object options:options expected:nil error:error];
+  // A derived type says so in @odata.type as well as in the context's cast,
+  // which not every client reads (ODataIncrementalStore did not, for a
+  // to-one read through its navigation: #49).
+  NSMutableDictionary *json = [self JSONForObject:object options:options expected:OISRootEntity(object.entity) error:error];
   if (!json) return nil;
   if (![self.metadataLevel isEqualToString:@"none"]) {
     NSEntityDescription *root = OISRootEntity(object.entity);

@@ -370,6 +370,10 @@ FOUNDATION_EXPORT void OISLog(HSLogLevel level, NSURLRequest *_Nullable request,
 - (nullable NSEntityDescription *)entityForTypeName:(NSString *)name;
 - (nullable NSDictionary *)keyFromPartsQuietly:(NSDictionary *)parts entity:(NSEntityDescription *)entity;
 - (nullable ODataExpression *)literalForKeySegment:(NSString *)text;
+// The relationship an $expand item names from entity: Nav, or a derived
+// type's own behind its cast, Ns.Type/Nav (Part 2 section 5.1.3), which a
+// row expands only when it is of that type.
+- (nullable NSRelationshipDescription *)relationshipOfExpand:(ODataExpandItem *)item entity:(NSEntityDescription *)entity;
 - (NSArray<ODataExpandItem *> *)expansionOfBody:(NSDictionary *)body entity:(NSEntityDescription *)entity;
 - (NSArray<NSAttributeDescription *> *)servedAttributesOf:(NSEntityDescription *)entity;
 - (nullable NSMutableDictionary *)JSONForObject:(NSManagedObject *)object options:(ODataQueryOptions *)options
