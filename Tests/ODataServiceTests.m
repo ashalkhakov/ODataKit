@@ -3214,6 +3214,101 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   [context rollback];
 }
 
+// Logbook's shape: a Record whose kinds have relationships of their own
+// (an Inspection's answers). Core Data prefetches, when it deletes one, the
+// relationships of every kind of Record, and a meter reading's fetch was
+// sent expanding an inspection's Answers, which the service refused. A
+// prefetched relationship of the entity's own is expanded; of a subentity's,
+// behind its type cast; of neither (a sibling's), not at all.
+- (void)testPrefetchingASubentitysRelationship
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSEntityDescription *(^entity)(NSString *, NSString *) = ^(NSString *name, NSString *set) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    if (set) e.userInfo = @{ @"OData.entitySet": set };
+    return e;
+  };
+  NSEntityDescription *record = entity(@"Record", @"Records"), *reading = entity(@"MeterReading", nil);
+  NSEntityDescription *inspection = entity(@"Inspection", nil), *answer = entity(@"Answer", @"Answers");
+  NSRelationshipDescription *answers = [[NSRelationshipDescription alloc] init];
+  answers.name = @"answers";
+  answers.destinationEntity = answer;
+  answers.maxCount = 0;
+  answers.optional = YES;
+  answers.deleteRule = NSCascadeDeleteRule;
+  NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init];
+  of.name = @"inspection";
+  of.destinationEntity = inspection;
+  of.maxCount = 1;
+  of.optional = YES;
+  answers.inverseRelationship = of;
+  of.inverseRelationship = answers;
+  record.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"note", NSStringAttributeType, NO) ];
+  reading.properties = @[ attribute(@"mileage", NSInteger32AttributeType, NO) ];
+  inspection.properties = @[ answers ];
+  answer.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"text", NSStringAttributeType, NO), of ];
+  record.subentities = @[ reading, inspection ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ record, reading, inspection, answer ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+  seed.persistentStoreCoordinator = _coordinator;
+  [self insert:@"MeterReading" into:seed values:@{ @"id": @1, @"note": @"At the pump", @"mileage": @14600 }];
+  NSManagedObject *monthly = [self insert:@"Inspection" into:seed values:@{ @"id": @2, @"note": @"Monthly" }];
+  [self insert:@"Answer" into:seed values:@{ @"id": @1, @"text": @"Yes", @"inspection": monthly }];
+  XCTAssertTrue([seed save:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:@{ ODataIncrementalStoreTransportOption: recorder } error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  NSArray *(^asked)(void) = ^NSArray *(void) {
+    return [[recorder.requests valueForKeyPath:@"URL.absoluteString"] valueForKey:@"stringByRemovingPercentEncoding"];
+  };
+
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"MeterReading"];
+  fetch.relationshipKeyPathsForPrefetching = @[ @"answers" ];
+  NSArray *readings = [context executeFetchRequest:fetch error:&error];
+  XCTAssertEqual(readings.count, 1u, @"a sibling's relationship is not expanded: %@ %@", error, asked());
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Answers'"]].count, 0u, @"%@", asked());
+
+  [recorder.requests removeAllObjects];
+  fetch = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+  fetch.relationshipKeyPathsForPrefetching = @[ @"answers" ];
+  fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+  NSArray *records = [context executeFetchRequest:fetch error:&error];
+  XCTAssertEqual(records.count, 2u, @"a subentity's, behind its cast: %@ %@", error, asked());
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Inspection/Answers'"]].count, 1u,
+                 @"%@", asked());
+  XCTAssertEqualObjects([[[records.lastObject valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"Yes");
+
+  // Deleted, as the app deletes one: whatever Core Data prefetches, the
+  // service is asked for nothing it refuses.
+  [recorder.requests removeAllObjects];
+  [context deleteObject:records.firstObject];
+  XCTAssertTrue([context save:&error], @"%@", error);
+  NSPredicate *sibling = [NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.MeterReading' AND SELF CONTAINS 'Answers'"];
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:sibling].count, 0u, @"%@", asked());
+  XCTAssertEqualObjects([self get:@"Records/$count"].text, @"1");
+}
+
 - (void)testTypeCasts
 {
   [self serveStaff];
