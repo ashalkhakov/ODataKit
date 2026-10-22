@@ -3319,10 +3319,9 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   [recorder.requests removeAllObjects];
   XCTAssertEqualObjects([[[records[1] valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"Yes");
   XCTAssertEqualObjects([[[records[2] valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"No");
-  // Both prefetched: neither record's answers read again. (FreeCoreData
-  // reads an answer's null to-ones again as its row loads: FreeCoreData #101.)
-  NSPredicate *again = [NSPredicate predicateWithFormat:@"SELF MATCHES '.*Records(/|\\()[0-9]+\\)?/Answers.*'"];
-  XCTAssertEqual([asked() filteredArrayUsingPredicate:again].count, 0u, @"both prefetched: %@", asked());
+  // Both prefetched, each answer's to-ones with them (null where there is
+  // none, which is no request either: FreeCoreData #101): nothing read again.
+  XCTAssertEqual(recorder.requests.count, 0u, @"both prefetched: %@", asked());
 
   // Deleted, as the app deletes one: whatever Core Data prefetches, the
   // service is asked for nothing it refuses.
