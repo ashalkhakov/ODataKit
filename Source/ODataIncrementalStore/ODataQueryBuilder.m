@@ -141,7 +141,7 @@ static NSString *OISPercentEncode(NSString *value)
     // One the service does not serve is kept by the store, not read.
     if (rel.isToMany || !rel.destinationEntity || ![self.mapper servesProperty:rel]) continue;
     NSString *wire = [self.mapper propertyForRelationship:rel];
-    if ((!cast && [expanded containsObject:wire]) || ![self expands:wire entity:root]) continue;
+    if ([expanded containsObject:cast ? [NSString stringWithFormat:@"%@/%@", cast, wire] : wire] || ![self expands:wire entity:root]) continue;
     NSMutableArray *keys = [NSMutableArray array];
     for (NSAttributeDescription *key in [self.mapper keyAttributesForEntity:rel.destinationEntity]) {
       ODataSelectItem *item = [ODataSelectItem itemWithPath:@[ [self.mapper propertyForAttribute:key] ] error:error];
@@ -532,9 +532,11 @@ static BOOL OISIdentifierNames(ODataResourceIdentifier *identifier, NSError **er
   if (!expansions) return nil;
   NSMutableSet *expanded = [NSMutableSet set];
   for (NSString *path in fetch.relationshipKeyPathsForPrefetching) {
-    NSString *first = [path componentsSeparatedByString:@"."].firstObject;
-    NSRelationshipDescription *rel = entity.relationshipsByName[first];
-    [expanded addObject:rel ? [self.mapper propertyForRelationship:rel] : [self.mapper wireName:first]];
+    for (NSArray *found in [self relationshipsNamed:[path componentsSeparatedByString:@"."].firstObject of:entity]) {
+      NSString *cast = found.count > 1 ? found[1] : nil;
+      NSString *wire = [self.mapper propertyForRelationship:found[0]];
+      [expanded addObject:cast ? [NSString stringWithFormat:@"%@/%@", cast, wire] : wire];
+    }
   }
   if (fetch.resultType == NSManagedObjectResultType || fetch.resultType == NSManagedObjectIDResultType) {
     NSArray *keys = [self toOneKeyExpansionsForEntity:entity except:expanded error:error];
@@ -743,24 +745,36 @@ static NSString *OISGroupedLiteral(id value)
 
 // Prefetch key paths as $expand items, a path through relationships
 // nested (suppliers.products is Suppliers($expand=Products): 4.0 has no
-// paths in $expand), and paths that share a start merged under it.
+// paths in $expand), and paths that share a start merged under it. A
+// relationship of a subentity's is expanded behind its type's cast
+// (Default.Inspection/Answers), as only its rows have it; one of no
+// subentity's (Core Data prefetches, deleting an object, the relationships
+// of every kind of its root's) is not expanded, as no row has it.
 - (NSArray<ODataExpandItem *> *)expansionsForKeyPaths:(NSArray *)paths entity:(NSEntityDescription *)entity error:(NSError **)error
 {
-  NSMutableArray *order = [NSMutableArray array];          // wire names, first seen first
-  NSMutableDictionary *children = [NSMutableDictionary dictionary];  // wire name -> key paths beneath
+  NSMutableArray *order = [NSMutableArray array];          // expansions (cast/wire), first seen first
+  NSMutableDictionary *children = [NSMutableDictionary dictionary];  // expansion -> key paths beneath
   NSMutableDictionary *destinations = [NSMutableDictionary dictionary];
+  NSMutableDictionary *segments = [NSMutableDictionary dictionary];  // expansion -> its path's segments
   for (NSString *path in paths) {
     NSArray *parts = [path componentsSeparatedByString:@"."];
-    NSRelationshipDescription *rel = entity.relationshipsByName[parts.firstObject];
-    if (rel && ![self.mapper servesProperty:rel]) continue;  // kept by the store, not read
-    NSString *wire = rel ? [self.mapper propertyForRelationship:rel] : [self.mapper wireName:parts.firstObject];
-    if (![self expands:wire entity:entity]) continue;
-    if (!children[wire]) {
-      [order addObject:wire];
-      children[wire] = [NSMutableArray array];
-      if (rel.destinationEntity) destinations[wire] = rel.destinationEntity;
+    // Each subentity's of the name (siblings may each have one), behind
+    // its own cast.
+    for (NSArray *found in [self relationshipsNamed:parts.firstObject of:entity]) {
+      NSRelationshipDescription *rel = found[0];
+      NSString *cast = found.count > 1 ? found[1] : nil;
+      if (![self.mapper servesProperty:rel]) continue;  // kept by the store, not read
+      NSString *wire = [self.mapper propertyForRelationship:rel];
+      if (![self expands:wire entity:entity]) continue;
+      NSString *expansion = cast ? [NSString stringWithFormat:@"%@/%@", cast, wire] : wire;
+      if (!children[expansion]) {
+        [order addObject:expansion];
+        children[expansion] = [NSMutableArray array];
+        segments[expansion] = cast ? @[ cast, wire ] : @[ wire ];
+        if (rel.destinationEntity) destinations[expansion] = rel.destinationEntity;
+      }
+      if (parts.count > 1) [children[expansion] addObject:[[parts subarrayWithRange:NSMakeRange(1, parts.count - 1)] componentsJoinedByString:@"."]];
     }
-    if (parts.count > 1) [children[wire] addObject:[[parts subarrayWithRange:NSMakeRange(1, parts.count - 1)] componentsJoinedByString:@"."]];
   }
   NSMutableArray *items = [NSMutableArray array];
   for (NSString *wire in order) {
@@ -784,11 +798,40 @@ static NSString *OISGroupedLiteral(id value)
       [nested addObjectsFromArray:keys];
     }
     options.expand = nested;
-    ODataExpandItem *item = [ODataExpandItem itemWithPath:@[ wire ] options:options error:error];
+    ODataExpandItem *item = [ODataExpandItem itemWithPath:segments[wire] options:options error:error];
     if (!item) return nil;
     [items addObject:item];
   }
   return items;
+}
+
+// The relationships of the name: the entity's own, alone; else each
+// subentity's, at any depth, whose type the service names, with that
+// type's qualified name to cast to (siblings may each have one of the name:
+// an inspection's answers and a survey's). One a subentity has, its own
+// subentities inherit: its cast covers them. Each an array: the
+// relationship, and the cast when there is one. None when no kind of the
+// entity has one.
+- (NSArray<NSArray *> *)relationshipsNamed:(NSString *)name of:(NSEntityDescription *)entity
+{
+  NSRelationshipDescription *own = entity.relationshipsByName[name];
+  if (own) return @[ @[ own ] ];
+  NSMutableArray *found = [NSMutableArray array];
+  if (self.mapper.schema) [self addRelationshipsNamed:name ofSubentitiesOf:entity into:found];
+  return found;
+}
+
+- (void)addRelationshipsNamed:(NSString *)name ofSubentitiesOf:(NSEntityDescription *)entity into:(NSMutableArray *)found
+{
+  NSArray *subentities = [entity.subentities sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+  for (NSEntityDescription *subentity in subentities) {
+    NSRelationshipDescription *rel = subentity.relationshipsByName[name];
+    NSString *cast = [self.mapper entityTypeForEntity:subentity] ? [self.mapper qualifiedTypeForEntity:subentity] : nil;
+    // Its own, behind its cast; else its subentities' (theirs too, by
+    // inheritance, when the service names no type of its own to cast to).
+    if (rel && cast) [found addObject:@[ rel, cast ]];
+    else [self addRelationshipsNamed:name ofSubentitiesOf:subentity into:found];
+  }
 }
 
 - (NSURL *)URLForIdentifier:(ODataResourceIdentifier *)identifier error:(NSError **)error

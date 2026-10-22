@@ -3214,6 +3214,125 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   [context rollback];
 }
 
+// Logbook's shape: a Record whose kinds have relationships of their own
+// (an Inspection's answers). Core Data prefetches, when it deletes one, the
+// relationships of every kind of Record, and a meter reading's fetch was
+// sent expanding an inspection's Answers, which the service refused. A
+// prefetched relationship of the entity's own is expanded; of a subentity's,
+// behind its type cast (each sibling's of the name behind its own: an
+// inspection's answers and a survey's); of neither (a sibling's), not at all.
+- (void)testPrefetchingASubentitysRelationship
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSEntityDescription *(^entity)(NSString *, NSString *) = ^(NSString *name, NSString *set) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    if (set) e.userInfo = @{ @"OData.entitySet": set };
+    return e;
+  };
+  NSEntityDescription *record = entity(@"Record", @"Records"), *reading = entity(@"MeterReading", nil);
+  NSEntityDescription *inspection = entity(@"Inspection", nil), *answer = entity(@"Answer", @"Answers");
+  NSEntityDescription *survey = entity(@"Survey", nil);
+  NSRelationshipDescription *responses = [[NSRelationshipDescription alloc] init];
+  responses.name = @"answers";
+  responses.destinationEntity = answer;
+  responses.maxCount = 0;
+  responses.optional = YES;
+  NSRelationshipDescription *of2 = [[NSRelationshipDescription alloc] init];
+  of2.name = @"survey";
+  of2.destinationEntity = survey;
+  of2.maxCount = 1;
+  of2.optional = YES;
+  responses.inverseRelationship = of2;
+  of2.inverseRelationship = responses;
+  NSRelationshipDescription *answers = [[NSRelationshipDescription alloc] init];
+  answers.name = @"answers";
+  answers.destinationEntity = answer;
+  answers.maxCount = 0;
+  answers.optional = YES;
+  answers.deleteRule = NSCascadeDeleteRule;
+  NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init];
+  of.name = @"inspection";
+  of.destinationEntity = inspection;
+  of.maxCount = 1;
+  of.optional = YES;
+  answers.inverseRelationship = of;
+  of.inverseRelationship = answers;
+  record.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"note", NSStringAttributeType, NO) ];
+  reading.properties = @[ attribute(@"mileage", NSInteger32AttributeType, NO) ];
+  inspection.properties = @[ answers ];
+  survey.properties = @[ responses ];
+  answer.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"text", NSStringAttributeType, NO), of, of2 ];
+  record.subentities = @[ reading, inspection, survey ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ record, reading, inspection, survey, answer ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+  seed.persistentStoreCoordinator = _coordinator;
+  [self insert:@"MeterReading" into:seed values:@{ @"id": @1, @"note": @"At the pump", @"mileage": @14600 }];
+  NSManagedObject *monthly = [self insert:@"Inspection" into:seed values:@{ @"id": @2, @"note": @"Monthly" }];
+  [self insert:@"Answer" into:seed values:@{ @"id": @1, @"text": @"Yes", @"inspection": monthly }];
+  NSManagedObject *feedback = [self insert:@"Survey" into:seed values:@{ @"id": @3, @"note": @"Feedback" }];
+  [self insert:@"Answer" into:seed values:@{ @"id": @2, @"text": @"No", @"survey": feedback }];
+  XCTAssertTrue([seed save:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:@{ ODataIncrementalStoreTransportOption: recorder } error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  NSArray *(^asked)(void) = ^NSArray *(void) {
+    return [[recorder.requests valueForKeyPath:@"URL.absoluteString"] valueForKey:@"stringByRemovingPercentEncoding"];
+  };
+
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"MeterReading"];
+  fetch.relationshipKeyPathsForPrefetching = @[ @"answers" ];
+  NSArray *readings = [context executeFetchRequest:fetch error:&error];
+  XCTAssertEqual(readings.count, 1u, @"a sibling's relationship is not expanded: %@ %@", error, asked());
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Answers'"]].count, 0u, @"%@", asked());
+
+  [recorder.requests removeAllObjects];
+  fetch = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+  fetch.relationshipKeyPathsForPrefetching = @[ @"answers" ];
+  fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+  NSArray *records = [context executeFetchRequest:fetch error:&error];
+  XCTAssertEqual(records.count, 3u, @"a subentity's, behind its cast: %@ %@", error, asked());
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Inspection/Answers'"]].count, 1u,
+                 @"%@", asked());
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.Survey/Answers'"]].count, 1u,
+                 @"a sibling's of the same name, behind its own cast: %@", asked());
+  [recorder.requests removeAllObjects];
+  XCTAssertEqualObjects([[[records[1] valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"Yes");
+  XCTAssertEqualObjects([[[records[2] valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"No");
+  // Both prefetched, each answer's to-ones with them (null where there is
+  // none, which is no request either: FreeCoreData #101): nothing read again.
+  XCTAssertEqual(recorder.requests.count, 0u, @"both prefetched: %@", asked());
+
+  // Deleted, as the app deletes one: whatever Core Data prefetches, the
+  // service is asked for nothing it refuses.
+  [recorder.requests removeAllObjects];
+  [context deleteObject:records.firstObject];
+  XCTAssertTrue([context save:&error], @"%@", error);
+  NSPredicate *sibling = [NSPredicate predicateWithFormat:@"SELF CONTAINS 'Default.MeterReading' AND SELF CONTAINS 'Answers'"];
+  XCTAssertEqual([asked() filteredArrayUsingPredicate:sibling].count, 0u, @"%@", asked());
+  XCTAssertEqualObjects([self get:@"Records/$count"].text, @"2");
+}
+
 - (void)testTypeCasts
 {
   [self serveStaff];
