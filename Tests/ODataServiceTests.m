@@ -2442,6 +2442,105 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertEqualObjects([[self productWithID:1 in:backing] valueForKey:@"unitPrice"], [NSDecimalNumber decimalNumberWithString:@"18"]);
 }
 
+// New objects that refer to each other, saved in one change set (keys the
+// client's, #56): a cycle (a contact shipping to an address that is the
+// contact's) and a one-to-one (a customer and their card). The bind that
+// closes each waits until its target is posted, whatever order the
+// inserts come in; all of it one $batch.
+- (void)testNewObjectsReferringToEachOtherInOneChangeSet
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSRelationshipDescription *(^relationship)(NSString *, NSEntityDescription *, BOOL) = ^(NSString *name, NSEntityDescription *destination, BOOL many) {
+    NSRelationshipDescription *r = [[NSRelationshipDescription alloc] init];
+    r.name = name;
+    r.destinationEntity = destination;
+    r.maxCount = many ? 0 : 1;
+    r.optional = YES;
+    r.deleteRule = NSNullifyDeleteRule;
+    return r;
+  };
+  NSMutableArray *entities = [NSMutableArray array];
+  NSEntityDescription *(^entity)(NSString *) = ^(NSString *name) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    [entities addObject:e];
+    return e;
+  };
+  NSEntityDescription *contact = entity(@"Contact"), *address = entity(@"Address"), *customer = entity(@"Customer"), *card = entity(@"Card");
+  address.userInfo = @{ @"OData.entitySet": @"Addresses" };
+  NSRelationshipDescription *shipsTo = relationship(@"shippingAddress", address, NO), *shippedTo = relationship(@"shippedContacts", contact, YES);
+  shipsTo.inverseRelationship = shippedTo;
+  shippedTo.inverseRelationship = shipsTo;
+  NSRelationshipDescription *of = relationship(@"contact", contact, NO), *addresses = relationship(@"addresses", address, YES);
+  of.inverseRelationship = addresses;
+  addresses.inverseRelationship = of;
+  NSRelationshipDescription *holds = relationship(@"card", card, NO), *holder = relationship(@"customer", customer, NO);
+  holds.inverseRelationship = holder;
+  holder.inverseRelationship = holds;
+  contact.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), shipsTo, addresses ];
+  address.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"street", NSStringAttributeType, NO), of, shippedTo ];
+  customer.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), holds ];
+  card.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"number", NSStringAttributeType, NO), holder ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = entities;
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSDictionary *options = @{ ODataIncrementalStoreTransportOption: recorder, ODataIncrementalStorePostOnObtainPermanentIDsOption: @NO };
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:options error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *name, NSDictionary *values) {
+    NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:name inManagedObjectContext:context];
+    for (NSString *key in values) [object setValue:values[key] forKey:key];
+    return object;
+  };
+  for (NSInteger i = 1; i <= 4; i++) {
+    NSManagedObject *person = make(@"Contact", @{ @"id": @(i), @"name": [NSString stringWithFormat:@"Contact %ld", (long)i] });
+    NSManagedObject *home = make(@"Address", @{ @"id": @(i), @"street": [NSString stringWithFormat:@"%ld Main St", (long)i], @"contact": person });
+    [person setValue:home forKey:@"shippingAddress"];
+    NSManagedObject *buyer = make(@"Customer", @{ @"id": @(i), @"name": [NSString stringWithFormat:@"Customer %ld", (long)i] });
+    make(@"Card", @{ @"id": @(i), @"number": [NSString stringWithFormat:@"C-%ld", (long)i], @"customer": buyer });
+  }
+  XCTAssertTrue([context save:&error], @"%@", error);
+  NSArray *posts = [recorder.requests filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"HTTPMethod == 'POST'"]];
+  XCTAssertEqual(posts.count, 1u, @"one change set: %@", [posts valueForKeyPath:@"URL.absoluteString"]);
+  XCTAssertTrue([[posts.firstObject URL].path hasSuffix:@"$batch"], @"%@", posts);
+  // One $ref for each cycle's closing link; none for a one-to-one, whose
+  // second POST binds back.
+  NSString *batch = [[NSString alloc] initWithData:[posts.firstObject HTTPBody] encoding:NSUTF8StringEncoding];
+  NSUInteger refs = [batch componentsSeparatedByString:@"/$ref"].count - 1;
+  XCTAssertEqual(refs, 4u, @"%@", batch);
+  XCTAssertFalse([batch containsString:@"Card/$ref"] || [batch containsString:@"Customer/$ref"], @"%@", batch);
+
+  for (NSInteger i = 1; i <= 4; i++) {
+    NSString *path = [NSString stringWithFormat:@"Contacts(%ld)/ShippingAddress/Id/$value", (long)i];
+    XCTAssertEqualObjects([self get:path].text, ([NSString stringWithFormat:@"%ld", (long)i]), @"%@", path);
+    path = [NSString stringWithFormat:@"Addresses(%ld)/Contact/Id/$value", (long)i];
+    XCTAssertEqualObjects([self get:path].text, ([NSString stringWithFormat:@"%ld", (long)i]), @"%@", path);
+    path = [NSString stringWithFormat:@"Customers(%ld)/Card/Id/$value", (long)i];
+    XCTAssertEqualObjects([self get:path].text, ([NSString stringWithFormat:@"%ld", (long)i]), @"%@", path);
+    path = [NSString stringWithFormat:@"Cards(%ld)/Customer/Id/$value", (long)i];
+    XCTAssertEqualObjects([self get:path].text, ([NSString stringWithFormat:@"%ld", (long)i]), @"%@", path);
+  }
+}
+
 // A reference to an entity ($select=ProductID inside another row) carries
 // the entity's current ETag. The client keeps the ETag of the row it has,
 // so an update from stale values still conflicts, however it learnt that
