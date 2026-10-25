@@ -604,6 +604,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
   if ([self.request.preferences[@"return"] isEqualToString:@"minimal"]) {
     headers[@"OData-EntityId"] = location;
     headers[@"Preference-Applied"] = @"return=minimal";
+    [self answersAgain:object withBody:NO];
     [self respondStatus:204 headers:headers body:nil];
     return;
   }
@@ -666,6 +667,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
     [self writeEntity:object status:200 headers:headers];
     return;
   }
+  [self answersAgain:object withBody:NO];
   [self respondStatus:204 headers:headers body:nil];
 }
 

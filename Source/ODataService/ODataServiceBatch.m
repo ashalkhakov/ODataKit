@@ -8,7 +8,7 @@
 #import "ODataError.h"
 
 // One request of the batch, and once answered, its response.
-@interface OISBatchItem : NSObject
+@interface OISBatchItem : NSObject <OISAnswersAgain>
 @property (nonatomic, copy) NSString *method;
 @property (nonatomic, copy) NSString *URLString;
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *headers;
@@ -22,6 +22,7 @@
 @end
 
 @implementation OISBatchItem
+@synthesize answerAgain = _answerAgain;
 @end
 
 static NSString *OISHeaderValue(NSDictionary *headers, NSString *name)
@@ -402,6 +403,7 @@ static void OISAppendText(NSMutableData *data, NSString *text)
         NSError *e = nil;
         @try {
           saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e);
+          if (saved) [self answerGroupAgain];
         } @catch (NSException *exception) {
           OISLog(HSLogLevelError, self->_exchange.request, @"%@ %@: change set %@'s save raised %@: %@", self->_exchange.request.HTTPMethod,
                  self->_exchange.request.URL, self->_group, exception.name, exception.reason);
@@ -435,8 +437,33 @@ static void OISAppendText(NSMutableData *data, NSString *text)
     _groupFailures[_group] = _groupFailure;
     if (!_continueOnError) _stopped = YES;
   }
+  // Its parts' answers again, used or not: each holds its call.
+  for (OISBatchItem *item in _items) {
+    if ([item.group isEqualToString:_group]) item.answerAgain = nil;
+  }
   _group = nil;
   _groupContext = nil;
+}
+
+// The change set's parts as they are now it is saved: the save changes
+// what they wrote (ODataSync's bookkeeping, the service's willSave), and an
+// ETag a part answered before it would be stale at once, so a client's
+// next write with it is refused (412; #58). Each part that answered an
+// entity is answered again: its ETag, and its body when it had one.
+- (void)answerGroupAgain
+{
+  for (OISBatchItem *item in _items) {
+    if (![item.group isEqualToString:_group] || item.status < 200 || item.status >= 300) continue;
+    NSDictionary *answer = item.answerAgain ? item.answerAgain() : nil;
+    if (!answer) continue;
+    NSMutableDictionary *headers = [NSMutableDictionary dictionaryWithDictionary:item.responseHeaders ?: @{}];
+    for (NSString *name in headers.allKeys) {
+      if ([name caseInsensitiveCompare:@"ETag"] == NSOrderedSame) [headers removeObjectForKey:name];
+    }
+    headers[@"ETag"] = answer[@"ETag"];
+    item.responseHeaders = headers;
+    if (answer[@"body"] && item.responseBody.length) item.responseBody = answer[@"body"];
+  }
 }
 
 #pragma mark Writing the response

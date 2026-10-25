@@ -2541,6 +2541,128 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   }
 }
 
+// A change set that fails (a stale ETag: 412) keeps none of what it
+// inserted; saved again once the conflict is settled, what it inserted is
+// posted again (#58), not patched as if it had been made.
+- (void)testInsertsOfAFailedChangeSetArePostedAgain
+{
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:OISCatalogModel()];
+  NSError *error = nil;
+  NSDictionary *options = @{ ODataIncrementalStoreTransportOption: recorder, ODataIncrementalStorePostOnObtainPermanentIDsOption: @NO };
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:options error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Product"];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"name == 'Chai'"];
+  NSManagedObject *chai = [[context executeFetchRequest:fetch error:&error] firstObject];
+  XCTAssertEqualObjects([chai valueForKey:@"name"], @"Chai");
+
+  // Changed behind the client's back: its ETag is stale.
+  NSManagedObjectContext *backing = [[NSManagedObjectContext alloc] init];
+  backing.persistentStoreCoordinator = _coordinator;
+  [[self productWithID:1 in:backing] setValue:@"Chai tea" forKey:@"name"];
+  XCTAssertTrue([backing save:&error], @"%@", error);
+
+  NSFetchRequest *categories = [NSFetchRequest fetchRequestWithEntityName:@"Category"];
+  categories.predicate = [NSPredicate predicateWithFormat:@"id == 1"];
+  NSManagedObject *beverages = [[context executeFetchRequest:categories error:&error] firstObject];
+  NSManagedObject *coffee = [NSEntityDescription insertNewObjectForEntityForName:@"Product" inManagedObjectContext:context];
+  [coffee setValue:@70 forKey:@"id"];
+  [coffee setValue:@"Ipoh Coffee" forKey:@"name"];
+  [coffee setValue:beverages forKey:@"category"];
+  [chai setValue:[NSDecimalNumber decimalNumberWithString:@"19"] forKey:@"unitPrice"];
+  XCTAssertFalse([context save:&error], @"Chai changed behind the client's back");
+  [backing reset];
+  XCTAssertNil([self productWithID:70 in:backing], @"nothing of the change set kept");
+  XCTAssertTrue(coffee.isInserted, @"still to be inserted, in the context");
+
+  // Settled (the store reads Chai again, and so its ETag), and saved again.
+  [recorder.requests removeAllObjects];
+  [context refreshObject:chai mergeChanges:YES];
+  XCTAssertNotNil([context executeFetchRequest:fetch error:&error], @"%@", error);
+  error = nil;
+  BOOL saved = [context save:&error];
+  NSMutableArray *sent = [NSMutableArray array];
+  for (NSURLRequest *request in recorder.requests) {
+    NSString *body = request.HTTPBody ? [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] : @"";
+    [sent addObject:[NSString stringWithFormat:@"%@ %@ %@", request.HTTPMethod, request.URL.absoluteString.stringByRemovingPercentEncoding, body]];
+  }
+  XCTAssertTrue(saved, @"%@\n%@", error, [sent componentsJoinedByString:@"\n"]);
+  [backing reset];
+  XCTAssertEqualObjects([[self productWithID:70 in:backing] valueForKey:@"name"], @"Ipoh Coffee", @"posted again: %@", [sent componentsJoinedByString:@"\n"]);
+  XCTAssertEqualObjects([[self productWithID:1 in:backing] valueForKey:@"unitPrice"], [NSDecimalNumber decimalNumberWithString:@"19"]);
+}
+
+// The same with a merge policy (Logbook's, object trump), which settles
+// the conflict and saves again within the same save: what the change set
+// inserted is posted then, not patched as if it had been made (#58; on
+// GNUstep, FreeCoreData #103).
+- (void)testInsertsOfAFailedChangeSetArePostedAgainUnderAMergePolicy
+{
+  [ODataIncrementalStore registerStore];
+  OISRecordingTransport *recorder = [[OISRecordingTransport alloc] init];
+  recorder.next = _service;
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:OISCatalogModel()];
+  NSError *error = nil;
+  NSDictionary *options = @{ ODataIncrementalStoreTransportOption: recorder, ODataIncrementalStorePostOnObtainPermanentIDsOption: @NO };
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil
+                                                 URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:options error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy;
+  NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Product"];
+  fetch.predicate = [NSPredicate predicateWithFormat:@"name == 'Chai'"];
+  NSManagedObject *chai = [[context executeFetchRequest:fetch error:&error] firstObject];
+  XCTAssertEqualObjects([chai valueForKey:@"name"], @"Chai");
+
+  NSManagedObjectContext *backing = [[NSManagedObjectContext alloc] init];
+  backing.persistentStoreCoordinator = _coordinator;
+  [[self productWithID:1 in:backing] setValue:@"Chai tea" forKey:@"name"];
+  XCTAssertTrue([backing save:&error], @"%@", error);
+
+  // New objects related to each other: two new categories, a new product
+  // in each (FreeCoreData #103: two such pairs, where one works).
+  for (NSInteger i = 0; i < 2; i++) {
+    NSManagedObject *category = [NSEntityDescription insertNewObjectForEntityForName:@"Category" inManagedObjectContext:context];
+    [category setValue:@(10 + i) forKey:@"id"];
+    [category setValue:[NSString stringWithFormat:@"Category %ld", (long)i] forKey:@"name"];
+    NSManagedObject *product = [NSEntityDescription insertNewObjectForEntityForName:@"Product" inManagedObjectContext:context];
+    [product setValue:@(70 + i) forKey:@"id"];
+    [product setValue:[NSString stringWithFormat:@"Product %ld", (long)i] forKey:@"name"];
+    [product setValue:category forKey:@"category"];
+  }
+  [chai setValue:[NSDecimalNumber decimalNumberWithString:@"19"] forKey:@"unitPrice"];
+  [recorder.requests removeAllObjects];
+  error = nil;
+  BOOL saved = [context save:&error];
+  NSMutableArray *sent = [NSMutableArray array];
+  for (NSURLRequest *request in recorder.requests) {
+    NSString *body = request.HTTPBody ? [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] : @"";
+    [sent addObject:[NSString stringWithFormat:@"%@ %@ %@", request.HTTPMethod, request.URL.absoluteString.stringByRemovingPercentEncoding, body]];
+  }
+  if (!saved) {
+    // Not settled within the save: saved again, as an app would.
+    [recorder.requests removeAllObjects];
+    error = nil;
+    saved = [context save:&error];
+    for (NSURLRequest *request in recorder.requests) {
+      NSString *body = request.HTTPBody ? [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] : @"";
+      [sent addObject:[NSString stringWithFormat:@"again: %@ %@ %@", request.HTTPMethod, request.URL.absoluteString.stringByRemovingPercentEncoding, body]];
+    }
+  }
+  XCTAssertTrue(saved, @"%@\n%@", error, [sent componentsJoinedByString:@"\n"]);
+  [backing reset];
+  XCTAssertEqualObjects([[self productWithID:70 in:backing] valueForKey:@"name"], @"Product 0", @"posted: %@", [sent componentsJoinedByString:@"\n"]);
+  XCTAssertEqualObjects([[self productWithID:71 in:backing] valueForKey:@"name"], @"Product 1");
+  XCTAssertEqualObjects([[self productWithID:1 in:backing] valueForKey:@"unitPrice"], [NSDecimalNumber decimalNumberWithString:@"19"]);
+}
+
 // A reference to an entity ($select=ProductID inside another row) carries
 // the entity's current ETag. The client keeps the ETag of the row it has,
 // so an update from stale values still conflicts, however it learnt that
