@@ -99,6 +99,7 @@ typedef NS_ENUM(NSInteger, OISWriteMode) {
   NSMutableDictionary *_etags;      // object ID -> ETag, exactly as the service sent it
   NSMutableDictionary *_versions;   // object ID -> node version, bumped when the ETag changes
   NSMutableDictionary *_deferred;   // object ID -> relationship names to write after insert
+  NSMutableSet *_unposted;          // object IDs a change set posts, not yet written: a bind to one waits
   NSMutableDictionary *_editLinks;  // object ID -> @odata.editLink, where the service gave one
   NSMutableDictionary *_members;    // object ID -> to-many name -> member IDs, from an $expand
   NSMutableDictionary *_streams;    // object ID -> stream name (@"" media) -> what its row said of it
@@ -1470,12 +1471,8 @@ static void OISSetKeyPath(NSMutableDictionary *row, NSString *keyPath, id value)
     if (![self checkCapabilitiesOf:object change:@"Delete" error:error]) return nil;
   }
 
-  if (!_client.configuration.postOnObtainPermanentIDs) {
-    for (NSManagedObject *object in [self insertOrder:save.insertedObjects.allObjects]) {
-      OISWrite *write = [self writeForObject:object mode:OISWriteInsert assigned:nil];
-      if (![self addPostOf:write object:object to:operations error:error]) return nil;
-      if (![self addReferencesOf:write to:operations error:error]) return nil;
-    }
+  if (!_client.configuration.postOnObtainPermanentIDs && ![self addInsertsOf:save.insertedObjects.allObjects to:operations error:error]) {
+    return nil;
   }
   for (NSManagedObject *object in save.insertedObjects) {
     [_lock lock];
@@ -2260,11 +2257,14 @@ static BOOL OISKeyIsSet(id value)
 }
 
 // The resource path of a related object ("Categories(2)"), or nil while it
-// is unsaved. `assigned` maps the temporary IDs of objects inserted earlier
-// in the same batch to their new permanent IDs.
+// is unsaved: a temporary ID not yet assigned, or an object the change set
+// being written posts later (its key is the client's, but the service has
+// no such entity yet). `assigned` maps the temporary IDs of objects
+// inserted earlier in the same batch to their new permanent IDs.
 - (NSString *)entityPathForObject:(NSManagedObject *)target assigned:(NSDictionary *)assigned
 {
   NSManagedObjectID *oid = target.objectID;
+  if ([_unposted containsObject:oid]) return nil;
   if (oid.isTemporaryID) oid = assigned[oid];
   if (!oid || oid.isTemporaryID) return nil;
   return [ODataResourceIdentifier identifierFromReference:[self referenceObjectForObjectID:oid]].path;
@@ -2294,6 +2294,34 @@ static BOOL OISKeyIsSet(id value)
 - (NSManagedObjectID *)objectIDOf:(id)value
 {
   return [value isKindOfClass:[NSManagedObject class]] ? [value objectID] : value;
+}
+
+// A change set's inserts (keys the client's), each after what it refers to
+// (-insertOrder:). A bind to an object posted later in it waits: written,
+// it names an entity the service does not have yet (400). It goes after
+// the posts, with the deferred relationships (_deferred), in the same
+// change set: two new objects that refer to each other, a cycle
+// -insertOrder: breaks somewhere, are saved together (#56).
+- (BOOL)addInsertsOf:(NSArray<NSManagedObject *> *)objects to:(NSMutableArray *)operations error:(NSError **)error
+{
+  _unposted = [NSMutableSet set];
+  for (NSManagedObject *object in objects) [_unposted addObject:object.objectID];
+  BOOL ok = YES;
+  for (NSManagedObject *object in [self insertOrder:objects]) {
+    OISWrite *write = [self writeForObject:object mode:OISWriteInsert assigned:nil];
+    [_unposted removeObject:object.objectID];
+    if (write.deferred.count) {
+      [_lock lock];
+      _deferred[object.objectID] = [write.deferred copy];
+      [_lock unlock];
+    }
+    if (![self addPostOf:write object:object to:operations error:error] || ![self addReferencesOf:write to:operations error:error]) {
+      ok = NO;
+      break;
+    }
+  }
+  _unposted = nil;
+  return ok;
 }
 
 // What a PATCH says of dynamic properties that were old and are now new:
@@ -2380,8 +2408,18 @@ static NSDictionary *OISDynamicChanges(id old, id now)
         // relationship is required (JSON Format section 8.5).
         if (!target) continue;
         NSString *path = [self entityPathForObject:target assigned:assigned];
-        if (path) write.body[bindKey] = path;
-        else [write.deferred addObject:name];
+        if (path) {
+          write.body[bindKey] = path;
+          continue;
+        }
+        // A one-to-one with an object posted after this one: its POST binds
+        // back to this, which makes the link; nothing waits.
+        NSRelationshipDescription *inverse = rel.inverseRelationship;
+        if ([_unposted containsObject:target.objectID] && inverse && !inverse.isToMany && [self writesRelationship:inverse] &&
+            [target valueForKey:inverse.name] == object) {
+          continue;
+        }
+        [write.deferred addObject:name];
         continue;
       }
       // Changing an existing entity's reference: PUT or DELETE its $ref
