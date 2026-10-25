@@ -953,7 +953,8 @@ static NSArray<NSString *> *OISApplyTransformations(void)
           self.metadataLevel ?: @"minimal", self.coder.IEEE754Compatible ? @"true" : @"false"];
 }
 
-- (void)respondJSON:(id)json status:(NSInteger)status headers:(NSDictionary *)headers
+// A JSON answer's bytes, with the request's messages when it asks for them.
+- (NSData *)dataForResponseJSON:(id)json error:(NSError **)error
 {
   NSArray *messages = self.request.messages;
   if (messages.count && [json isKindOfClass:[NSDictionary class]] && ![json objectForKey:@"error"] &&
@@ -962,8 +963,33 @@ static NSArray<NSString *> *OISApplyTransformations(void)
     annotated[ODataMessagesAnnotation] = [messages valueForKey:@"JSONObject"];
     json = annotated;
   }
+  return [NSJSONSerialization dataWithJSONObject:json options:0 error:error];
+}
+
+- (NSData *)dataForResponseJSON:(id)json
+{
+  return [self dataForResponseJSON:json error:NULL];
+}
+
+- (void)answersAgain:(NSManagedObject *)object withBody:(BOOL)withBody
+{
+  id<OISAnswersAgain> part = [self.exchange.context conformsToProtocol:@protocol(OISAnswersAgain)] ? self.exchange.context : nil;
+  if (self.saves || !object || !part) return;
+  part.answerAgain = ^NSDictionary *(void) {
+    NSMutableDictionary *answer = [NSMutableDictionary dictionaryWithObject:[self etagOf:object] forKey:@"ETag"];
+    if (withBody) {
+      NSDictionary *json = [self entityBodyFor:object error:NULL];
+      NSData *data = json ? [self dataForResponseJSON:json] : nil;
+      if (data) answer[@"body"] = data;
+    }
+    return answer;
+  };
+}
+
+- (void)respondJSON:(id)json status:(NSInteger)status headers:(NSDictionary *)headers
+{
   NSError *error = nil;
-  NSData *data = [NSJSONSerialization dataWithJSONObject:json options:0 error:&error];
+  NSData *data = [self dataForResponseJSON:json error:&error];
   if (!data) {
     [self respondError:ODataServiceError(500, [NSString stringWithFormat:@"The response could not be written: %@", error.localizedDescription])];
     return;
@@ -4446,6 +4472,7 @@ static BOOL OISPredicateReadsOnlyKept(NSPredicate *predicate, NSDictionary *valu
     [self respondError:error];
     return;
   }
+  [self answersAgain:self.writtenObject withBody:YES];
   [self respondJSON:json status:self.writtenStatus headers:self.writtenHeaders];
 }
 

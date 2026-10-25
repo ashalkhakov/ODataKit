@@ -20,6 +20,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// What an exchange is for, when its context answers to it (a $batch's
+// part): its answer as it is after its change set is saved, given by the
+// call that answered it (-answersAgain:withBody:).
+@protocol OISAnswersAgain <NSObject>
+@property (nonatomic, copy, nullable) NSDictionary *_Nullable (^answerAgain)(void);
+@end
+
 @class OISServedOperation, OISPlan, OISPlanNode, OISRelation;
 
 // What a permission lets the caller do to an entity set's rows: its
@@ -246,6 +253,13 @@ typedef NS_ENUM(NSInteger, OISTargetKind) {
 // NO in a change set: its requests share a context, saved once they have
 // all succeeded.
 @property (nonatomic) BOOL saves;
+// In a change set (saves NO), its answer as it would be after the group is
+// saved, for its exchange's context (OISAnswersAgain): a block run then, in
+// the context, giving @{ @"ETag": ..., @"body": NSData (none for a 204) }.
+// The save may change what was written (ODataSync's bookkeeping, willSave),
+// and with it the ETag the part answered (#58).
+- (void)answersAgain:(NSManagedObject *)object withBody:(BOOL)withBody;
+- (nullable NSData *)dataForResponseJSON:(id)json;
 // Who is asking is known: the authenticator has answered, or a batch
 // the request is part of has been authenticated.
 @property (nonatomic) BOOL authenticated;

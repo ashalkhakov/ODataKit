@@ -264,6 +264,58 @@ static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
 }
 @end
 
+// Answers an exchange to a flag, for a test waiting on it.
+@interface OSTExchangeWaiter : NSObject
+@property (atomic) BOOL done;
+- (void)finished:(ODataExchange *)exchange;
+@end
+
+@implementation OSTExchangeWaiter
+- (void)finished:(ODataExchange *)exchange
+{
+  self.done = YES;
+}
+@end
+
+// Groups and their contacts, each keeping a version vector, served with
+// ODataSync installed.
+static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSEntityDescription *group = [[NSEntityDescription alloc] init], *contact = [[NSEntityDescription alloc] init];
+  group.name = @"Group";
+  contact.name = @"Contact";
+  group.managedObjectClassName = contact.managedObjectClassName = @"NSManagedObject";
+  group.userInfo = @{ ODataSyncVersionsKey: @"versions" };
+  contact.userInfo = @{ ODataSyncVersionsKey: @"versions" };
+  NSRelationshipDescription *members = [[NSRelationshipDescription alloc] init], *of = [[NSRelationshipDescription alloc] init];
+  members.name = @"contacts";
+  members.destinationEntity = contact;
+  members.maxCount = 0;
+  members.optional = YES;
+  of.name = @"group";
+  of.destinationEntity = group;
+  of.maxCount = 1;
+  of.optional = YES;
+  members.inverseRelationship = of;
+  of.inverseRelationship = members;
+  group.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO),
+                        attribute(@"versions", NSStringAttributeType, NO), members ];
+  contact.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO),
+                          attribute(@"versions", NSStringAttributeType, NO), of ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ group, contact ];
+  if (bookkeeping) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
 @interface ODataSyncTests : XCTestCase
 @end
 
@@ -1115,6 +1167,103 @@ static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
   [@"not a model" writeToFile:text atomically:YES encoding:NSUTF8StringEncoding error:NULL];
   XCTAssertNil(ODataSyncModelAtURL([NSURL fileURLWithPath:text], &error), @"a file that is not one");
   [[NSFileManager defaultManager] removeItemAtPath:text error:NULL];
+}
+
+// A change set's parts answer what they wrote as it is once the change set
+// is saved (#58): the save stamps ODataSync's bookkeeping on it, and an
+// ETag answered before would be stale at once, a client's next write with
+// it refused (412). The same for a body, for a 204's ETag, and for a PATCH.
+// A child bound to a parent changes no version of the parent's.
+- (void)testAChangeSetAnswersWhatItWroteAsSaved
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTGroupsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  (void)syncing;
+  ODataExchange *(^send)(NSString *, NSString *, id) = ^ODataExchange *(NSString *method, NSString *path, id body) {
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[@"http://example.test/odata/" stringByAppendingString:path]]];
+    request.HTTPMethod = method;
+    if (body) {
+      request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+      [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    }
+    OSTExchangeWaiter *waiter = [[OSTExchangeWaiter alloc] init];
+    ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:request target:waiter action:@selector(finished:)];
+    [service startExchange:exchange];
+    for (int i = 0; i < 500 && !waiter.done; i++) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    return exchange;
+  };
+  NSString *(^etagNow)(NSString *) = ^NSString *(NSString *path) {
+    return [(NSHTTPURLResponse *)send(@"GET", path, nil).URLResponse allHeaderFields][@"ETag"];
+  };
+  NSString *(^header)(NSDictionary *, NSString *) = ^NSString *(NSDictionary *headers, NSString *name) {
+    for (NSString *key in headers) {
+      if ([key caseInsensitiveCompare:name] == NSOrderedSame) return headers[key];
+    }
+    return nil;
+  };
+  XCTAssertEqual([(NSHTTPURLResponse *)send(@"POST", @"Groups", @{ @"Id": @1, @"Name": @"Friends" }).URLResponse statusCode], 201);
+
+  NSDictionary *batch = @{ @"requests": @[
+    @{ @"id": @"g", @"atomicityGroup": @"a", @"method": @"POST", @"url": @"Groups", @"body": @{ @"Id": @2, @"Name": @"Family" } },
+    @{ @"id": @"c", @"atomicityGroup": @"a", @"method": @"POST", @"url": @"Contacts", @"headers": @{ @"Prefer": @"return=minimal" },
+       @"body": @{ @"Id": @1, @"Name": @"Ann", @"Group@odata.bind": @"Groups(2)" } },
+    @{ @"id": @"p", @"atomicityGroup": @"a", @"method": @"PATCH", @"url": @"Groups(1)", @"body": @{ @"Name": @"Old friends" } } ] };
+  NSString *friendsBefore = etagNow(@"Groups(1)");
+  ODataExchange *set = send(@"POST", @"$batch", batch);
+  NSDictionary *json = [NSJSONSerialization JSONObjectWithData:set.data options:0 error:NULL];
+  NSDictionary *parts = [NSDictionary dictionaryWithObjects:json[@"responses"] forKeys:[json[@"responses"] valueForKey:@"id"]];
+  XCTAssertEqualObjects([parts[@"g"] valueForKey:@"status"], @201, @"%@", json);
+  XCTAssertEqualObjects([parts[@"c"] valueForKey:@"status"], @204, @"%@", json);
+  XCTAssertEqualObjects([parts[@"p"] valueForKey:@"status"], @204, @"%@", json);
+  NSString *family = etagNow(@"Groups(2)");
+  XCTAssertEqualObjects(header(parts[@"g"][@"headers"], @"ETag"), family, @"the insert's, as saved");
+  XCTAssertEqualObjects(parts[@"g"][@"body"][@"@odata.etag"], family, @"and its body's");
+  XCTAssertEqualObjects(parts[@"g"][@"body"][@"Versions"], [NSJSONSerialization JSONObjectWithData:send(@"GET", @"Groups(2)", nil).data options:0 error:NULL][@"Versions"],
+                        @"its values as saved too");
+  XCTAssertEqualObjects(header(parts[@"c"][@"headers"], @"ETag"), etagNow(@"Contacts(1)"), @"a 204's");
+  XCTAssertEqualObjects(header(parts[@"p"][@"headers"], @"ETag"), etagNow(@"Groups(1)"), @"an update's");
+  XCTAssertNotEqualObjects(etagNow(@"Groups(1)"), friendsBefore, @"changed by the PATCH");
+
+  // A contact bound to an existing group: the group's version stays.
+  NSString *familyBefore = etagNow(@"Groups(2)");
+  XCTAssertEqual([(NSHTTPURLResponse *)send(@"POST", @"Contacts", @{ @"Id": @2, @"Name": @"Bob", @"Group@odata.bind": @"Groups(2)" }).URLResponse statusCode], 201);
+  XCTAssertEqualObjects(etagNow(@"Groups(2)"), familyBefore, @"a member added is no change of the group's");
+}
+
+// Logbook's case (#58), through the client: new objects saved in one
+// change set (the client's keys), then one of them edited and saved: the
+// ETag it was answered is the one it has as saved, and the edit is taken.
+- (void)testAnObjectMadeInAChangeSetCanBeEditedAfter
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTGroupsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  (void)syncing;
+  [ODataIncrementalStore registerStore];
+  NSPersistentStoreCoordinator *client = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:OSTGroupsModel(NO)];
+  NSError *error = nil;
+  NSDictionary *options = @{ ODataIncrementalStoreTransportOption: service, ODataIncrementalStorePostOnObtainPermanentIDsOption: @NO };
+  XCTAssertNotNil([client addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil URL:[NSURL URLWithString:@"http://example.test/odata/"]
+                                             options:options error:&error], @"%@", error);
+  NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+  context.persistentStoreCoordinator = client;
+  NSManagedObject *group = [NSEntityDescription insertNewObjectForEntityForName:@"Group" inManagedObjectContext:context];
+  [group setValue:@1 forKey:@"id"];
+  [group setValue:@"Friends" forKey:@"name"];
+  for (NSInteger i = 1; i <= 2; i++) {
+    NSManagedObject *contact = [NSEntityDescription insertNewObjectForEntityForName:@"Contact" inManagedObjectContext:context];
+    [contact setValue:@(i) forKey:@"id"];
+    [contact setValue:[NSString stringWithFormat:@"Contact %ld", (long)i] forKey:@"name"];
+    [contact setValue:group forKey:@"group"];
+  }
+  XCTAssertTrue([context save:&error], @"%@", error);
+  [group setValue:@"Old friends" forKey:@"name"];
+  XCTAssertTrue([context save:&error], @"the edit, with the ETag the change set answered: %@", error);
+  [self in:server do:^(NSManagedObjectContext *serverContext) {
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Group"];
+    XCTAssertEqualObjects([[[serverContext executeFetchRequest:fetch error:NULL] firstObject] valueForKey:@"name"], @"Old friends");
+  }];
 }
 
 // Files and images kept outside the store, by default: each synced

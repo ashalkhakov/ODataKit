@@ -89,6 +89,13 @@
     BOOL stamped = stamp && changes[stamp.name] != nil && [object valueForKey:stamp.name] != nil;
     if (stamp) [changes removeObjectForKey:stamp.name];
     if (versions) [changes removeObjectForKey:versions.name];
+    // A to-many is not what a sync exchanges (its attributes and to-ones
+    // are): one that gained or lost a member (a child bound to it, whose
+    // own to-one changed) is no change of this object's, and its version
+    // stays (#58: a catalog's ETag changed as warehouses were added).
+    for (NSString *name in changes.allKeys) {
+      if ([object.entity.relationshipsByName[name] isToMany]) [changes removeObjectForKey:name];
+    }
     if (!object.isInserted && !changes.count) continue;
     if (stamp && !stamped) [object setValue:[clock tick] forKey:stamp.name];
     if (versions) {
