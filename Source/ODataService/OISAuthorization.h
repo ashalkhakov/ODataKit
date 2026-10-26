@@ -9,11 +9,12 @@
 //     object#relation@user          object, relation and user are its values
 //   relation definition           an entity's OData.relation.<name>, in
 //     define keeper: [user]         OpenFGA's notation: [user], a relation of
-//       or manager                  the same object, <relation> from <to-one>,
-//                                   joined by or
-//   tuple to userset              <relation> from <to-one>: through the
-//     keeper from warehouse         entity's own relationship (Core Data's),
-//                                   not a tupleset relation
+//       or manager                  the same object, <relation> from
+//                                   <relationship>, joined by or
+//   tuple to userset              <relation> from <relationship>: through
+//     keeper from warehouse         the entity's own relationship (Core
+//                                   Data's), not a tupleset relation; a
+//                                   to-many's: any of its members
 //   Check(object, relation, user) the relation's predicate, evaluated on the
 //                                 row
 //   ListObjects                   the relation's predicate, fetched with
@@ -52,8 +53,9 @@ FOUNDATION_EXPORT NSArray<NSString *> *OISIdentitiesOfPrincipal(HSPrincipal *_Nu
 - (nullable NSPredicate *)predicateForRelation:(NSString *)relation
                                         entity:(NSEntityDescription *)entity
                                     identities:(NSArray<NSString *> *)identities;
-// The to-ones the relation goes through (its from terms, its computed
-// relations' too): a new row's, made in the same request, decides there.
+// The relationships the relation goes through (its from terms, its
+// computed relations' too): a new row's, made in the same request, decides
+// there.
 - (NSSet<NSString *> *)relationshipsOfRelation:(NSString *)relation entity:(NSEntityDescription *)entity;
 // What these identities hold, as a version: changes when a tuple of theirs
 // is added, removed or changed (a delta link's scope version).

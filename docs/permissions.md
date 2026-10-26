@@ -7,6 +7,10 @@ warehouse", "Dee manages Anna's catalog". Here a permission is held *on an
 object*, and it reaches what lies under that object: a warehouse's
 locations and moves, a catalog's warehouses and items.
 
+Moving an existing server's hand-written checks onto relations is covered
+in [permissions-migration.md](permissions-migration.md), which also has
+SimpleNotes' and Logbook's mappings.
+
 ## Nothing original
 
 ODataKit takes the model and its notation from Google's **Zanzibar**:
@@ -33,7 +37,7 @@ is a mistake.
 | relation definition, `define keeper: [user] or manager` | an entity's `OData.relation.keeper` = `[user] or manager` |
 | direct relationship `[user]` | the tuples that name the object and the relation |
 | computed userset `manager` | another relation of the same object |
-| tuple to userset `keeper from warehouse` | the same, through the entity's own to-one `warehouse` |
+| tuple to userset `keeper from warehouse` | the same, through the entity's own relationship `warehouse`; through a to-many, any of its members |
 | permissions are relations | the service checks the relations `read`, `insert`, `update`, `delete` and `call.<Operation>` |
 | Check | the relation, evaluated on the row |
 | ListObjects | the relation, as a fetch predicate |
@@ -60,6 +64,7 @@ All of these are `userInfo` keys on the model's entities.
 | `[user]` | a tuple names this object, this relation and the caller |
 | `manager` | the caller holds `manager` on this object |
 | `keeper from warehouse` | the caller holds `keeper` on the object the to-one `warehouse` reaches |
+| `keeper from warehouses` | the caller holds `keeper` on any of the objects the to-many `warehouses` reaches |
 | `where owner.email IN $user` | the predicate holds on the row; `$user` is the caller's identities |
 
 A sub-entity uses its super-entity's definitions, unless it defines its
@@ -75,8 +80,8 @@ everyone in the group.
 
 ```
 Catalog          owner   = where owner.email IN $user
-                 manager = owner
-                 keeper  = manager
+                 manager = owner or manager from warehouses
+                 keeper  = manager or keeper from warehouses
                  read    = keeper
 
 Warehouse        owner   = owner from catalog
@@ -95,6 +100,10 @@ Location         read   = read from warehouse
                  insert = manager from warehouse
                  update = manager from warehouse
                  delete = manager from warehouse
+
+StockItem        read   = read from catalog
+                 insert = manager from catalog
+                 update = manager from catalog
 ```
 
 What this gives:
@@ -104,6 +113,9 @@ What this gives:
   and its locations, but not change them.
 - A row (Garage, `manager`, Dee) lets Dee change, add and remove the
   Garage's locations too, and only the Garage's.
+- Through `warehouses`, a to-many: the Garage's staff see its catalog and
+  the catalog's stock items. Dee, as a manager of one of the catalog's
+  warehouses, manages them too.
 
 ## What is checked, and where
 
@@ -135,6 +147,9 @@ What this gives:
 - **Unannotated entities:** an entity with no relation for a verb is not
   limited by relations for it. Scopes, `allowsInsert` and the rest apply as
   before, and both must pass.
+- **Define `insert` wherever you define `read`.** A `PATCH` to a key the
+  caller cannot see is an upsert. With no `insert` relation to refuse it,
+  that upsert succeeds and makes a second row with the hidden row's key.
 - **Mistakes in the annotations** are listed in `metadataProblems`. A
   relation that cannot be read holds for no one.
 
@@ -163,9 +178,6 @@ so it cannot print them.
 
 ## Limits
 
-- **Through to-ones only:** a `from` term walks a to-one relationship.
-  "Keeper of the catalog if keeper of any of its warehouses" would need a
-  to-many there, which is not supported.
 - **Bounded depth:** a chain of `from` terms deeper than eight is no grant.
   Zanzibar bounds its rewrites as well.
 - **Not advertised:** `$metadata` says nothing about relations, because the

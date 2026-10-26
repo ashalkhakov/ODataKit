@@ -8281,14 +8281,20 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
         many.properties = [many.properties arrayByAddingObject:b];
       };
   NSEntityDescription *user = entity(@"User", nil);
-  NSEntityDescription *catalog = entity(@"Catalog", @{ @"OData.relation.owner": @"where owner.email IN $user", @"OData.relation.manager": @"owner",
-                                                     @"OData.relation.keeper": @"manager", @"OData.relation.read": @"keeper" });
+  // A warehouse's staff see its catalog, and its manager manages there:
+  // through a to-many, any of the catalog's warehouses.
+  NSEntityDescription *catalog = entity(@"Catalog", @{ @"OData.relation.owner": @"where owner.email IN $user",
+                                                     @"OData.relation.manager": @"owner or manager from warehouses",
+                                                     @"OData.relation.keeper": @"manager or keeper from warehouses", @"OData.relation.read": @"keeper",
+                                                     @"OData.relation.insert": @"where $user.@count > 0" });
   NSEntityDescription *warehouse = entity(@"Warehouse", @{
     @"OData.relation.owner": @"owner from catalog", @"OData.relation.manager": @"[user] or owner",
     @"OData.relation.keeper": @"[user] or manager", @"OData.relation.read": @"keeper", @"OData.relation.update": @"manager",
     @"OData.relation.insert": @"owner from catalog", @"OData.relation.delete": @"owner" });
   NSEntityDescription *staff = entity(@"WarehouseStaff", @{ @"OData.tuple.object": @"warehouse", @"OData.tuple.relation": @"role",
                                                            @"OData.tuple.user": @"user.email" });
+  NSEntityDescription *item = entity(@"StockItem", @{ @"OData.relation.read": @"read from catalog", @"OData.relation.update": @"manager from catalog",
+                                                   @"OData.relation.insert": @"manager from catalog" });
   NSEntityDescription *location = entity(@"Location", @{
     @"OData.relation.read": @"read from warehouse", @"OData.relation.insert": @"manager from warehouse",
     @"OData.relation.update": @"manager from warehouse", @"OData.relation.delete": @"manager from warehouse" });
@@ -8297,7 +8303,9 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   warehouse.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   staff.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"role", NSStringAttributeType, NO) ];
   location.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
+  item.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   pair(catalog, @"owner", user, @"ownedCatalogs");
+  pair(item, @"catalog", catalog, @"items");
   pair(warehouse, @"catalog", catalog, @"warehouses");
   pair(staff, @"warehouse", warehouse, @"staffs");
   pair(staff, @"user", user, @"staffs");
@@ -8323,6 +8331,9 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @1, @"role": @"keeper", @"warehouse": garage, @"user": users[@"ben@example.org"] }];
   [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @2, @"role": @"manager", @"warehouse": garage, @"user": users[@"dee@example.org"] }];
   [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @3, @"role": @"keeper", @"warehouse": garage, @"user": users[@"garage-crew"] }];
+  [self insert:@"StockItem" into:seed values:@{ @"id": @1, @"name": @"Oil filter", @"catalog": stock }];
+  NSManagedObject *spares = [self insert:@"Catalog" into:seed values:@{ @"id": @2, @"name": @"Spares", @"owner": users[@"ann@example.org"] }];
+  [self insert:@"StockItem" into:seed values:@{ @"id": @2, @"name": @"Wiper", @"catalog": spares }];
   [self insert:@"Location" into:seed values:@{ @"id": @1, @"name": @"A1", @"warehouse": garage }];
   [self insert:@"Location" into:seed values:@{ @"id": @2, @"name": @"B1", @"warehouse": shed }];
   XCTAssertTrue([seed save:&error], @"%@", error);
@@ -8384,6 +8395,20 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   OISServiceResponse *crew = [self as:@"fay@example.org" groups:@[ @"garage-crew" ] send:@"GET" path:@"Locations" body:nil headers:nil];
   XCTAssertEqualObjects([crew.json[@"value"] valueForKey:@"Name"], (@[ @"A1" ]), @"as the group: %@", crew.text);
   XCTAssertEqual([self as:@"ben@example.org" send:@"GET" path:@"Locations(2)" body:nil].status, 404, @"another warehouse's: not there");
+
+  // Through a to-many: the Garage's staff see its catalog and the catalog's
+  // items, not another catalog's; its manager manages them, its keeper not.
+  XCTAssertEqualObjects([self namesAs:@"ben@example.org" path:@"Catalogs"], (@[ @"Stock" ]));
+  XCTAssertEqualObjects([self namesAs:@"ben@example.org" path:@"StockItems"], (@[ @"Oil filter" ]));
+  XCTAssertEqualObjects([self namesAs:@"ann@example.org" path:@"StockItems"], (@[ @"Oil filter", @"Wiper" ]));
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"StockItems"], (@[]));
+  XCTAssertEqual(([self as:@"ben@example.org" send:@"PATCH" path:@"StockItems(1)" body:@{ @"Name": @"Oil filter (ben)" }].status), 403);
+  XCTAssertEqual(([self as:@"dee@example.org" send:@"PATCH" path:@"StockItems(1)" body:@{ @"Name": @"Oil filter (dee)" }].status), 204);
+  XCTAssertEqual(([self as:@"dee@example.org" send:@"PATCH" path:@"StockItems(2)" body:@{ @"Name": @"Wiper (dee)" }].status), 403,
+                 @"not seen: an upsert there, which dee may not");
+  // Anyone signed in adds a catalog (where $user.@count > 0); no one, not.
+  XCTAssertEqual(([self as:@"eve@example.org" send:@"POST" path:@"Catalogs" body:@{ @"Id": @3, @"Name": @"Eve's" }].status), 201);
+  XCTAssertEqual(([self as:nil send:@"POST" path:@"Catalogs" body:@{ @"Id": @4, @"Name": @"No one's" }].status), 403);
 
   // Changes: a keeper sees but may not change; a manager may, in their
   // warehouse only; the owner anywhere.
@@ -8473,7 +8498,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
   _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
   NSString *problems = [_service.metadataProblems componentsJoinedByString:@"\n"];
-  XCTAssertTrue([problems containsString:@"nowhere is no to-one of Thing"], @"%@", problems);
+  XCTAssertTrue([problems containsString:@"nowhere is no relationship of Thing"], @"%@", problems);
   XCTAssertTrue([problems containsString:@"does not parse"], @"%@", problems);
   XCTAssertTrue([problems containsString:@"names editor, which Thing does not define"], @"%@", problems);
   XCTAssertEqualObjects([[self get:@"Things"].json[@"value"] valueForKey:@"Id"], @[], @"a relation that holds nothing: nothing seen");

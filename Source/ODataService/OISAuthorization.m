@@ -9,7 +9,7 @@ NSString * const OISTupleRelationKey = @"OData.tuple.relation";
 NSString * const OISTupleRelationNameKey = @"OData.tuple.relationName";
 NSString * const OISTupleUserKey = @"OData.tuple.user";
 
-// How deep relations are followed (from terms through to-ones): Zanzibar
+// How deep relations are followed (from terms through relationships): Zanzibar
 // bounds its rewrites too; a deeper chain is no grant.
 static const NSUInteger OISRelationDepth = 8;
 
@@ -38,79 +38,93 @@ static BOOL OISIsKeyPath(NSString *text)
   return [text rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
 }
 
-#pragma mark Prefixing
+#pragma mark Formats
 
-// A predicate of the row's, as one of a row that reaches it through
-// prefix (a key path): key paths prefixed, variables (a subquery's) not.
-static NSPredicate *OISPrefixedPredicate(NSPredicate *predicate, NSString *prefix);
+// A relation is compiled to one predicate format, which the platform's own
+// parser makes the predicate of, once: the shapes it makes are the ones its
+// stores translate (a subquery's, especially), and no predicate is written
+// back out and read again (gnustep-base's -predicateFormat does not quote
+// strings). The caller's identities go in as arguments (%@): a constant
+// array, as `IN %@` makes.
 
-static NSExpression *OISPrefixedExpression(NSExpression *expression, NSString *prefix)
+static NSString *OISQuoted(NSString *text)
 {
-  if (!prefix.length) return expression;
-  switch (expression.expressionType) {
-    case NSKeyPathExpressionType: {
-      NSString *path = expression.keyPath;
-      return [NSExpression expressionForKeyPath:[path isEqualToString:@"SELF"] ? prefix : [NSString stringWithFormat:@"%@.%@", prefix, path]];
-    }
-    case NSEvaluatedObjectExpressionType:
-      return [NSExpression expressionForKeyPath:prefix];
-    case NSFunctionExpressionType: {
-      NSMutableArray *arguments = [NSMutableArray array];
-      for (NSExpression *argument in expression.arguments ?: @[]) [arguments addObject:OISPrefixedExpression(argument, prefix)];
-      NSExpression *operand = expression.operand;
-      // A key path through the evaluated object (valueForKeyPath:):
-      // through the prefix instead.
-      if (operand.expressionType == NSEvaluatedObjectExpressionType && [expression.function isEqualToString:@"valueForKeyPath:"]) {
-        NSExpression *path = expression.arguments.firstObject;
-        if (path.expressionType == NSConstantValueExpressionType && [path.constantValue isKindOfClass:[NSString class]]) {
-          return [NSExpression expressionForKeyPath:[NSString stringWithFormat:@"%@.%@", prefix, path.constantValue]];
-        }
-      }
-      if (operand && operand.expressionType != NSConstantValueExpressionType) {
-        return [NSExpression expressionForFunction:OISPrefixedExpression(operand, prefix) selectorName:expression.function
-                                         arguments:expression.arguments ?: @[]];
-      }
-      return [NSExpression expressionForFunction:expression.function arguments:arguments];
-    }
-    case NSSubqueryExpressionType: {
-      NSExpression *collection = [expression.collection isKindOfClass:[NSExpression class]] ? expression.collection : nil;
-      if (!collection) return expression;
-      return [NSExpression expressionForSubquery:OISPrefixedExpression(collection, prefix)
-                           usingIteratorVariable:expression.variable
-                                       predicate:expression.predicate];
-    }
-    case NSAggregateExpressionType: {
-      NSMutableArray *items = [NSMutableArray array];
-      for (NSExpression *item in [expression.collection isKindOfClass:[NSArray class]] ? expression.collection : @[]) {
-        [items addObject:[item isKindOfClass:[NSExpression class]] ? OISPrefixedExpression(item, prefix) : item];
-      }
-      return [NSExpression expressionForAggregate:items];
-    }
-    default:
-      return expression;
-  }
+  NSString *escaped = [[text stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+  return [NSString stringWithFormat:@"\"%@\"", [escaped stringByReplacingOccurrencesOfString:@"%" withString:@"%%"]];
 }
 
-static NSPredicate *OISPrefixedPredicate(NSPredicate *predicate, NSString *prefix)
+static NSSet<NSString *> *OISFormatKeywords(void)
 {
-  if (!prefix.length) return predicate;
-  if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
-    NSCompoundPredicate *compound = (NSCompoundPredicate *)predicate;
-    NSMutableArray *parts = [NSMutableArray array];
-    for (NSPredicate *part in compound.subpredicates) [parts addObject:OISPrefixedPredicate(part, prefix)];
-    return [[NSCompoundPredicate alloc] initWithType:compound.compoundPredicateType subpredicates:parts];
-  }
-  if ([predicate isKindOfClass:[NSComparisonPredicate class]]) {
-    NSComparisonPredicate *comparison = (NSComparisonPredicate *)predicate;
-    NSExpression *left = OISPrefixedExpression(comparison.leftExpression, prefix);
-    NSExpression *right = OISPrefixedExpression(comparison.rightExpression, prefix);
-    if (comparison.predicateOperatorType == NSCustomSelectorPredicateOperatorType) {
-      return [NSComparisonPredicate predicateWithLeftExpression:left rightExpression:right customSelector:comparison.customSelector];
+  static NSSet *keywords;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    keywords = [NSSet setWithArray:@[ @"AND", @"OR", @"NOT", @"ANY", @"ALL", @"SOME", @"NONE", @"IN", @"CONTAINS", @"BEGINSWITH", @"ENDSWITH",
+                                      @"LIKE", @"MATCHES", @"BETWEEN", @"TRUEPREDICATE", @"FALSEPREDICATE", @"NIL", @"NULL", @"YES", @"NO", @"TRUE",
+                                      @"FALSE", @"SUBQUERY", @"FUNCTION", @"CAST", @"FIRST", @"LAST", @"SIZE" ]];
+  });
+  return keywords;
+}
+
+// A where term's text, its key paths under prefix (a key path, or a
+// subquery's variable: $v1.catalog), $user one argument more (the
+// identities). Quoted strings, variables, keywords, functions and options
+// ([c]) stay as they are.
+static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *identities, NSMutableArray *arguments)
+{
+  NSMutableString *out = [NSMutableString string];
+  NSCharacterSet *start = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"];
+  NSCharacterSet *part = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.@"];
+  NSUInteger i = 0, n = text.length;
+  while (i < n) {
+    unichar c = [text characterAtIndex:i];
+    if (c == '\'' || c == '"') {
+      NSUInteger j = i + 1;
+      while (j < n && [text characterAtIndex:j] != c) j += [text characterAtIndex:j] == '\\' ? 2 : 1;
+      NSString *quoted = [text substringWithRange:NSMakeRange(i, MIN(j + 1, n) - i)];
+      [out appendString:[quoted stringByReplacingOccurrencesOfString:@"%" withString:@"%%"]];
+      i = MIN(j + 1, n);
+    } else if (c == '[') {
+      NSUInteger j = i;
+      while (j < n && [text characterAtIndex:j] != ']') j++;
+      [out appendString:[text substringWithRange:NSMakeRange(i, MIN(j + 1, n) - i)]];
+      i = MIN(j + 1, n);
+    } else if (c == '$') {
+      NSUInteger j = i + 1;
+      while (j < n && [part characterIsMember:[text characterAtIndex:j]]) j++;
+      NSString *variable = [text substringWithRange:NSMakeRange(i + 1, j - i - 1)];
+      if ([variable isEqualToString:@"user"] || [variable hasPrefix:@"user."]) {
+        [out appendString:@"%@"];
+        [out appendString:[variable substringFromIndex:4]];
+        [arguments addObject:identities];
+      } else {
+        [out appendFormat:@"$%@", variable];
+      }
+      i = j;
+    } else if ([start characterIsMember:c]) {
+      NSUInteger j = i;
+      while (j < n && [part characterIsMember:[text characterAtIndex:j]]) j++;
+      NSString *token = [text substringWithRange:NSMakeRange(i, j - i)];
+      NSUInteger k = j;
+      while (k < n && [[NSCharacterSet whitespaceCharacterSet] characterIsMember:[text characterAtIndex:k]]) k++;
+      BOOL function = k < n && [text characterAtIndex:k] == '(';
+      NSString *head = [[token componentsSeparatedByString:@"."].firstObject uppercaseString];
+      if (function || [OISFormatKeywords() containsObject:head] || !prefix.length) {
+        [out appendString:token];
+      } else if ([head isEqualToString:@"SELF"]) {
+        [out appendString:[prefix stringByAppendingString:[token substringFromIndex:4]]];
+      } else {
+        [out appendFormat:@"%@.%@", prefix, token];
+      }
+      i = j;
+    } else if (c == '%') {
+      [out appendString:@"%%"];
+      i++;
+    } else {
+      [out appendFormat:@"%C", c];
+      i++;
     }
-    return [NSComparisonPredicate predicateWithLeftExpression:left rightExpression:right modifier:comparison.comparisonPredicateModifier
-                                                         type:comparison.predicateOperatorType options:comparison.options];
   }
-  return predicate;  // TRUEPREDICATE, FALSEPREDICATE
+  return out;
 }
 
 #pragma mark The model
@@ -119,15 +133,15 @@ static NSPredicate *OISPrefixedPredicate(NSPredicate *predicate, NSString *prefi
 typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   OISTermDirect,     // [user]: the tuples naming the object and the relation
   OISTermComputed,   // manager: another relation of the same object
-  OISTermFrom,       // keeper from warehouse: a relation of the object a to-one reaches
+  OISTermFrom,       // keeper from warehouse: a relation of what a relationship reaches (a to-many: any member)
   OISTermWhere,      // where catalogOwner.email IN $user: the row's own values
 };
 
 @interface OISRelationTerm : NSObject
 @property (nonatomic) OISRelationTermKind kind;
 @property (nonatomic, copy) NSString *relation;       // computed, from
-@property (nonatomic, copy) NSString *through;        // from: the to-one
-@property (nonatomic, strong) NSPredicate *condition; // where
+@property (nonatomic, copy) NSString *through;        // from: the relationship
+@property (nonatomic, copy) NSString *text;          // where: its predicate, as written
 @end
 
 @implementation OISRelationTerm
@@ -280,16 +294,19 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
       term.kind = OISTermDirect;
     } else if ([part hasPrefix:@"where "]) {
       term.kind = OISTermWhere;
+      term.text = [part substringFromIndex:6];
       @try {
-        term.condition = [NSPredicate predicateWithFormat:[part substringFromIndex:6]];
+        // Read once, with $user as the parser reads a variable, to say now
+        // what does not parse.
+        (void)[NSPredicate predicateWithFormat:term.text];
       } @catch (NSException *exception) {
         [self problem:[NSString stringWithFormat:@"%@.%@: %@ does not parse: %@", entity.name, relation, part, exception.reason]];
         continue;
       }
     } else if (words.count == 3 && [words[1] isEqualToString:@"from"] && OISIsKeyPath(words[0]) && OISIsKeyPath(words[2])) {
       NSRelationshipDescription *through = entity.relationshipsByName[words[2]];
-      if (!through || through.isToMany) {
-        [self problem:[NSString stringWithFormat:@"%@.%@: %@ is no to-one of %@", entity.name, relation, words[2], entity.name]];
+      if (!through) {
+        [self problem:[NSString stringWithFormat:@"%@.%@: %@ is no relationship of %@", entity.name, relation, words[2], entity.name]];
         continue;
       }
       if (![self entity:through.destinationEntity defines:words[0]]) {
@@ -307,7 +324,7 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
       term.kind = OISTermComputed;
       term.relation = words[0];
     } else {
-      [self problem:[NSString stringWithFormat:@"%@.%@: %@ is not a term ([user], a relation, <relation> from <to-one>, where <predicate>)",
+      [self problem:[NSString stringWithFormat:@"%@.%@: %@ is not a term ([user], a relation, <relation> from <relationship>, where <predicate>)",
                                                entity.name, relation, part]];
       continue;
     }
@@ -324,18 +341,27 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
 - (NSPredicate *)predicateForRelation:(NSString *)relation entity:(NSEntityDescription *)entity identities:(NSArray<NSString *> *)identities
 {
   if (![self entity:entity defines:relation]) return nil;
-  return [self predicateForRelation:relation entity:entity prefix:@"" identities:identities depth:0 seen:[NSMutableSet set]];
+  NSMutableArray *arguments = [NSMutableArray array];
+  NSString *format = [self formatForRelation:relation entity:entity prefix:@"" identities:identities arguments:arguments depth:0
+                                        seen:[NSMutableSet set]];
+  @try {
+    return [NSPredicate predicateWithFormat:format argumentArray:arguments];
+  } @catch (NSException *exception) {
+    [self problem:[NSString stringWithFormat:@"%@.%@ does not make a predicate: %@", entity.name, relation, exception.reason]];
+    return [NSPredicate predicateWithValue:NO];
+  }
 }
 
-- (NSPredicate *)predicateForRelation:(NSString *)relation
-                               entity:(NSEntityDescription *)entity
-                               prefix:(NSString *)prefix
-                           identities:(NSArray *)identities
-                                depth:(NSUInteger)depth
-                                 seen:(NSMutableSet *)seen
+- (NSString *)formatForRelation:(NSString *)relation
+                         entity:(NSEntityDescription *)entity
+                         prefix:(NSString *)prefix
+                     identities:(NSArray *)identities
+                      arguments:(NSMutableArray *)arguments
+                          depth:(NSUInteger)depth
+                           seen:(NSMutableSet *)seen
 {
   NSString *visit = [NSString stringWithFormat:@"%@ %@ %@", entity.name, relation, prefix];
-  if (depth > OISRelationDepth || [seen containsObject:visit]) return [NSPredicate predicateWithValue:NO];
+  if (depth > OISRelationDepth || [seen containsObject:visit]) return @"FALSEPREDICATE";
   [seen addObject:visit];
   NSMutableArray *alternatives = [NSMutableArray array];
   NSString *dot = prefix.length ? [prefix stringByAppendingString:@"."] : @"";
@@ -345,49 +371,50 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
         for (OISRelationTupleSource *source in _sources) {
           NSRelationshipDescription *inverse = source.object.inverseRelationship;
           if (![entity isKindOfEntity:inverse.entity]) continue;
-          NSString *path = [dot stringByAppendingString:inverse.name];
-          NSString *named = source.relationName.length ? @"" : [NSString stringWithFormat:@" AND $t.%@ == %%@", source.relationAttribute];
           if (source.relationName.length && ![source.relationName isEqualToString:relation]) continue;
-          NSPredicate *tuple = nil;
-          if (inverse.isToMany) {
-            NSString *format = [NSString stringWithFormat:@"SUBQUERY(%@, $t, $t.%@ IN %%@%@).@count > 0", path, source.user, named];
-            tuple = named.length ? [NSPredicate predicateWithFormat:format, identities, relation] : [NSPredicate predicateWithFormat:format, identities];
-          } else {
-            NSString *format = [NSString stringWithFormat:@"%@.%@ IN %%@%@", path, source.user,
-                                                          named.length ? [NSString stringWithFormat:@" AND %@.%@ == %%@", path, source.relationAttribute] : @""];
-            tuple = named.length ? [NSPredicate predicateWithFormat:format, identities, relation] : [NSPredicate predicateWithFormat:format, identities];
-          }
-          [alternatives addObject:tuple];
+          NSString *path = [dot stringByAppendingString:inverse.name];
+          // Each depth's own variable: a subquery within another's does not
+          // hide the outer one's.
+          NSString *t = inverse.isToMany ? [NSString stringWithFormat:@"$t%lu", (unsigned long)depth] : path;
+          NSString *named = source.relationName.length ? @"" : [NSString stringWithFormat:@" AND %@.%@ == %@", t, source.relationAttribute,
+                                                                                         OISQuoted(relation)];
+          NSString *tuple = [NSString stringWithFormat:@"%@.%@ IN %%@%@", t, source.user, named];
+          [arguments addObject:identities];
+          [alternatives addObject:inverse.isToMany ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, t, tuple] : tuple];
         }
         break;
       case OISTermComputed:
-        if (![self entity:entity defines:term.relation]) {
-          [self problem:[NSString stringWithFormat:@"%@.%@ names %@, which %@ does not define", entity.name, relation, term.relation, entity.name]];
-          break;
-        }
-        [alternatives addObject:[self predicateForRelation:term.relation entity:entity prefix:prefix identities:identities depth:depth seen:seen]];
+        [alternatives addObject:[self formatForRelation:term.relation entity:entity prefix:prefix identities:identities arguments:arguments
+                                                  depth:depth seen:seen]];
         break;
       case OISTermFrom: {
         NSRelationshipDescription *through = entity.relationshipsByName[term.through];
         NSEntityDescription *destination = through.destinationEntity;
-        if (![self entity:destination defines:term.relation]) {
-          [self problem:[NSString stringWithFormat:@"%@.%@: %@ does not define %@", entity.name, relation, destination.name, term.relation]];
+        NSString *path = [dot stringByAppendingString:term.through];
+        if (!through.isToMany) {
+          [alternatives addObject:[self formatForRelation:term.relation entity:destination prefix:path identities:identities arguments:arguments
+                                                    depth:depth + 1 seen:seen]];
           break;
         }
-        [alternatives addObject:[self predicateForRelation:term.relation entity:destination prefix:[dot stringByAppendingString:term.through]
-                                                identities:identities depth:depth + 1 seen:seen]];
+        // Through a to-many: any of its members (Zanzibar's tuple to
+        // userset reads every tuple of the set), a subquery whose variable
+        // the members' relation is under.
+        NSString *v = [NSString stringWithFormat:@"$v%lu", (unsigned long)depth + 1];
+        NSString *member = [self formatForRelation:term.relation entity:destination prefix:v identities:identities arguments:arguments
+                                             depth:depth + 1 seen:seen];
+        [alternatives addObject:[NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, v, member]];
         break;
       }
-      case OISTermWhere: {
-        NSPredicate *condition = [term.condition predicateWithSubstitutionVariables:@{ @"user": identities }];
-        [alternatives addObject:OISPrefixedPredicate(condition, prefix)];
+      case OISTermWhere:
+        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments)];
         break;
-      }
     }
   }
   [seen removeObject:visit];
-  if (!alternatives.count) return [NSPredicate predicateWithValue:NO];
-  return alternatives.count == 1 ? alternatives.firstObject : [NSCompoundPredicate orPredicateWithSubpredicates:alternatives];
+  if (!alternatives.count) return @"FALSEPREDICATE";
+  NSMutableArray *grouped = [NSMutableArray array];
+  for (NSString *alternative in alternatives) [grouped addObject:[NSString stringWithFormat:@"(%@)", alternative]];
+  return [grouped componentsJoinedByString:@" OR "];
 }
 
 - (NSSet<NSString *> *)relationshipsOfRelation:(NSString *)relation entity:(NSEntityDescription *)entity
