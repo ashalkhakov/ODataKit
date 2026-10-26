@@ -38,6 +38,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // Why a request was refused, in a word, for metrics
 // (http_auth_failures_total) and logs: in a refusal's userInfo, and the
 // authentication stage puts it in the request's. HTTPServerKit's
@@ -46,7 +52,7 @@ NS_ASSUME_NONNULL_BEGIN
 // no_subject, insufficient_scope, inactive, proxy_secret,
 // provider_unavailable, timeout. An authenticator of one's own may say its
 // own (a few, never a token or a name).
-FOUNDATION_EXPORT NSString * const HSAuthenticationFailureKey;
+HTTPSERVERKIT_EXPORT NSString * const HSAuthenticationFailureKey;
 
 // Who a request is from: the provider's subject (OIDC's sub, a user name),
 // and what else is known of them.
@@ -120,7 +126,7 @@ FOUNDATION_EXPORT NSString * const HSAuthenticationFailureKey;
 
 // NSURLSession where Foundation has it; on a gnustep-base without it,
 // NSURLConnection on a thread of its own.
-FOUNDATION_EXPORT id<HSFetching> HSDefaultFetcher(void);
+HTTPSERVERKIT_EXPORT id<HSFetching> HSDefaultFetcher(void);
 
 @interface HSTrustedHeaderAuthenticator : NSObject <HSAuthenticator>
 // The caller's subject from this header (X-Forwarded-User, Remote-User).
@@ -164,12 +170,12 @@ FOUNDATION_EXPORT id<HSFetching> HSDefaultFetcher(void);
 //
 // A new P-256 key, as a JWK with its d, alg ES256, use sig, and kid its
 // RFC 7638 thumbprint. Keep it secret; give out HSPublicKey of it.
-FOUNDATION_EXPORT NSDictionary<NSString *, id> *_Nullable HSGenerateSigningKey(NSError *_Nullable *_Nullable error);
+HTTPSERVERKIT_EXPORT NSDictionary<NSString *, id> *_Nullable HSGenerateSigningKey(NSError *_Nullable *_Nullable error);
 // The public part of a key (no d), for a JWK Set.
-FOUNDATION_EXPORT NSDictionary<NSString *, id> *HSPublicKey(NSDictionary<NSString *, id> *jwk);
+HTTPSERVERKIT_EXPORT NSDictionary<NSString *, id> *HSPublicKey(NSDictionary<NSString *, id> *jwk);
 // claims signed with the key (ES256), compact: its header names the key
 // (kid) and the type (JWT).
-FOUNDATION_EXPORT NSString *_Nullable HSSignJWT(NSDictionary<NSString *, id> *claims, NSDictionary<NSString *, id> *jwk,
+HTTPSERVERKIT_EXPORT NSString *_Nullable HSSignJWT(NSDictionary<NSString *, id> *claims, NSDictionary<NSString *, id> *jwk,
                                                 NSError *_Nullable *_Nullable error);
 
 @interface HSJWTAuthenticator : NSObject <HSAuthenticator>

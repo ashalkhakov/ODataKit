@@ -26,8 +26,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* ODataSync's own: exported where ODataSync is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASYNC_EXPORT
+#define ODATASYNC_EXPORT FOUNDATION_EXPORT
+#endif
+
 // _odatasync._tcp.
-FOUNDATION_EXPORT NSString * const ODataSyncPeerServiceType;
+ODATASYNC_EXPORT NSString * const ODataSyncPeerServiceType;
 
 // A peer found.
 @interface ODataSyncPeerAnnouncement : NSObject

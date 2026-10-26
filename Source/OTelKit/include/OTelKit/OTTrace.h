@@ -58,11 +58,17 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *propagationHeaders;
 @end
 
+/* OTelKit's own: exported where OTelKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef OTELKIT_EXPORT
+#define OTELKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // Random IDs, as a span context has them.
-FOUNDATION_EXPORT NSString *OTNewTraceID(void);
-FOUNDATION_EXPORT NSString *OTNewSpanID(void);
+OTELKIT_EXPORT NSString *OTNewTraceID(void);
+OTELKIT_EXPORT NSString *OTNewSpanID(void);
 // Nanoseconds since 1970, as spans are timed.
-FOUNDATION_EXPORT uint64_t OTNow(void);
+OTELKIT_EXPORT uint64_t OTNow(void);
 
 typedef NS_ENUM(NSInteger, OTSpanKind) {
   OTSpanKindInternal = 1,
@@ -261,6 +267,6 @@ typedef NS_ENUM(NSInteger, OTStatusCode) {
 - (OTSpan *)startSpanNamed:(NSString *)name attributes:(nullable NSDictionary<NSString *, id> *)attributes;
 @end
 
-FOUNDATION_EXPORT NSString * const OTErrorDomain;
+OTELKIT_EXPORT NSString * const OTErrorDomain;
 
 NS_ASSUME_NONNULL_END

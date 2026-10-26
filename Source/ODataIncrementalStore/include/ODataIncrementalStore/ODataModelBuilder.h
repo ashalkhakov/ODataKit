@@ -41,8 +41,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT NSString * const ODataUserInfoUnmapped;       // @"OData.unmapped"
-FOUNDATION_EXPORT NSString * const ODataModelVersionPrefix;     // @"odata:"
+/* ODataIncrementalStore's own: exported where ODataIncrementalStore is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAINCREMENTALSTORE_EXPORT
+#define ODATAINCREMENTALSTORE_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataUserInfoUnmapped;       // @"OData.unmapped"
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataModelVersionPrefix;     // @"odata:"
 
 @interface ODataModelBuilder : NSObject
 

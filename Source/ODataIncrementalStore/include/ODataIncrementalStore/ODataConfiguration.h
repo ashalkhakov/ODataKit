@@ -7,63 +7,69 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreAccessTokenOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreUsernameOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStorePasswordOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreTimeoutOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStorePostOnObtainPermanentIDsOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreTransportOption;
+/* ODataIncrementalStore's own: exported where ODataIncrementalStore is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAINCREMENTALSTORE_EXPORT
+#define ODATAINCREMENTALSTORE_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreAccessTokenOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreUsernameOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStorePasswordOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreTimeoutOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStorePostOnObtainPermanentIDsOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreTransportOption;
 // Posted by the store, on the thread of the fetch or save, when a response
 // carries Core.Messages: ODataMessagesKey holds the ODataMessages,
 // ODataMessagesURLKey the request's URL, and ODataMessagesObjectIDKey the
 // object they are about, when they are about one (a POST's, a PATCH's, a
 // fetched row's own).
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreDidReceiveMessagesNotification;
-FOUNDATION_EXPORT NSString * const ODataMessagesKey;
-FOUNDATION_EXPORT NSString * const ODataMessagesURLKey;
-FOUNDATION_EXPORT NSString * const ODataMessagesObjectIDKey;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreDidReceiveMessagesNotification;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataMessagesKey;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataMessagesURLKey;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataMessagesObjectIDKey;
 // NSNumber BOOL, default YES: ask for IEEE754Compatible=true, so Int64 and
 // Decimal values travel as strings and keep every digit. Turn it off only
 // for a service that rejects the parameter.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreIEEE754CompatibleOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreIEEE754CompatibleOption;
 // NSNumber BOOL, default YES: send a save of two or more requests as one
 // $batch change set, so it takes effect whole or not at all. A service
 // that refuses $batch gets the requests one at a time regardless.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreBatchSavesOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreBatchSavesOption;
 // NSNumber BOOL, default YES: with a service that speaks 4.01, send a
 // $batch in the JSON batch format rather than multipart. A service that
 // refuses it gets multipart from then on.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreJSONBatchOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreJSONBatchOption;
 // NSNumber BOOL, default NO: requests prefer respond-async (Part 1 section
 // 8.2.8.8). A service may then answer one that takes its time with 202
 // and a status monitor, which the client polls, as Retry-After asks, until
 // it has the answer; callers see only the answer. For long work (a large
 // $batch, a slow action) behind proxies that cut long requests off.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreRespondAsyncOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreRespondAsyncOption;
 // NSNumber BOOL, default NO: fail to open when the model does not match
 // the service's $metadata, rather than report it in metadataProblems.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreRequireMatchingModelOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreRequireMatchingModelOption;
 // NSString, default @"4.01": the OData-MaxVersion requests carry, the
 // newest protocol version the store will speak. The store speaks the
 // newer of 4.0 and 4.01 that both this and the service's $metadata
 // allow, and writes its requests in that version: see `version`.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreMaxVersionOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreMaxVersionOption;
 // NSNumber BOOL: address entities as Products/1 rather than Products(1)
 // (Part 2 section 4.3.6). Unset, the store does so when $metadata says
 // the service supports it (Capabilities.KeyAsSegmentSupported).
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreKeyAsSegmentOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreKeyAsSegmentOption;
 // NSArray of entity names: the entities -fetchRemoteChanges: tracks.
 // Unset, every entity with an entity set of its own.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreTrackedEntitiesOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreTrackedEntitiesOption;
 // NSURL of a directory: where downloaded streams are kept (ODataStreamTransfer).
 // Unset, a directory of the store's own under NSTemporaryDirectory().
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreStreamDirectoryOption;
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreType;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreStreamDirectoryOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreType;
 // NSString: an API key, sent as the service's Authorization.ApiKey says
 // (its KeyName, in a header, the query or a cookie).
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreAPIKeyOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreAPIKeyOption;
 // An object conforming to ODataCredentialProviding.
-FOUNDATION_EXPORT NSString * const ODataIncrementalStoreCredentialProviderOption;
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataIncrementalStoreCredentialProviderOption;
 
 @class ODataSchemaAuthorization;
 

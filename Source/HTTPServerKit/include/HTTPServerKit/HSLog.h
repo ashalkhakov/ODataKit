@@ -55,7 +55,13 @@ typedef NS_ENUM(NSInteger, HSLogFormat) {
 + (nullable NSNumber *)levelNamed:(NSString *)name;
 @end
 
-FOUNDATION_EXPORT void HSLogMessage(HSLogLevel level, NSString *component, HSRequest *_Nullable request, NSString *format, ...)
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
+HTTPSERVERKIT_EXPORT void HSLogMessage(HSLogLevel level, NSString *component, HSRequest *_Nullable request, NSString *format, ...)
     NS_FORMAT_FUNCTION(4, 5);
 
 NS_ASSUME_NONNULL_END

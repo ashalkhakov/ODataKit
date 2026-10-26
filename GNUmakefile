@@ -48,6 +48,29 @@ ADDITIONAL_OBJCFLAGS += $(OIS_OBJCFLAGS)
 # In the order they depend on each other (which make -j is told below).
 LIBRARY_NAME = ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService ODataSync
 
+# Windows: a DLL exports what it marks, and once the runtime marks its
+# classes, its C functions and constants too must be: each library's macro
+# (<NAME>_EXPORT in its headers) is "export" while it is built, and
+# FOUNDATION_EXPORT's import everywhere else.
+ifneq ($(filter mingw% windows%,$(GNUSTEP_TARGET_OS)),)
+ODataKit_CPPFLAGS += "-DODATAKIT_EXPORT=__declspec(dllexport) extern"
+ODataIncrementalStore_CPPFLAGS += "-DODATAINCREMENTALSTORE_EXPORT=__declspec(dllexport) extern"
+OTelKit_CPPFLAGS += "-DOTELKIT_EXPORT=__declspec(dllexport) extern"
+HTTPServerKit_CPPFLAGS += "-DHTTPSERVERKIT_EXPORT=__declspec(dllexport) extern"
+ODataService_CPPFLAGS += "-DODATASERVICE_EXPORT=__declspec(dllexport) extern"
+ODataSync_CPPFLAGS += "-DODATASYNC_EXPORT=__declspec(dllexport) extern"
+# POSIX there as MinGW has it: clock_gettime in winpthreads, gmtime_r in
+# time.h when asked for, dlopen (store backends) in dlfcn-win32; zlib, which
+# elsewhere comes with the libraries HTTPServerKit links, named.
+OTelKit_LIBRARIES_DEPEND_UPON += -lpthread
+HTTPServerKit_CPPFLAGS += -D_POSIX_THREAD_SAFE_FUNCTIONS
+HTTPServerKit_LIBRARIES_DEPEND_UPON += -ldl -lpthread -lz
+ODataService_LIBRARIES_DEPEND_UPON += -ldl
+HS_MEMORY_SYSTEM = windows
+else
+HS_MEMORY_SYSTEM = linux
+endif
+
 # The version httpserverkit_build_info says.
 HTTPSERVERKIT_VERSION ?= $(shell git -C "$(CURDIR)" describe --tags --always 2>/dev/null || echo dev)
 
@@ -169,7 +192,7 @@ HTTPServerKit_OBJC_FILES = \
 	Source/HTTPServerKit/HSServer.m \
 	Source/HTTPServerKit/HSSignature.m \
 	Source/HTTPServerKit/linux/HSSignatureSystem.m \
-	Source/HTTPServerKit/linux/HSMemorySystem.m \
+	Source/HTTPServerKit/$(HS_MEMORY_SYSTEM)/HSMemorySystem.m \
 	Source/HTTPServerKit/HSStages.m
 
 HTTPServerKit_HEADER_FILES = \

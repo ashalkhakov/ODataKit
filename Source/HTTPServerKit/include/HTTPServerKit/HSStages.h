@@ -31,10 +31,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) NSTimeInterval timeout;
 @end
 
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // The request's id: the client's (or the proxy's) X-Request-ID when it
 // sends a usable one, else a new one; in userInfo[HSRequestIDKey],
 // and sent back in the response's header.
-FOUNDATION_EXPORT NSString * const HSRequestIDKey;
+HTTPSERVERKIT_EXPORT NSString * const HSRequestIDKey;
 @interface HSRequestIDStage : HSStage
 @property (nonatomic, copy) NSString *headerName;  // default: X-Request-ID
 @end

@@ -17,18 +17,24 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Errors
 
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // An error a request is answered with: its code is the HTTP status, its
 // localizedDescription what the client is told (problem+json's detail).
-FOUNDATION_EXPORT NSErrorDomain const HSErrorDomain;
-FOUNDATION_EXPORT NSError *HSError(NSInteger status, NSString *message);
+HTTPSERVERKIT_EXPORT NSErrorDomain const HSErrorDomain;
+HTTPSERVERKIT_EXPORT NSError *HSError(NSInteger status, NSString *message);
 // In an error's userInfo: the problem's type, a URI (RFC 9457; default
 // about:blank); and the OAuth scopes a 401 or 403 needs (NSArray), which
 // the challenge names (RFC 6750).
-FOUNDATION_EXPORT NSString * const HSErrorTypeKey;
-FOUNDATION_EXPORT NSString * const HSErrorScopesKey;
+HTTPSERVERKIT_EXPORT NSString * const HSErrorTypeKey;
+HTTPSERVERKIT_EXPORT NSString * const HSErrorScopesKey;
 // Another domain whose codes are HTTP statuses too (an API library's own:
 // OData's), answered with that status and message rather than 500.
-FOUNDATION_EXPORT void HSRegisterStatusErrorDomain(NSErrorDomain domain);
+HTTPSERVERKIT_EXPORT void HSRegisterStatusErrorDomain(NSErrorDomain domain);
 
 // How an API answers errors, in its own format: OData's {"error": ...}, an
 // OpenAPI's problem+json with types of its own. A route's (HSRoute's

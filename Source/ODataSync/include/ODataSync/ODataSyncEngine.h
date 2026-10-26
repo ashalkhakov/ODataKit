@@ -59,17 +59,23 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT NSString * const ODataSyncDirectionKey;    // @"ODataSync.direction"
-FOUNDATION_EXPORT NSString * const ODataSyncConflictsKey;    // @"ODataSync.conflicts"
-FOUNDATION_EXPORT NSString * const ODataSyncModifiedKey;     // @"ODataSync.modified"
-FOUNDATION_EXPORT NSString * const ODataSyncVersionsKey;     // @"ODataSync.versions"
+/* ODataSync's own: exported where ODataSync is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASYNC_EXPORT
+#define ODATASYNC_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATASYNC_EXPORT NSString * const ODataSyncDirectionKey;    // @"ODataSync.direction"
+ODATASYNC_EXPORT NSString * const ODataSyncConflictsKey;    // @"ODataSync.conflicts"
+ODATASYNC_EXPORT NSString * const ODataSyncModifiedKey;     // @"ODataSync.modified"
+ODATASYNC_EXPORT NSString * const ODataSyncVersionsKey;     // @"ODataSync.versions"
 // userInfo on a Binary attribute: NO keeps it in the store's rows. Else
 // +addBookkeepingToModel: lets a synced entity's Binary attributes (but a
 // key's) be kept outside the store (allowsExternalBinaryDataStorage): a
 // SQLite store keeps a value past 128 KiB in a file beside it, and a sync
 // that reads a row for its key does not read its files.
-FOUNDATION_EXPORT NSString * const ODataSyncExternalKey;   // @"ODataSync.external"
-FOUNDATION_EXPORT NSString * const ODataSyncErrorDomain;
+ODATASYNC_EXPORT NSString * const ODataSyncExternalKey;   // @"ODataSync.external"
+ODATASYNC_EXPORT NSString * const ODataSyncErrorDomain;
 
 // A model to add the bookkeeping to, read from a compiled model: a .momd
 // (its current version, as its VersionInfo.plist says) or a .mom. A fresh
@@ -77,19 +83,19 @@ FOUNDATION_EXPORT NSString * const ODataSyncErrorDomain;
 // FreeCoreData alike. Not a copy: Apple's loaded model cannot be changed,
 // and a copy of it can point into the original once that is freed, and
 // crash (#46). nil, and error set, when there is no model there.
-FOUNDATION_EXPORT NSManagedObjectModel *_Nullable ODataSyncModelAtURL(NSURL *url, NSError **error);
+ODATASYNC_EXPORT NSManagedObjectModel *_Nullable ODataSyncModelAtURL(NSURL *url, NSError **error);
 // The transaction author of what the engine writes: what came down from a
 // remote (ODataSyncDownAuthorPrefix and the remote's identifier), and its
 // own bookkeeping. What came from a remote is not sent back to it, and is
 // passed on to others only to or from a peer; bookkeeping is never sent.
-FOUNDATION_EXPORT NSString * const ODataSyncDownAuthorPrefix;  // @"ODataSync.down."
-FOUNDATION_EXPORT NSString * const ODataSyncBookkeepingAuthor; // @"ODataSync.bookkeeping"
+ODATASYNC_EXPORT NSString * const ODataSyncDownAuthorPrefix;  // @"ODataSync.down."
+ODATASYNC_EXPORT NSString * const ODataSyncBookkeepingAuthor; // @"ODataSync.bookkeeping"
 // The request header a device names its replica in, to a peer: what the
 // peer is sent is written as coming from that replica.
-FOUNDATION_EXPORT NSString * const ODataSyncReplicaHeader;     // @"ODataSync-Replica"
+ODATASYNC_EXPORT NSString * const ODataSyncReplicaHeader;     // @"ODataSync-Replica"
 // The model configuration +addBookkeepingToModel:configuration: adds for
 // a peer server: the synced entities (no store need use it).
-FOUNDATION_EXPORT NSString * const ODataSyncPeerConfiguration; // @"ODataSync.peer"
+ODATASYNC_EXPORT NSString * const ODataSyncPeerConfiguration; // @"ODataSync.peer"
 
 typedef NS_ENUM(NSInteger, ODataSyncDirection) {
   ODataSyncDirectionNone = 0,
@@ -164,7 +170,7 @@ typedef NS_ENUM(NSInteger, ODataSyncOperation) {
 // the local and remote values. A resolution may name it only where it is
 // one side's (the engine then writes that side's bytes); otherwise there
 // are no bytes to write, and the conflict is set aside.
-FOUNDATION_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
+ODATASYNC_EXPORT const NSUInteger ODataSyncShadowDigestBytes;   // 1024
 
 @interface ODataSyncDigest : NSObject <NSCopying>
 - (instancetype)initWithSHA256:(NSData *)sha256 length:(NSUInteger)length NS_DESIGNATED_INITIALIZER;

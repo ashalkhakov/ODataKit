@@ -15,9 +15,15 @@ typedef NS_ENUM(NSInteger, ODataPropertyNaming) {
 };
 
 
-FOUNDATION_EXPORT NSString * const ODataUserInfoEntitySet;
-FOUNDATION_EXPORT NSString * const ODataUserInfoProperty;
-FOUNDATION_EXPORT NSString * const ODataUserInfoKey;
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAKIT_EXPORT NSString * const ODataUserInfoEntitySet;
+ODATAKIT_EXPORT NSString * const ODataUserInfoProperty;
+ODATAKIT_EXPORT NSString * const ODataUserInfoKey;
 // The Core vocabulary in userInfo: OData.description and
 // OData.longDescription (text), OData.computed and OData.immutable (YES),
 // OData.permissions (Read, ReadWrite, None); and OData.annotations, any
@@ -25,19 +31,19 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoKey;
 // text of one ({"Validation.Pattern": "^[A-Z]", "Core.Description#fr":
 // "Nom"}). A service writes them into $metadata; a model built from
 // $metadata has them from its annotations.
-FOUNDATION_EXPORT NSString * const ODataUserInfoDescription;
-FOUNDATION_EXPORT NSString * const ODataUserInfoLongDescription;
-FOUNDATION_EXPORT NSString * const ODataUserInfoComputed;
-FOUNDATION_EXPORT NSString * const ODataUserInfoImmutable;
-FOUNDATION_EXPORT NSString * const ODataUserInfoPermissions;
-FOUNDATION_EXPORT NSString * const ODataUserInfoAnnotations;
+ODATAKIT_EXPORT NSString * const ODataUserInfoDescription;
+ODATAKIT_EXPORT NSString * const ODataUserInfoLongDescription;
+ODATAKIT_EXPORT NSString * const ODataUserInfoComputed;
+ODATAKIT_EXPORT NSString * const ODataUserInfoImmutable;
+ODATAKIT_EXPORT NSString * const ODataUserInfoPermissions;
+ODATAKIT_EXPORT NSString * const ODataUserInfoAnnotations;
 // The Measures vocabulary in userInfo: OData.unit (Measures.Unit, "kg"),
 // OData.isoCurrency (Measures.ISOCurrency: an ISO 4217 code, "EUR", or the
 // name of the attribute that holds one), OData.scale (Measures.Scale: the
 // decimal places that are significant).
-FOUNDATION_EXPORT NSString * const ODataUserInfoUnit;
-FOUNDATION_EXPORT NSString * const ODataUserInfoISOCurrency;
-FOUNDATION_EXPORT NSString * const ODataUserInfoScale;
+ODATAKIT_EXPORT NSString * const ODataUserInfoUnit;
+ODATAKIT_EXPORT NSString * const ODataUserInfoISOCurrency;
+ODATAKIT_EXPORT NSString * const ODataUserInfoScale;
 // An open type's dynamic properties (JSON Format section 4.6.3), which the
 // model does not declare: OData.dynamicProperties YES on a Transformable
 // attribute (an NSDictionary) marks it as the property bag that holds them,
@@ -48,7 +54,7 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoScale;
 // path into it (dynamicProperties.Nickname) is the property's name
 // (Nickname). Assign a new dictionary to change it: Core Data does not see
 // a dictionary change in place.
-FOUNDATION_EXPORT NSString * const ODataUserInfoDynamicProperties;
+ODATAKIT_EXPORT NSString * const ODataUserInfoDynamicProperties;
 // OData.served NO on an attribute or a relationship leaves it out of what
 // a service serves: it is no property of its entity type, in $metadata or
 // a payload, and naming it -- in a path, a query option or a body -- is an
@@ -57,7 +63,7 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoDynamicProperties;
 // the same model, leaves it out of what it sends and asks for, refuses to
 // filter or sort by it, and keeps what a save gives it in memory, for as
 // long as the store is open: the service never has it.
-FOUNDATION_EXPORT NSString * const ODataUserInfoServed;
+ODATAKIT_EXPORT NSString * const ODataUserInfoServed;
 // Application time (the Temporal vocabulary), userInfo on an entity whose
 // rows are time slices, each valid for a period (Temporal.TimelineVisible):
 // OData.periodStart and OData.periodEnd name its Date attributes, the
@@ -65,10 +71,10 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoServed;
 // attributes, comma-separated, that say which object a slice belongs to
 // (none: one object); OData.closedClosedPeriods YES when the end is the
 // last day of the period rather than the first after it (Edm.Date only).
-FOUNDATION_EXPORT NSString * const ODataUserInfoPeriodStart;
-FOUNDATION_EXPORT NSString * const ODataUserInfoPeriodEnd;
-FOUNDATION_EXPORT NSString * const ODataUserInfoObjectKey;
-FOUNDATION_EXPORT NSString * const ODataUserInfoClosedClosedPeriods;
+ODATAKIT_EXPORT NSString * const ODataUserInfoPeriodStart;
+ODATAKIT_EXPORT NSString * const ODataUserInfoPeriodEnd;
+ODATAKIT_EXPORT NSString * const ODataUserInfoObjectKey;
+ODATAKIT_EXPORT NSString * const ODataUserInfoClosedClosedPeriods;
 
 @interface ODataPropertyMapper : NSObject
 @property (nonatomic) ODataPropertyNaming naming;

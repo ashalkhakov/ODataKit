@@ -9,6 +9,12 @@
 #include <math.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(_WIN32)
+// Lean: COM's headers define interface, which is Objective-C's.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <psapi.h>
+#endif
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #endif
@@ -196,6 +202,11 @@ static double HSResidentBytes(void)
   struct mach_task_basic_info info;
   mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
   if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) == KERN_SUCCESS) return (double)info.resident_size;
+  return 0;
+#elif defined(_WIN32)
+  // The working set: what Windows calls resident.
+  PROCESS_MEMORY_COUNTERS counters;
+  if (K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof counters)) return (double)counters.WorkingSetSize;
   return 0;
 #else
   FILE *statm = fopen("/proc/self/statm", "r");

@@ -21,11 +21,17 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* ODataSync's own: exported where ODataSync is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASYNC_EXPORT
+#define ODATASYNC_EXPORT FOUNDATION_EXPORT
+#endif
+
 // The audience of every peer token: odatasync-peer.
-FOUNDATION_EXPORT NSString * const ODataSyncPeerTokenAudience;
+ODATASYNC_EXPORT NSString * const ODataSyncPeerTokenAudience;
 // Its claims beyond JWT's own: the replica, and the confirmation (cnf).
-FOUNDATION_EXPORT NSString * const ODataSyncPeerReplicaClaim;      // odatasync_replica
-FOUNDATION_EXPORT NSString * const ODataSyncPeerThumbprintMember;  // x5t#S256, in cnf
+ODATASYNC_EXPORT NSString * const ODataSyncPeerReplicaClaim;      // odatasync_replica
+ODATASYNC_EXPORT NSString * const ODataSyncPeerThumbprintMember;  // x5t#S256, in cnf
 
 @interface ODataSyncPeerTokenIssuer : NSObject
 // issuer: the tokens' iss, which peers expect (the service root, say).

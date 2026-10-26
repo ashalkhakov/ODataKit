@@ -166,11 +166,17 @@ typedef NS_ENUM(NSInteger, ODataExpressionKind) {
 
 @end
 
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // Whether a name is an OData identifier (Part 2 section 4.3: a letter or
 // _, then letters, digits and _, 128 at most), or a qualified name
 // (identifiers joined by dots, two or more: NS.Type, Edm.String).
-FOUNDATION_EXPORT BOOL ODataIsIdentifier(NSString *_Nullable name);
-FOUNDATION_EXPORT BOOL ODataIsQualifiedName(NSString *_Nullable name);
+ODATAKIT_EXPORT BOOL ODataIsIdentifier(NSString *_Nullable name);
+ODATAKIT_EXPORT BOOL ODataIsQualifiedName(NSString *_Nullable name);
 
 @class ODataQueryOptions;
 

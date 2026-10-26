@@ -27,35 +27,41 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSString *)valueForHeader:(NSString *)name;
 @end
 
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // A batch holding one change set of these requests, each with an absolute
 // URL (services such as TripPin reject relative ones in a batch). The
 // Content-IDs are 1, 2, ... in order.
-FOUNDATION_EXPORT NSData *ODataChangeSetBody(NSArray<NSURLRequest *> *requests, NSString *batchBoundary);
+ODATAKIT_EXPORT NSData *ODataChangeSetBody(NSArray<NSURLRequest *> *requests, NSString *batchBoundary);
 
 // The same change set in OData 4.01's JSON batch format (JSON Format
 // section 19): {"requests": [...]}, one atomicity group, ids 1, 2, ...,
 // absolute URLs, JSON bodies as JSON.
-FOUNDATION_EXPORT NSData *ODataJSONBatchBody(NSArray<NSURLRequest *> *requests);
+ODATAKIT_EXPORT NSData *ODataJSONBatchBody(NSArray<NSURLRequest *> *requests);
 
 // The responses of a JSON batch response, in order, as parts: status,
 // headers, the body as data (JSON re-serialised), and the request's id as
 // the Content-ID. nil if it is not one.
-FOUNDATION_EXPORT NSArray<ODataBatchPart *> * _Nullable ODataJSONBatchParts(NSData *body);
+ODATAKIT_EXPORT NSArray<ODataBatchPart *> * _Nullable ODataJSONBatchParts(NSData *body);
 
 // The boundary parameter of a multipart Content-Type, or nil.
-FOUNDATION_EXPORT NSString * _Nullable ODataMultipartBoundary(NSString *contentType);
+ODATAKIT_EXPORT NSString * _Nullable ODataMultipartBoundary(NSString *contentType);
 
 // One application/http message (a request or a response), as a batch
 // part or a status monitor's answer carries it; nil if it is not one.
-FOUNDATION_EXPORT ODataBatchPart * _Nullable ODataHTTPMessage(NSData *data);
+ODATAKIT_EXPORT ODataBatchPart * _Nullable ODataHTTPMessage(NSData *data);
 
 // A response as an application/http message: status line, headers (not
 // Content-Length), a blank line, the body.
-FOUNDATION_EXPORT NSData *ODataHTTPResponseMessage(NSInteger status, NSDictionary<NSString *, NSString *> *headers, NSData * _Nullable body);
-FOUNDATION_EXPORT NSString *ODataHTTPReasonPhrase(NSInteger status);
+ODATAKIT_EXPORT NSData *ODataHTTPResponseMessage(NSInteger status, NSDictionary<NSString *, NSString *> *headers, NSData * _Nullable body);
+ODATAKIT_EXPORT NSString *ODataHTTPReasonPhrase(NSInteger status);
 
 // The HTTP messages in a multipart/mixed body, in order, with any nested
 // change set flattened into its members. Requests and responses both.
-FOUNDATION_EXPORT NSArray<ODataBatchPart *> * _Nullable ODataBatchParts(NSData *body, NSString *boundary);
+ODATAKIT_EXPORT NSArray<ODataBatchPart *> * _Nullable ODataBatchParts(NSData *body, NSString *boundary);
 
 NS_ASSUME_NONNULL_END

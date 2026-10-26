@@ -113,10 +113,16 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) BOOL usesBearerToken;
 @end
 
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // A name as $metadata spells it: the one of names that differs from it only
 // in case (a 4.01 client sends identifiers as $metadata has them, Part 1
 // section 13.3, item 17), else the name itself.
-FOUNDATION_EXPORT NSString *ODataSchemaSpelling(NSString *name, id<NSFastEnumeration> _Nullable names);
+ODATAKIT_EXPORT NSString *ODataSchemaSpelling(NSString *name, id<NSFastEnumeration> _Nullable names);
 
 @interface ODataSchema : NSObject
 

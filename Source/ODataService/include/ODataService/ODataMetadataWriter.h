@@ -24,17 +24,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 // The userInfo it writes as annotations: see ODataPropertyMapper.h.
 
+/* ODataService's own: exported where ODataService is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASERVICE_EXPORT
+#define ODATASERVICE_EXPORT FOUNDATION_EXPORT
+#endif
+
 // Streams (Part 1 section 11.1.2), kept in Binary attributes. userInfo on
 // a Binary attribute: an Edm.Stream property, read and written at its own
 // URL (Entity(1)/Photo), never in a body.
-FOUNDATION_EXPORT NSString * const ODataUserInfoStream;       // @"OData.stream", YES
+ODATASERVICE_EXPORT NSString * const ODataUserInfoStream;       // @"OData.stream", YES
 // userInfo on an entity: the Binary attribute that is its media resource
 // (HasStream="true", at Entity(1)/$value).
-FOUNDATION_EXPORT NSString * const ODataUserInfoMediaStream;  // @"OData.mediaStream"
+ODATASERVICE_EXPORT NSString * const ODataUserInfoMediaStream;  // @"OData.mediaStream"
 // userInfo on either stream attribute: the String attribute its content
 // type is kept in; without one, a stream is application/octet-stream. The
 // media and content-type attributes are the stream's, not properties.
-FOUNDATION_EXPORT NSString * const ODataUserInfoContentType;  // @"OData.contentType"
+ODATASERVICE_EXPORT NSString * const ODataUserInfoContentType;  // @"OData.contentType"
 
 @interface ODataMetadataWriter : NSObject
 
