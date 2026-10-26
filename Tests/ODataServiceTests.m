@@ -8281,23 +8281,11 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
         many.properties = [many.properties arrayByAddingObject:b];
       };
   NSEntityDescription *user = entity(@"User", nil);
-  // A warehouse's staff see its catalog, and its manager manages there:
-  // through a to-many, any of the catalog's warehouses.
-  NSEntityDescription *catalog = entity(@"Catalog", @{ @"OData.relation.owner": @"where owner.email IN $user",
-                                                     @"OData.relation.manager": @"owner or manager from warehouses",
-                                                     @"OData.relation.keeper": @"manager or keeper from warehouses", @"OData.relation.read": @"keeper",
-                                                     @"OData.relation.insert": @"where $user.@count > 0" });
-  NSEntityDescription *warehouse = entity(@"Warehouse", @{
-    @"OData.relation.owner": @"owner from catalog", @"OData.relation.manager": @"[user] or owner",
-    @"OData.relation.keeper": @"[user] or manager", @"OData.relation.read": @"keeper", @"OData.relation.update": @"manager",
-    @"OData.relation.insert": @"owner from catalog", @"OData.relation.delete": @"owner" });
-  NSEntityDescription *staff = entity(@"WarehouseStaff", @{ @"OData.tuple.object": @"warehouse", @"OData.tuple.relation": @"role",
-                                                           @"OData.tuple.user": @"user.email" });
-  NSEntityDescription *item = entity(@"StockItem", @{ @"OData.relation.read": @"read from catalog", @"OData.relation.update": @"manager from catalog",
-                                                   @"OData.relation.insert": @"manager from catalog" });
-  NSEntityDescription *location = entity(@"Location", @{
-    @"OData.relation.read": @"read from warehouse", @"OData.relation.insert": @"manager from warehouse",
-    @"OData.relation.update": @"manager from warehouse", @"OData.relation.delete": @"manager from warehouse" });
+  NSEntityDescription *catalog = entity(@"Catalog", nil);
+  NSEntityDescription *warehouse = entity(@"Warehouse", nil);
+  NSEntityDescription *staff = entity(@"WarehouseStaff", nil);
+  NSEntityDescription *item = entity(@"StockItem", nil);
+  NSEntityDescription *location = entity(@"Location", nil);
   user.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"email", NSStringAttributeType, NO) ];
   catalog.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   warehouse.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
@@ -8338,6 +8326,53 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   [self insert:@"Location" into:seed values:@{ @"id": @2, @"name": @"B1", @"warehouse": shed }];
   XCTAssertTrue([seed save:&error], @"%@", error);
   _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  // A warehouse's staff see its catalog, and its manager manages there:
+  // through a to-many, any of the catalog's warehouses.
+  _service.permissions = [self permissions:@"{ Version = 1;\n"
+    "  Tuples = { WarehouseStaff = { object = warehouse; relation = role; user = \"user.email\"; }; };\n"
+    "  Entities = {\n"
+    "    Catalog = {\n"
+    "      owner = ( { where = \"owner.email IN $user\"; } );\n"
+    "      manager = ( { relation = owner; }, { relation = manager; from = warehouses; } );\n"
+    "      keeper = ( { relation = manager; }, { relation = keeper; from = warehouses; } );\n"
+    "      read = ( { relation = keeper; } );\n"
+    "      insert = ( { where = \"$user.@count > 0\"; } );\n"
+    "    };\n"
+    "    Warehouse = {\n"
+    "      owner = ( { relation = owner; from = catalog; } );\n"
+    "      manager = ( { direct = YES; }, { relation = owner; } );\n"
+    "      keeper = ( { direct = YES; }, { relation = manager; } );\n"
+    "      read = ( { relation = keeper; } );\n"
+    "      update = ( { relation = manager; } );\n"
+    "      insert = ( { relation = owner; from = catalog; } );\n"
+    "      delete = ( { relation = owner; } );\n"
+    "    };\n"
+    "    StockItem = {\n"
+    "      read = ( { relation = read; from = catalog; } );\n"
+    "      update = ( { relation = manager; from = catalog; } );\n"
+    "      insert = ( { relation = manager; from = catalog; } );\n"
+    "    };\n"
+    "    Location = {\n"
+    "      read = ( { relation = read; from = warehouse; } );\n"
+    "      insert = ( { relation = manager; from = warehouse; } );\n"
+    "      update = ( { relation = manager; from = warehouse; } );\n"
+    "      delete = ( { relation = manager; from = warehouse; } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+}
+
+// A permissions file, as written (OpenStep's text), read as a service reads one.
+- (ODataPermissions *)permissions:(NSString *)text
+{
+  NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                       [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingString:@".plist"]]];
+  [_storeFiles addObject:url];
+  XCTAssertTrue([[text dataUsingEncoding:NSUTF8StringEncoding] writeToURL:url atomically:YES]);
+  NSError *error = nil;
+  ODataPermissions *permissions = [ODataPermissions permissionsWithContentsOfURL:url error:&error];
+  XCTAssertNotNil(permissions, @"%@", error);
+  return permissions;
 }
 
 // A request as someone: their email, and their groups.
@@ -8464,11 +8499,9 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
       : [[NSManagedObjectModel alloc] initWithContentsOfURL:OISCatalogModelURL()];
   NSEntityDescription *product = model.entitiesByName[@"Product"];
   product.managedObjectClassName = @"OISServedProduct";
-  NSMutableDictionary *info = [product.userInfo mutableCopy] ?: [NSMutableDictionary dictionary];
-  info[@"OData.relation.call.RaisePriceByPercent"] = @"where name == 'Chai'";
-  product.userInfo = info;
   [self serveModel:model];
   _service.serviceOperations = [[OISCatalogOperations alloc] init];
+  _service.permissions = [self permissions:@"{ Version = 1; Entities = { Product = { \"call.RaisePriceByPercent\" = ( { where = \"name == 'Chai'\"; } ); }; }; }"];
   XCTAssertEqualObjects(_service.metadataProblems, @[]);
   OISServiceResponse *chai = [self send:@"POST" path:@"Products(1)/Default.RaisePriceByPercent" headers:nil body:@{ @"Percent": @10 }];
   XCTAssertLessThan(chai.status, 300, @"%@", chai.text);
@@ -8478,14 +8511,13 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertEqualObjects([self get:@"Products(2)"].json[@"UnitPrice"], @19, @"not raised");
 }
 
-// What the annotations cannot say is a problem of the model's.
-- (void)testGrantsThatDoNotParseAreProblems
+// What the permissions cannot say of the model is a problem: the service's
+// (metadataProblems), and the file's own (-problemsWithModel:, offline).
+- (void)testPermissionsThatDoNotFitAreProblems
 {
   NSEntityDescription *thing = [[NSEntityDescription alloc] init];
   thing.name = @"Thing";
   thing.managedObjectClassName = @"NSManagedObject";
-  thing.userInfo = @{ @"OData.relation.read": @"viewer from nowhere", @"OData.relation.update": @"editor",
-                      @"OData.relation.delete": @"where (" };
   NSAttributeDescription *key = [[NSAttributeDescription alloc] init];
   key.name = @"id";
   key.attributeType = NSInteger32AttributeType;
@@ -8497,11 +8529,76 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   NSError *error = nil;
   XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
   _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataPermissions *permissions = [self permissions:@"{ Version = 1; Extra = 1;\n"
+    "  Tuples = { Thing = { object = id; relation = role; user = id; }; Gadget = { object = x; relation = y; user = z; }; };\n"
+    "  Service = { admin = ( { claim = roles; value = admin; } ); boss = ( { relation = chief; } ); };\n"
+    "  Entities = {\n"
+    "    Gadget = { read = ( { where = TRUEPREDICATE; } ); };\n"
+    "    Thing = {\n"
+    "      read = ( { relation = viewer; from = nowhere; } );\n"
+    "      update = ( { relation = editor; } );\n"
+    "      delete = ( { where = \"(\"; } );\n"
+    "      insert = ( { where = \"colour == 'red'\"; } );\n"
+    "      a = ( { relation = b; } ); b = ( { relation = a; } );\n"
+    "      c = ( { direct = YES; } );\n"
+    "      d = ( { relation = admin; on = service; colour = red; } );\n"
+    "      e = ( { relation = staff; on = service; } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+  NSArray *expected = @[
+    @"Extra is no key of a permissions file",
+    @"Tuples.Thing: object names no to-one of Thing",
+    @"Tuples.Gadget: the model has no entity Gadget",
+    @"Entities: the model has no entity Gadget",
+    @"Thing.read: from nowhere is no relationship of Thing",
+    @"Thing.update names editor, which Thing does not define",
+    @"Thing.delete: where ( does not parse",
+    @"Thing.insert: Thing has no colour",
+    @"Thing: a -> b come round to a",
+    @"Thing.c: direct, but no Tuples have a Thing as their object",
+    @"Thing.d: colour is no key of this term",
+    @"Thing.e names staff on the service, which Service does not define",
+    @"Service.boss names chief, which Service does not define",
+  ];
+  NSString *offline = [[permissions problemsWithModel:model] componentsJoinedByString:@"\n"];
+  for (NSString *problem in expected) XCTAssertTrue([offline containsString:problem], @"%@ in %@", problem, offline);
+  _service.permissions = permissions;
   NSString *problems = [_service.metadataProblems componentsJoinedByString:@"\n"];
-  XCTAssertTrue([problems containsString:@"nowhere is no relationship of Thing"], @"%@", problems);
-  XCTAssertTrue([problems containsString:@"does not parse"], @"%@", problems);
-  XCTAssertTrue([problems containsString:@"names editor, which Thing does not define"], @"%@", problems);
+  for (NSString *problem in expected) XCTAssertTrue([problems containsString:problem], @"%@ in %@", problem, problems);
   XCTAssertEqualObjects([[self get:@"Things"].json[@"value"] valueForKey:@"Id"], @[], @"a relation that holds nothing: nothing seen");
+
+  // Not a permissions file at all: no permissions.
+  XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Entities": @{} } error:&error]);
+  XCTAssertEqualObjects(error.domain, ODataPermissionsErrorDomain);
+  XCTAssertEqualObjects([[ODataPermissions permissionsWithPropertyList:@{ @"Version": @1 } error:NULL] problemsWithModel:model], @[]);
+}
+
+// Who the caller is, as the file says (Identities); what their claims give
+// them (claim terms), on the service as a whole too (Service, on = service).
+- (void)testPermissionsOfClaimsAndIdentities
+{
+  [self serveWarehouses];
+  // ann by her subject only (no email); a keeper of every warehouse by a
+  // claim; an admin of the service sees every catalog.
+  _service.permissions = [self permissions:@"{ Version = 1; Identities = ( sub );\n"
+    "  Service = { admin = ( { claim = groups; value = admins; } ); };\n"
+    "  Entities = {\n"
+    "    Catalog = { read = ( { where = \"owner.email IN $user\"; }, { relation = admin; on = service; } ); };\n"
+    "    Warehouse = { read = ( { claim = groups; value = keepers; } ); };\n"
+    "  };\n"
+    "}"];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  XCTAssertEqualObjects([self namesAs:@"ann@example.org" path:@"Catalogs"], (@[]), @"ann's subject is ann, not her email");
+  OISServiceResponse *admin = [self as:@"eve@example.org" groups:@[ @"admins" ] send:@"GET" path:@"Catalogs?$orderby=Id" body:nil headers:nil];
+  XCTAssertEqualObjects([admin.json[@"value"] valueForKey:@"Name"], (@[ @"Stock", @"Spares" ]), @"%@", admin.text);
+  OISServiceResponse *keeper = [self as:@"eve@example.org" groups:@[ @"keepers" ] send:@"GET" path:@"Warehouses?$orderby=Id" body:nil headers:nil];
+  XCTAssertEqualObjects([keeper.json[@"value"] valueForKey:@"Name"], (@[ @"Garage", @"Shed" ]), @"%@", keeper.text);
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Warehouses"], (@[]));
+  XCTAssertEqualObjects([self namesAs:nil path:@"Catalogs"], (@[]));
+  // No permissions: no limits.
+  _service.permissions = nil;
+  XCTAssertEqualObjects([self namesAs:nil path:@"Catalogs"], (@[ @"Stock", @"Spares" ]));
 }
 
 // What a caller may do is the scopes it has: reading a set, through any

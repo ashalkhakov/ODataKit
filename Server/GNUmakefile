@@ -1,10 +1,11 @@
-# ois-serve, an example application of its own (catalog-server), and the
-# loopback check: tools over the libraries at the repository root
+# ois-serve, an example application of its own (catalog-server), the
+# permissions checker (odatakit-permissions), and the loopback check: tools over the libraries at the repository root
 # (OTelKit, HTTPServerKit, ODataService), which are built there first.
 #
 # GNUstep, with gnustep-make (this file):
 #   . /path/to/GNUstep.sh
-#   make -C .. && make          # ois-serve, ois-serve-check, catalog-server
+#   make -C .. && make          # ois-serve, ois-serve-check, catalog-server,
+#                               # odatakit-permissions
 #   make check                  # the loopback check over the Catalog model
 #
 # macOS: Makefile.apple (make -f Makefile.apple check).
@@ -24,10 +25,11 @@ FLAGS = -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \
 	-fconstant-string-class=NSConstantString -fobjc-exceptions -Wall -Wno-unused-parameter
 TOOL_LIBS_ALL = -lODataSync -lODataIncrementalStore -lODataService -lHTTPServerKit -lOTelKit -lODataKit -lCoreData -ldispatch -lz
 
-TOOL_NAME = ois-serve ois-serve-check catalog-server
+TOOL_NAME = ois-serve ois-serve-check catalog-server odatakit-permissions
 ois-serve_OBJC_FILES = ois-serve.m
 ois-serve-check_OBJC_FILES = Tests/ois-serve-check.m
 catalog-server_OBJC_FILES = Examples/CatalogServer.m
+odatakit-permissions_OBJC_FILES = odatakit-permissions.m
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_INCLUDE_DIRS = $(INCLUDE_DIRS)))
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_OBJCFLAGS = $(FLAGS)))
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_LIB_DIRS = -L../obj))
@@ -41,4 +43,6 @@ obj/Catalog.momd: ../Examples/Catalog/Catalog.xcdatamodeld
 
 check:: all obj/Catalog.momd
 	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/ois-serve-check obj/Catalog.momd
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Examples/Catalog.permissions.plist
+	! LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Tests/Unfit.permissions.plist
 

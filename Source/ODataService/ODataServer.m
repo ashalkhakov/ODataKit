@@ -263,7 +263,8 @@ static void OISLoadBackendFor(NSString *type)
   return [[super knownSettings] arrayByAddingObjectsFromArray:@[
     @"Model", @"StoreType", @"StoreURL", @"StoreOptions", @"ServiceRoot", @"MaxPageSize", @"MaxPageBytes", @"MaxVersion", @"Namespace", @"Container",
     @"MaxURLLength", @"MaxExpandDepth", @"MaxBatchRequests", @"MaxRowsInMemory", @"MaxJSONDepth", @"MaxAsyncRequests",
-    @"ReplyTimeout", @"AsyncResultDuration", @"RepeatabilityDuration", @"RepeatabilityMemory", @"HistoryRetention", @"AllowAnonymous", @"AllowAnonymousMetadata", @"PrintMetadata" ]];
+    @"ReplyTimeout", @"AsyncResultDuration", @"RepeatabilityDuration", @"RepeatabilityMemory", @"HistoryRetention", @"AllowAnonymous", @"AllowAnonymousMetadata", @"PrintMetadata",
+    @"Permissions" ]];
 }
 
 - (BOOL)printsMetadata
@@ -316,6 +317,21 @@ static void OISLoadBackendFor(NSString *type)
   if ([self setting:@"RepeatabilityMemory"]) service.repeatabilityMemory = (NSUInteger)[self number:@"RepeatabilityMemory" otherwise:0];
   if ([self setting:@"HistoryRetention"]) service.historyRetention = [self number:@"HistoryRetention" otherwise:0];
   if ([self setting:@"AllowAnonymous"]) service.allowsAnonymousRequests = [self flag:@"AllowAnonymous" otherwise:NO];
+  // Permissions on objects: a file that does not fit the model serves no one.
+  NSString *permissionsPath = [self setting:@"Permissions"];
+  if (permissionsPath) {
+    ODataPermissions *permissions = [ODataPermissions permissionsWithContentsOfURL:OISURL(permissionsPath) error:&failure];
+    if (!permissions) {
+      OISFailWith(error, failure.localizedDescription);
+      return nil;
+    }
+    NSArray *problems = [permissions problemsWithModel:model];
+    if (problems.count) {
+      OISFailWith(error, [NSString stringWithFormat:@"%@ does not fit %@:\n  %@", permissionsPath, modelPath, [problems componentsJoinedByString:@"\n  "]]);
+      return nil;
+    }
+    service.permissions = permissions;
+  }
   return service;
 }
 

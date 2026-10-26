@@ -188,8 +188,8 @@ property.
   go around.
 - Permissions held on objects, not on a whole set ("Ben may ship from the
   Garage warehouse"), are relations, as Google's Zanzibar models them:
-  relation tuples are rows of the model, and relations are annotations on
-  the entities they are over. The default visibility predicate is the
+  relation tuples are rows of the model, and relations are defined in a
+  permissions file beside it (`ODataService.permissions`). The default visibility predicate is the
   relation `read`, and each write checks its row's relation in the check
   pass. See [permissions.md](permissions.md).
 - Each method runs inside the request's context's

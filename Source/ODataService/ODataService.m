@@ -524,7 +524,7 @@ static NSArray *OISFetch(NSManagedObjectContext *context, NSFetchRequest *fetchR
   ODataService *service = self.service;
   [service prepare];
   if (!request.context || ![service.authorization entity:self.entity defines:@"read"]) return nil;
-  return [service.authorization versionOfIdentities:OISIdentitiesOfPrincipal(request.principal) context:request.context];
+  return [service.authorization versionForPrincipal:request.principal context:request.context];
 }
 
 - (NSArray *)objectsForFetchRequest:(NSFetchRequest *)fetchRequest request:(ODataRequest *)request reply:(ODataReply *)reply
@@ -5226,7 +5226,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     writer.additionalSchemaElements = catalog.schemaElements;
     writer.additionalContainerElements = catalog.containerElements;
     self.catalog = catalog;
-    self.authorization = [[OISAuthorization alloc] initWithModel:self.model];
+    self.authorization = self.permissions ? [[OISAuthorization alloc] initWithPropertyList:self.permissions.propertyList model:self.model] : nil;
     NSString *xml = [writer XMLStringForVersion:@"4.01"];
     ODataSchema *schema = [ODataSchema schemaWithData:[xml dataUsingEncoding:NSUTF8StringEncoding] error:NULL];
     if (schema) self.mapper.schema = schema;
@@ -5606,7 +5606,18 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
 {
   if (!entity) return nil;
   [self prepare];
-  return [self.authorization predicateForRelation:relation entity:entity identities:OISIdentitiesOfPrincipal(request.principal)];
+  return [self.authorization predicateForRelation:relation entity:entity principal:request.principal];
+}
+
+- (void)setPermissions:(ODataPermissions *)permissions
+{
+  @synchronized (self) {
+    _permissions = permissions;
+    // Given after the service is prepared: read now.
+    if (self.prepared) {
+      self.authorization = permissions ? [[OISAuthorization alloc] initWithPropertyList:permissions.propertyList model:self.model] : nil;
+    }
+  }
 }
 
 // The roots configurationName lists, each served with its sub-entities;

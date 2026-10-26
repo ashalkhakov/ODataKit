@@ -8,8 +8,34 @@ after 0.3.16), those can be stated as relations, Zanzibar's model; see
 everywhere: reads, lookups, deep writes, `$ref`, batches, bound operations
 and ODataSync's `MergeAttributes`.
 
+Permissions are a file of their own, beside the Core Data model, which
+the service is given (`ODataService.permissions`, or `ois-serve`'s
+`Permissions` setting). The model does not change.
+
 The guide has a general part, then one section per application:
 SimpleNotes, Logbook (maintenance), Logbook (stock).
+
+**Shorthand.** The tables below write relations in OpenFGA's notation,
+which is shorter to read. In the file, each term is a dictionary, and a
+relation is the list of its terms:
+
+| Shorthand | In the file |
+|---|---|
+| `[user]` | `{ direct = YES; }` |
+| `Owner` | `{ relation = Owner; }` |
+| `Owner from vehicle` | `{ relation = Owner; from = vehicle; }` |
+| `admin on service` | `{ relation = admin; on = service; }` |
+| `where owner.email IN $user` | `{ where = "owner.email IN $user"; }` |
+| `claim roles = admin` | `{ claim = roles; value = admin; }` |
+| `a or b` | `( a, b )` |
+
+So `Driver = [user] or Owner` on Vehicle is, under `Entities`:
+
+```
+Vehicle = {
+  Driver = ( { direct = YES; }, { relation = Owner; } );
+};
+```
 
 ## 1. The steps
 
@@ -19,21 +45,33 @@ SimpleNotes, Logbook (maintenance), Logbook (stock).
    - who may add a row, and with which values;
    - who may change or remove one;
    - who may call each bound action.
-2. **Find the tuples.** These are rows that give a person a role over an
+2. **Start the file** (say `Permissions.plist`, next to the model):
+   ```
+   {
+     Version = 1;
+     Identities = ( sub, email, preferred_username, groups );
+     Tuples = { };
+     Entities = { };
+   }
+   ```
+   `Identities` lists the claims the caller is known by; keep only the ones
+   your rows hold (Logbook: `email`; SimpleNotes: `sub`).
+3. **Find the tuples.** These are rows that give a person a role over an
    object, such as `WarehouseStaff` (warehouse, role, user) or
-   `VehicleDriver` (vehicle, user). Annotate each such entity:
+   `VehicleDriver` (vehicle, user). List each such entity under `Tuples`:
    ```
-   OData.tuple.object   = warehouse      // its to-one to the object (needs an inverse)
-   OData.tuple.relation = staffRole      // the attribute naming the role…
-   OData.tuple.relationName = driver     // …or the one role every row is
-   OData.tuple.user     = user.email     // what the caller is known by
+   Tuples = {
+     WarehouseStaff = { object = warehouse; relation = staffRole; user = "user.email"; };
+     VehicleDriver  = { object = vehicle; relationName = Driver; user = "user.email"; };
+   };
    ```
-   The `user` key path must give something in the caller's identities:
-   their subject, their `email` or `preferred_username` claim, or one of
-   their `groups`.
-3. **Find what holds by the row's own values,** usually an owner. Write it
-   as a `where` term: `owner = where owner.email IN $user`.
-4. **Write the relations** on each entity, under `OData.relation.<name>`:
+   `object` is its to-one to the object (it needs an inverse); `relation`
+   the attribute naming the role, or `relationName` the one role every
+   row is; `user` the key path to what the caller is known by, one of their
+   `Identities`.
+4. **Find what holds by the row's own values,** usually an owner. Write it
+   as a `where` term: `Owner = ( { where = "owner.email IN $user"; } )`.
+5. **Write the relations** on each entity, under `Entities`:
    - **Roles first.** For example `manager = [user] or owner`. A role named
      by tuples must have the same name as the tuples' relation values:
      `Manager` if `staffRole` holds `"Manager"`.
@@ -41,16 +79,27 @@ SimpleNotes, Logbook (maintenance), Logbook (stock).
      `delete` and `call.<Action>`.
    - **Reach other objects with `from`:** `read = read from vehicle` through
      a to-one, `keeper from warehouses` through a to-many ("any of them").
-5. **Put the annotations in the model** (the model editor's User Info), or
-   in code on the server's editable model (`ODataSyncModelAtURL`) before the
-   coordinator is made, if they depend on configuration (see the pitfalls).
-6. **Refuse to start on problems.** Log `service.metadataProblems` at
-   start, and fail if it lists any relation problem, since a relation that
-   cannot be read holds for no one.
-7. **Delete the code the relations replace:** `visibleTo:`, the
+   - **Roles held without rows** (an administrator, a support desk) are
+     claims the identity provider issues: define them under `Service`
+     (`admin = ( { claim = roles; value = admin; } )`) and add
+     `{ relation = admin; on = service; }` where they apply.
+6. **Check it in the build:** `odatakit-permissions check Model.momd
+   Permissions.plist` exits 1 and lists what does not fit. Run it in CI
+   (or a test calling `-problemsWithModel:`).
+7. **Load it in the server:**
+   ```objc
+   ODataPermissions *permissions = [ODataPermissions permissionsWithContentsOfURL:url error:&error];
+   NSArray *problems = [permissions problemsWithModel:model];
+   if (!permissions || problems.count) { /* log, and do not serve */ }
+   service.permissions = permissions;
+   ```
+   With `ois-serve`, set `Permissions` to the file; it will not start on
+   problems. Leave `permissions` nil where the server runs open (see the
+   pitfalls).
+8. **Delete the code the relations replace:** `visibleTo:`, the
    `whyNotAdd:`/`whyNotChange:` refusals, and helper predicates. Keep what
    is not a permission (section 3).
-8. **Test it as each kind of user:** who sees, adds, changes, moves and
+9. **Test it as each kind of user:** who sees, adds, changes, moves and
    deletes what; `404` for a row the caller cannot see, `403` for one they
    see but may not change; and a delta link answered `410` after a grant
    changes. ODataKit's `testGrantsOnObjects` is a template.
@@ -58,12 +107,13 @@ SimpleNotes, Logbook (maintenance), Logbook (stock).
 ## 2. Pitfalls
 
 - **Anonymous callers hold nothing.** With no principal, a caller holds no
-  relation: they see no row of an entity that defines `read`, and may not
-  write where a relation is defined. A handler cannot let them through,
-  because the write check runs in the service.
+  relation, not even a `claim`: they see no row of an entity that defines
+  `read`, and may not write where a relation is defined. A handler cannot
+  let them through, because the write check runs in the service.
   - If your server also runs open (a household server, a self-test with no
-    sign-in), add the annotations in code only when sign-in is required.
-  - Or make the open mode sign in as someone.
+    sign-in), give it no permissions file in that mode.
+  - Or make the open mode sign in as someone, and give that someone an
+    `admin` claim that `Service` grants everything through.
 - **`insert` sees the row as the client sent it.** The check runs before
   your handler's insert, so it cannot depend on a value your handler stamps
   (`owner`, `enteredBy`, `madeBy`). For "anyone signed in", write
@@ -86,7 +136,8 @@ SimpleNotes, Logbook (maintenance), Logbook (stock).
   decides for the rows reached through it: their `insert` is not checked
   against it, and its own `insert` is.
 - **Avoid `%` in `where` text.** Format specifiers are not supported
-  there.
+  there. Quote a `where` in the file (`where = "…";`): OpenStep text needs
+  quotes around anything but letters, digits and `_.$`.
 - **Delta links:**
   - A deletion is told to everyone who follows a delta link of the set.
   - The scope version follows the caller's tuples only: an ownership change
@@ -113,17 +164,26 @@ Today `SNNotebookHandler` limits every set with an `owner` attribute to
 `owner == subject` when the server is per user (`perUser`), and stamps
 `owner` on insert.
 
-**Relations.** For each root entity with `owner`, in code in
-`SNServeNotebooks` when `perUser` is on:
+**Permissions.** A file listing each root entity with `owner` (here
+`Notebook`; repeat for the others), loaded in `SNServeNotebooks` when
+`perUser` is on:
 
 ```
-OData.relation.read   = where owner IN $user
-OData.relation.update = read
-OData.relation.delete = read
-OData.relation.insert = where $user.@count > 0
+{
+  Version = 1;
+  Identities = ( sub );
+  Entities = {
+    Notebook = {
+      read   = ( { where = "owner IN $user"; } );
+      update = ( { relation = read; } );
+      delete = ( { relation = read; } );
+      insert = ( { where = "$user.@count > 0"; } );
+    };
+  };
+}
 ```
 
-`owner` holds the subject, which is among the caller's identities.
+`owner` holds the subject (`sub`).
 
 **Notes**
 - **`insert` doesn't name `owner`,** since it's stamped after the check.
@@ -131,8 +191,8 @@ OData.relation.insert = where $user.@count > 0
 - **Keep** `refusesWrites:` (note versions are the server's), version
   keeping, and the `owner` stamping.
 - **Remove** the `perUser` predicate in `predicateForVisibleObjectsInRequest:`.
-- **When `perUser` is off** (one household), add no annotations, and
-  nothing changes.
+- **When `perUser` is off** (one household), give the service no
+  permissions, and nothing changes.
 - **ODataSync:** `MergeAttributes` (merged note text) now checks the
   relation `update`, so a user can no longer merge into another's note even
   if they know its key.
@@ -145,8 +205,10 @@ Today `LBVehicleHandler`, `LBRecordHandler`, `LBOfVehicleHandler`,
 (`Server/LBPermissions.m`) do this by hand. The caller is known by email
 (`LBEmailOf`), and `email` is among their identities.
 
-**Tuples.** `VehicleDriver` is a tuple: `object = vehicle`,
-`relationName = Driver`, `user = user.email`.
+**Identities.** `( email )`.
+
+**Tuples.** `VehicleDriver = { object = vehicle; relationName = Driver;
+user = "user.email"; };`
 
 **Relations**
 
@@ -188,8 +250,8 @@ Today `LBVehicleHandler`, `LBRecordHandler`, `LBOfVehicleHandler`,
   `allowsUpdate` and `allowsDelete` to NO, and give them
   `insert = where $user.@count > 0`.
 - **Anonymous requests** (section 2) are allowed everything today. The
-  desktop self-test's server-side store has no sign-in, so add the
-  annotations only when the server requires sign-in, or have the
+  desktop self-test's server-side store has no sign-in, so give it the
+  permissions file only when the server requires sign-in, or have the
   self-test sign in.
 
 ## 6. Logbook: stock
@@ -198,9 +260,11 @@ Today `LBStockHandler`, configured per set in `LBServeStock` with a
 catalog path, warehouse paths and a writer (Owner, Manager or Keeper), does
 this by hand.
 
-**Tuples.** `WarehouseStaff` is a tuple: `object = warehouse`,
-`relation = staffRole` (its values `Manager` and `Keeper`),
-`user = user.email`.
+**Identities.** `( email )`.
+
+**Tuples.** `WarehouseStaff = { object = warehouse; relation = staffRole;
+user = "user.email"; };` (its `staffRole` values are `Manager` and
+`Keeper`).
 
 **Relations: the catalog and its warehouses**
 
@@ -244,5 +308,8 @@ A location's `Keeper` and `Manager` are its warehouse's
 **Notes**
 - **Upserts:** define `insert` on every set that defines `read` (section
   2), so an upsert can't duplicate a hidden key.
-- **Anonymous requests:** as for maintenance, add the annotations only when
-  sign-in is required, or have the self-test sign in.
+- **Anonymous requests:** as for maintenance, give the service the
+  permissions file only when sign-in is required, or have the self-test
+  sign in.
+- **One file or two:** maintenance and stock can share one file if they
+  share one service; otherwise each has its own.

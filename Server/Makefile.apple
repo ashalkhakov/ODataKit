@@ -1,5 +1,5 @@
-# ois-serve, an example application of its own (catalog-server), and the
-# loopback check: tools over the libraries at the repository root
+# ois-serve, an example application of its own (catalog-server), the
+# permissions checker (odatakit-permissions), and the loopback check: tools over the libraries at the repository root
 # (OTelKit, HTTPServerKit, ODataService), which are built there first.
 #
 # macOS (Apple Foundation and Core Data), without gnustep-make (this file):
@@ -29,7 +29,7 @@ LIBS = -ObjC $(GCDWEBSERVER)/libGCDWebServer.a -framework Foundation -framework 
 SOURCES = $(wildcard ../Source/*/*.m ../Source/*/apple/*.m)
 HEADERS = $(wildcard ../Source/*/include/*/*.h ../Source/*/*.h ../Source/*/apple/*.h)
 
-all: $(BUILD_DIR)/ois-serve $(BUILD_DIR)/ois-serve-check $(BUILD_DIR)/catalog-server
+all: $(BUILD_DIR)/ois-serve $(BUILD_DIR)/ois-serve-check $(BUILD_DIR)/catalog-server $(BUILD_DIR)/odatakit-permissions
 
 $(BUILD_DIR)/ois-serve: ois-serve.m $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)
@@ -43,12 +43,18 @@ $(BUILD_DIR)/ois-serve-check: Tests/ois-serve-check.m $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(FLAGS) $(INCLUDES) Tests/ois-serve-check.m $(SOURCES) $(LIBS) -o $@
 
+$(BUILD_DIR)/odatakit-permissions: odatakit-permissions.m $(SOURCES) $(HEADERS)
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(FLAGS) $(INCLUDES) odatakit-permissions.m $(SOURCES) $(LIBS) -o $@
+
 $(BUILD_DIR)/Catalog.momd: ../Examples/Catalog/Catalog.xcdatamodeld
 	@mkdir -p $(BUILD_DIR)
 	rm -rf $@ && xcrun momc $< $(abspath $@)
 
 check: all $(BUILD_DIR)/Catalog.momd
 	./$(BUILD_DIR)/ois-serve-check $(BUILD_DIR)/Catalog.momd
+	./$(BUILD_DIR)/odatakit-permissions check $(BUILD_DIR)/Catalog.momd Examples/Catalog.permissions.plist
+	! ./$(BUILD_DIR)/odatakit-permissions check $(BUILD_DIR)/Catalog.momd Tests/Unfit.permissions.plist
 
 clean:
 	rm -rf $(BUILD_DIR)

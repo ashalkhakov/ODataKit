@@ -35,7 +35,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class ODataService, ODataRequest, HSPrincipal, HSMetrics, OTTracer, OTSpan;
+@class ODataService, ODataRequest, ODataPermissions, HSPrincipal, HSMetrics, OTTracer, OTSpan;
 @protocol HSAuthenticator;
 
 // userInfo on an Integer attribute: the entity's version, sent as its ETag
@@ -632,10 +632,14 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // $metadata, in the CSDL of 4.0 or 4.01.
 - (NSString *)metadataXMLForVersion:(NSString *)version;
 // What $metadata had to leave out of the model, one sentence each; and what
-// the model's relation annotations could not say (docs/permissions.md).
+// the permissions do not fit of it (ODataPermissions -problemsWithModel:).
 @property (nonatomic, readonly) NSArray<NSString *> *metadataProblems;
 
-// Permissions on objects, as Zanzibar models them (docs/permissions.md).
+// Permissions on objects, as Zanzibar models them, from a file of their own
+// (ODataPermissions, docs/permissions.md); nil, the default: none, only
+// scopes and handlers. What does not fit the model is in metadataProblems:
+// a server that finds any should not serve.
+@property (nonatomic, strong, nullable) ODataPermissions *permissions;
 // Check: whether the request's caller holds the relation on the object (a
 // row of an entity that defines it; one that does not: YES, no limit).
 - (BOOL)request:(ODataRequest *)request holds:(NSString *)relation onObject:(NSManagedObject *)object;
@@ -660,5 +664,6 @@ NS_ASSUME_NONNULL_END
 
 // The rest of the server library, for those who import it by this name.
 #import <HTTPServerKit/HSAuthentication.h>
+#import "ODataPermissions.h"
 #import <ODataKit/ODataPredicateBuilder.h>
 #import "ODataMetadataWriter.h"

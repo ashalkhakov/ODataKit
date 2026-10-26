@@ -1342,12 +1342,12 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
 - (BOOL)holds:(NSString *)relation on:(id)row entity:(NSEntityDescription *)entity existing:(NSManagedObject *)existing
 {
   OISAuthorization *authorization = self.service.authorization;
-  NSArray *identities = OISIdentitiesOfPrincipal(self.request.principal);
-  NSPredicate *holding = [authorization predicateForRelation:relation entity:entity identities:identities];
+  HSPrincipal *principal = self.request.principal;
+  NSPredicate *holding = [authorization predicateForRelation:relation entity:entity principal:principal];
   if (!holding || [holding evaluateWithObject:row]) return YES;
   NSString *set = [self.service entitySetForEntity:OISRootEntity(entity)];
   if (existing) {
-    NSPredicate *seen = [authorization predicateForRelation:@"read" entity:existing.entity identities:identities];
+    NSPredicate *seen = [authorization predicateForRelation:@"read" entity:existing.entity principal:principal];
     if (seen && ![seen evaluateWithObject:existing]) {
       [self fail:404 message:[NSString stringWithFormat:@"%@ has no such entity", set]];
       return NO;

@@ -196,6 +196,7 @@
 		E547F2130D4DAED889C52F6A /* HSRouter.h in Headers */ = {isa = PBXBuildFile; fileRef = 19001515DDF607C399A9AB8C /* HSRouter.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		E8707618CF076D5FA3C94CBC /* OISServiceCall+Tracing.m in Sources */ = {isa = PBXBuildFile; fileRef = 7826108C2983976648414196 /* OISServiceCall+Tracing.m */; };
 		E96A85279EFE027D5100AD4F /* ODataServer.h in Headers */ = {isa = PBXBuildFile; fileRef = 4E84D922E84BA2CB3E5D0726 /* ODataServer.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		D29B3718E01F742625D52160 /* ODataPermissions.h in Headers */ = {isa = PBXBuildFile; fileRef = 6EB0920974E607BE521690B9 /* ODataPermissions.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EAD949171734E97FCAAD631C /* OTTrace.m in Sources */ = {isa = PBXBuildFile; fileRef = 71D4AC41DE5A4D1C560F5CDE /* OTTrace.m */; };
 		EAFD25DF946CDEF004C38F69 /* OISServiceCall+Plan.m in Sources */ = {isa = PBXBuildFile; fileRef = A3D97163BCA83293C65C288D /* OISServiceCall+Plan.m */; };
 		EAFD25DF946CDEF004C38F6A /* OISServiceCall+Write.m in Sources */ = {isa = PBXBuildFile; fileRef = A3D97163BCA83293C65C288E /* OISServiceCall+Write.m */; };
@@ -358,6 +359,7 @@
 		4C4695EC08E040805F6D5964 /* ODataQuery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODataQuery.h; sourceTree = "<group>"; };
 		4CE903158A9B88DE786897FC /* ODSClock.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ODSClock.m; sourceTree = "<group>"; };
 		4E84D922E84BA2CB3E5D0726 /* ODataServer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ODataServer.h; sourceTree = "<group>"; };
+		6EB0920974E607BE521690B9 /* ODataPermissions.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ODataPermissions.h; sourceTree = "<group>"; };
 		4F664210D4349D4BE185A8E4 /* ODSVersions.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ODSVersions.m; sourceTree = "<group>"; };
 		5A82DD7C6AD680048307E348 /* HSObservability.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = HSObservability.h; sourceTree = "<group>"; };
 		5BBD27471B1DF628C329E22D /* HSServer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = HSServer.h; sourceTree = "<group>"; };
@@ -799,6 +801,7 @@
 				B4560315BDB2AE56BE9BCE17 /* ODataMetadataWriter.h */,
 				B819C7A9F0C4AD1745DBA5AB /* ODataService.h */,
 				4E84D922E84BA2CB3E5D0726 /* ODataServer.h */,
+				6EB0920974E607BE521690B9 /* ODataPermissions.h */,
 			);
 			path = include/ODataService;
 			sourceTree = "<group>";
@@ -1077,6 +1080,7 @@
 				BE917EA201D75F17121BF885 /* ODataMetadataWriter.h in Headers */,
 				B0CC462EB67116ACAD0811D3 /* ODataService.h in Headers */,
 				E96A85279EFE027D5100AD4F /* ODataServer.h in Headers */,
+				D29B3718E01F742625D52160 /* ODataPermissions.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

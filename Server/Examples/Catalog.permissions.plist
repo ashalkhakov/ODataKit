@@ -1,0 +1,30 @@
+// Permissions on the Catalog example's objects (docs/permissions.md):
+// anyone signed in reads; staff of a city (a group of the same name)
+// change its locations' stock; the service's admins (a claim of the
+// identity provider's) do anything.
+// make check runs odatakit-permissions check on it.
+{
+  Version = 1;
+  Identities = ( sub, email, groups );
+  Service = {
+    admin = ( { claim = groups; value = catalog-admins; } );
+  };
+  Entities = {
+    Product = {
+      read = ( { where = "$user.@count > 0"; } );
+      update = ( { relation = admin; on = service; } );
+      insert = ( { relation = admin; on = service; } );
+      delete = ( { relation = admin; on = service; } );
+    };
+    Location = {
+      read = ( { where = "$user.@count > 0"; } );
+      staff = ( { where = "city IN $user"; }, { relation = admin; on = service; } );
+    };
+    Stock = {
+      read = ( { relation = read; from = location; } );
+      update = ( { relation = staff; from = location; } );
+      insert = ( { relation = staff; from = location; } );
+      delete = ( { relation = staff; from = location; } );
+    };
+  };
+}

@@ -101,6 +101,9 @@ NS_ASSUME_NONNULL_BEGIN
 //   AllowAnonymousMetadata  YES: the service document and $metadata are,
 //                 so that a client can read how to sign in (the
 //                 Authorization vocabulary) before it has
+//   Permissions   a permissions file (ODataPermissions.h): who may see and
+//                 change which rows; one that does not fit the model
+//                 stops the server from starting
 //   PrintMetadata YES: write $metadata to standard output and exit
 @interface ODataServerConfiguration : HSConfiguration
 @property (nonatomic, readonly) BOOL printsMetadata;

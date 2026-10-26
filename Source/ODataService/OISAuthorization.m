@@ -2,40 +2,30 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "OISAuthorization.h"
+#import "ODataPermissions.h"
 
-NSString * const OISRelationKeyPrefix = @"OData.relation.";
-NSString * const OISTupleObjectKey = @"OData.tuple.object";
-NSString * const OISTupleRelationKey = @"OData.tuple.relation";
-NSString * const OISTupleRelationNameKey = @"OData.tuple.relationName";
-NSString * const OISTupleUserKey = @"OData.tuple.user";
+NSErrorDomain const ODataPermissionsErrorDomain = @"org.gnu.ois.ODataPermissions";
 
-// How deep relations are followed (from terms through relationships): Zanzibar
-// bounds its rewrites too; a deeper chain is no grant.
+// How deep relations are followed (from terms through relationships):
+// Zanzibar bounds its rewrites too; a deeper chain is no grant.
 static const NSUInteger OISRelationDepth = 8;
 
-NSArray<NSString *> *OISIdentitiesOfPrincipal(HSPrincipal *principal)
-{
-  if (!principal) return @[];
-  NSMutableOrderedSet *identities = [NSMutableOrderedSet orderedSet];
-  if (principal.subject.length) [identities addObject:principal.subject];
-  for (NSString *claim in @[ @"email", @"preferred_username" ]) {
-    id value = principal.claims[claim];
-    if ([value isKindOfClass:[NSString class]] && [value length]) [identities addObject:value];
-  }
-  id groups = principal.claims[@"groups"];
-  for (id group in [groups isKindOfClass:[NSArray class]] ? groups : ([groups isKindOfClass:[NSString class]] ? @[ groups ] : @[])) {
-    if ([group isKindOfClass:[NSString class]] && [group length]) [identities addObject:group];
-  }
-  return identities.array;
-}
+static NSString * const OISServiceTarget = @"service";
 
 // A model's name for a key path: letters, digits, _ and dots.
-static BOOL OISIsKeyPath(NSString *text)
+static BOOL OISIsKeyPath(id text)
 {
-  if (!text.length) return NO;
+  if (![text isKindOfClass:[NSString class]] || ![text length]) return NO;
   NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
                              @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."];
   return [text rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
+}
+
+// YES as a property list says it: a boolean, or (OpenStep has none) YES.
+static BOOL OISIsYes(id value)
+{
+  if ([value isKindOfClass:[NSNumber class]]) return [value boolValue];
+  return [value isKindOfClass:[NSString class]] && ([value caseInsensitiveCompare:@"YES"] == NSOrderedSame || [value isEqualToString:@"1"]);
 }
 
 #pragma mark Formats
@@ -68,8 +58,9 @@ static NSSet<NSString *> *OISFormatKeywords(void)
 // A where term's text, its key paths under prefix (a key path, or a
 // subquery's variable: $v1.catalog), $user one argument more (the
 // identities). Quoted strings, variables, keywords, functions and options
-// ([c]) stay as they are.
-static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *identities, NSMutableArray *arguments)
+// ([c]) stay as they are. paths, when given, collects the key paths (for
+// the check against the model).
+static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *identities, NSMutableArray *arguments, NSMutableArray *paths)
 {
   NSMutableString *out = [NSMutableString string];
   NSCharacterSet *start = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"];
@@ -95,7 +86,7 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
       if ([variable isEqualToString:@"user"] || [variable hasPrefix:@"user."]) {
         [out appendString:@"%@"];
         [out appendString:[variable substringFromIndex:4]];
-        [arguments addObject:identities];
+        [arguments addObject:identities ?: @[]];
       } else {
         [out appendFormat:@"$%@", variable];
       }
@@ -108,7 +99,9 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
       while (k < n && [[NSCharacterSet whitespaceCharacterSet] characterIsMember:[text characterAtIndex:k]]) k++;
       BOOL function = k < n && [text characterAtIndex:k] == '(';
       NSString *head = [[token componentsSeparatedByString:@"."].firstObject uppercaseString];
-      if (function || [OISFormatKeywords() containsObject:head] || !prefix.length) {
+      BOOL keyword = function || [OISFormatKeywords() containsObject:head];
+      if (!keyword && ![head isEqualToString:@"SELF"]) [paths addObject:token];
+      if (keyword || !prefix.length) {
         [out appendString:token];
       } else if ([head isEqualToString:@"SELF"]) {
         [out appendString:[prefix stringByAppendingString:[token substringFromIndex:4]]];
@@ -129,19 +122,22 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
 
 #pragma mark The model
 
-// A relation's definition, read: its terms, each one of these.
 typedef NS_ENUM(NSInteger, OISRelationTermKind) {
-  OISTermDirect,     // [user]: the tuples naming the object and the relation
-  OISTermComputed,   // manager: another relation of the same object
-  OISTermFrom,       // keeper from warehouse: a relation of what a relationship reaches (a to-many: any member)
-  OISTermWhere,      // where catalogOwner.email IN $user: the row's own values
+  OISTermDirect,     // { direct = YES; }: the tuples naming the object and the relation
+  OISTermComputed,   // { relation = manager; }: another relation of the same object (or, on = service, the service's)
+  OISTermFrom,       // { relation = keeper; from = warehouse; }: a relation of what a relationship reaches (a to-many: any member)
+  OISTermWhere,      // { where = "…"; }: the row's own values
+  OISTermClaim,      // { claim = roles; value = admin; }: the caller's claim
 };
 
 @interface OISRelationTerm : NSObject
 @property (nonatomic) OISRelationTermKind kind;
-@property (nonatomic, copy) NSString *relation;       // computed, from
-@property (nonatomic, copy) NSString *through;        // from: the relationship
-@property (nonatomic, copy) NSString *text;          // where: its predicate, as written
+@property (nonatomic, copy) NSString *relation;  // computed, from
+@property (nonatomic) BOOL onService;            // computed
+@property (nonatomic, copy) NSString *through;   // from: the relationship
+@property (nonatomic, copy) NSString *text;      // where: its predicate, as written
+@property (nonatomic, copy) NSString *claim;     // claim
+@property (nonatomic, copy) NSString *value;
 @end
 
 @implementation OISRelationTerm
@@ -162,53 +158,64 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
 @implementation OISAuthorization {
   NSManagedObjectModel *_model;
   NSMutableArray<NSString *> *_problems;
-  NSMutableDictionary<NSString *, NSArray<OISRelationTerm *> *> *_definitions;   // "Entity relation" -> terms (parsed on first use)
+  NSArray<NSString *> *_identities;                                               // claim names ("sub": the subject)
+  NSDictionary<NSString *, NSArray<OISRelationTerm *> *> *_service;               // relation -> terms
+  NSDictionary<NSString *, NSDictionary<NSString *, NSArray *> *> *_entities;     // entity -> relation -> terms
   NSArray<OISRelationTupleSource *> *_sources;
 }
 
-- (instancetype)initWithModel:(NSManagedObjectModel *)model
+- (instancetype)initWithPropertyList:(NSDictionary *)plist model:(NSManagedObjectModel *)model
 {
   if (!(self = [super init])) return nil;
   _model = model;
   _problems = [NSMutableArray array];
-  _definitions = [NSMutableDictionary dictionary];
-  NSMutableArray *sources = [NSMutableArray array];
-  for (NSEntityDescription *entity in model.entities) {
-    NSDictionary *info = entity.userInfo;
-    NSString *objectName = info[OISTupleObjectKey];
-    if (!objectName && !info[OISTupleUserKey]) continue;
-    OISRelationTupleSource *source = [[OISRelationTupleSource alloc] init];
-    source.entity = entity;
-    source.object = entity.relationshipsByName[objectName ?: @""];
-    source.user = info[OISTupleUserKey];
-    source.relationAttribute = info[OISTupleRelationKey];
-    source.relationName = info[OISTupleRelationNameKey];
-    if (!source.object || source.object.isToMany) {
-      [_problems addObject:[NSString stringWithFormat:@"%@: %@ names no to-one of it (the tuple's object)", entity.name, OISTupleObjectKey]];
-      continue;
-    }
-    if (!source.object.inverseRelationship) {
-      [_problems addObject:[NSString stringWithFormat:@"%@.%@ needs an inverse, for its object's rows to find their tuples", entity.name, objectName]];
-      continue;
-    }
-    if (!OISIsKeyPath(source.user)) {
-      [_problems addObject:[NSString stringWithFormat:@"%@: %@ names no key path (the tuple's user)", entity.name, OISTupleUserKey]];
-      continue;
-    }
-    if (!source.relationName.length && !entity.attributesByName[source.relationAttribute ?: @""]) {
-      [_problems addObject:[NSString stringWithFormat:@"%@: give %@ (an attribute) or %@ (the relation)", entity.name, OISTupleRelationKey,
-                                                      OISTupleRelationNameKey]];
-      continue;
-    }
-    [sources addObject:source];
-  }
-  _sources = sources;
-  // Every definition read now, so that a mistake is a problem from the start.
-  for (NSEntityDescription *entity in model.entities) {
-    for (NSString *key in entity.userInfo) {
-      if ([key hasPrefix:OISRelationKeyPrefix]) [self termsOf:[key substringFromIndex:OISRelationKeyPrefix.length] entity:entity];
+  if (![plist isKindOfClass:[NSDictionary class]]) plist = @{};
+  for (NSString *key in plist) {
+    if (![@[ @"Version", @"Identities", @"Service", @"Tuples", @"Entities" ] containsObject:key]) {
+      [self problem:[NSString stringWithFormat:@"%@ is no key of a permissions file (Version, Identities, Service, Tuples, Entities)", key]];
     }
   }
+  id version = plist[@"Version"];
+  if (!version || [version integerValue] != 1) [self problem:@"Version is not 1"];
+
+  id identities = plist[@"Identities"];
+  if (identities && (![identities isKindOfClass:[NSArray class]] || ![identities count])) {
+    [self problem:@"Identities is not a list of claim names"];
+    identities = nil;
+  }
+  _identities = identities ?: @[ @"sub", @"email", @"preferred_username", @"groups" ];
+
+  [self readTuples:plist[@"Tuples"]];
+
+  NSMutableDictionary *service = [NSMutableDictionary dictionary];
+  id serviceDefinitions = plist[@"Service"];
+  if (serviceDefinitions && ![serviceDefinitions isKindOfClass:[NSDictionary class]]) [self problem:@"Service is not a dictionary of relations"];
+  for (NSString *relation in [serviceDefinitions isKindOfClass:[NSDictionary class]] ? serviceDefinitions : @{}) {
+    service[relation] = [self termsOf:serviceDefinitions[relation] relation:relation entity:nil];
+  }
+  _service = service;
+
+  NSMutableDictionary *entities = [NSMutableDictionary dictionary];
+  id entityDefinitions = plist[@"Entities"];
+  if (entityDefinitions && ![entityDefinitions isKindOfClass:[NSDictionary class]]) [self problem:@"Entities is not a dictionary of entities"];
+  for (NSString *name in [entityDefinitions isKindOfClass:[NSDictionary class]] ? entityDefinitions : @{}) {
+    NSEntityDescription *entity = model.entitiesByName[name];
+    id relations = entityDefinitions[name];
+    if (!entity) {
+      [self problem:[NSString stringWithFormat:@"Entities: the model has no entity %@", name]];
+      continue;
+    }
+    if (![relations isKindOfClass:[NSDictionary class]]) {
+      [self problem:[NSString stringWithFormat:@"Entities.%@ is not a dictionary of relations", name]];
+      continue;
+    }
+    NSMutableDictionary *read = [NSMutableDictionary dictionary];
+    for (NSString *relation in relations) read[relation] = [self termsOf:relations[relation] relation:relation entity:entity];
+    entities[name] = read;
+  }
+  _entities = entities;
+  [self checkNamedRelations];
+  [self checkCycles];
   return self;
 }
 
@@ -219,56 +226,6 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   }
 }
 
-- (BOOL)hasTuples
-{
-  return _sources.count > 0;
-}
-
-// The entity (or super-entity) whose userInfo defines the relation.
-- (NSString *)definitionOf:(NSString *)relation entity:(NSEntityDescription *)entity
-{
-  for (NSEntityDescription *at = entity; at; at = at.superentity) {
-    id text = at.userInfo[[OISRelationKeyPrefix stringByAppendingString:relation]];
-    if ([text isKindOfClass:[NSString class]]) return text;
-  }
-  return nil;
-}
-
-- (BOOL)entity:(NSEntityDescription *)entity defines:(NSString *)relation
-{
-  return [self definitionOf:relation entity:entity] != nil;
-}
-
-// A definition's terms: split at each top-level "or".
-static NSArray<NSString *> *OISTermTexts(NSString *text)
-{
-  NSMutableArray *terms = [NSMutableArray array];
-  NSInteger depth = 0;
-  unichar quote = 0;
-  NSUInteger start = 0;
-  for (NSUInteger i = 0; i < text.length; i++) {
-    unichar c = [text characterAtIndex:i];
-    if (quote) {
-      if (c == quote) quote = 0;
-      continue;
-    }
-    if (c == '\'' || c == '"') quote = c;
-    else if (c == '(' || c == '[') depth++;
-    else if (c == ')' || c == ']') depth--;
-    else if (depth == 0 && c == 'o' && i + 2 < text.length && [text characterAtIndex:i + 1] == 'r' &&
-             i > 0 && [[NSCharacterSet whitespaceCharacterSet] characterIsMember:[text characterAtIndex:i - 1]] &&
-             [[NSCharacterSet whitespaceCharacterSet] characterIsMember:[text characterAtIndex:i + 2]]) {
-      [terms addObject:[text substringWithRange:NSMakeRange(start, i - start)]];
-      start = i + 2;
-      i++;
-    }
-  }
-  [terms addObject:[text substringFromIndex:start]];
-  NSMutableArray *trimmed = [NSMutableArray array];
-  for (NSString *term in terms) [trimmed addObject:[term stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
-  return trimmed;
-}
-
 - (void)problem:(NSString *)problem
 {
   @synchronized (self) {
@@ -276,74 +233,319 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
   }
 }
 
-- (NSArray<OISRelationTerm *> *)termsOf:(NSString *)relation entity:(NSEntityDescription *)entity
+// A key path's last property from the entity, through its relationships;
+// nil (a problem said) when the entity has no such path.
+- (NSPropertyDescription *)property:(NSString *)path of:(NSEntityDescription *)entity what:(NSString *)what
 {
-  NSString *text = [self definitionOf:relation entity:entity];
-  if (!text) return nil;
-  NSString *key = [NSString stringWithFormat:@"%@ %@", entity.name, relation];
-  @synchronized (self) {
-    NSArray *known = _definitions[key];
-    if (known) return known;
+  NSEntityDescription *at = entity;
+  NSPropertyDescription *property = nil;
+  for (NSString *name in [path componentsSeparatedByString:@"."]) {
+    if ([name hasPrefix:@"@"]) break;  // a collection operator (@count): what comes before is checked
+    if (!at) {
+      [self problem:[NSString stringWithFormat:@"%@: %@ goes on past an attribute", what, path]];
+      return nil;
+    }
+    property = at.propertiesByName[name];
+    if (!property) {
+      [self problem:[NSString stringWithFormat:@"%@: %@ has no %@ (in %@)", what, at.name, name, path]];
+      return nil;
+    }
+    at = [property isKindOfClass:[NSRelationshipDescription class]] ? ((NSRelationshipDescription *)property).destinationEntity : nil;
   }
-  NSMutableArray *terms = [NSMutableArray array];
-  for (NSString *part in OISTermTexts(text)) {
-    OISRelationTerm *term = [[OISRelationTerm alloc] init];
-    NSArray *words = [part componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-    words = [words filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
-    if ([part isEqualToString:@"[user]"]) {
-      term.kind = OISTermDirect;
-    } else if ([part hasPrefix:@"where "]) {
-      term.kind = OISTermWhere;
-      term.text = [part substringFromIndex:6];
-      @try {
-        // Read once, with $user as the parser reads a variable, to say now
-        // what does not parse.
-        (void)[NSPredicate predicateWithFormat:term.text];
-      } @catch (NSException *exception) {
-        [self problem:[NSString stringWithFormat:@"%@.%@: %@ does not parse: %@", entity.name, relation, part, exception.reason]];
-        continue;
-      }
-    } else if (words.count == 3 && [words[1] isEqualToString:@"from"] && OISIsKeyPath(words[0]) && OISIsKeyPath(words[2])) {
-      NSRelationshipDescription *through = entity.relationshipsByName[words[2]];
-      if (!through) {
-        [self problem:[NSString stringWithFormat:@"%@.%@: %@ is no relationship of %@", entity.name, relation, words[2], entity.name]];
-        continue;
-      }
-      if (![self entity:through.destinationEntity defines:words[0]]) {
-        [self problem:[NSString stringWithFormat:@"%@.%@: %@ does not define %@", entity.name, relation, through.destinationEntity.name, words[0]]];
-        continue;
-      }
-      term.kind = OISTermFrom;
-      term.relation = words[0];
-      term.through = words[2];
-    } else if (words.count == 1 && OISIsKeyPath(words[0])) {
-      if (![self entity:entity defines:words[0]]) {
-        [self problem:[NSString stringWithFormat:@"%@.%@ names %@, which %@ does not define", entity.name, relation, words[0], entity.name]];
-        continue;
-      }
-      term.kind = OISTermComputed;
-      term.relation = words[0];
-    } else {
-      [self problem:[NSString stringWithFormat:@"%@.%@: %@ is not a term ([user], a relation, <relation> from <relationship>, where <predicate>)",
-                                               entity.name, relation, part]];
+  return property;
+}
+
+- (void)readTuples:(id)tuples
+{
+  NSMutableArray *sources = [NSMutableArray array];
+  if (tuples && ![tuples isKindOfClass:[NSDictionary class]]) [self problem:@"Tuples is not a dictionary of entities"];
+  for (NSString *name in [tuples isKindOfClass:[NSDictionary class]] ? tuples : @{}) {
+    NSDictionary *tuple = tuples[name];
+    NSString *what = [@"Tuples." stringByAppendingString:name];
+    NSEntityDescription *entity = _model.entitiesByName[name];
+    if (!entity) {
+      [self problem:[NSString stringWithFormat:@"%@: the model has no entity %@", what, name]];
       continue;
     }
-    [terms addObject:term];
+    if (![tuple isKindOfClass:[NSDictionary class]]) {
+      [self problem:[NSString stringWithFormat:@"%@ is not a dictionary (object, relation or relationName, user)", what]];
+      continue;
+    }
+    for (NSString *key in tuple) {
+      if (![@[ @"object", @"relation", @"relationName", @"user" ] containsObject:key]) {
+        [self problem:[NSString stringWithFormat:@"%@: %@ is no key of a tuple (object, relation or relationName, user)", what, key]];
+      }
+    }
+    OISRelationTupleSource *source = [[OISRelationTupleSource alloc] init];
+    source.entity = entity;
+    id objectName = tuple[@"object"];
+    source.object = [objectName isKindOfClass:[NSString class]] ? entity.relationshipsByName[objectName] : nil;
+    source.user = [tuple[@"user"] isKindOfClass:[NSString class]] ? tuple[@"user"] : nil;
+    source.relationAttribute = [tuple[@"relation"] isKindOfClass:[NSString class]] ? tuple[@"relation"] : nil;
+    source.relationName = [tuple[@"relationName"] isKindOfClass:[NSString class]] ? tuple[@"relationName"] : nil;
+    if (!source.object || source.object.isToMany) {
+      [self problem:[NSString stringWithFormat:@"%@: object names no to-one of %@", what, name]];
+      continue;
+    }
+    if (!source.object.inverseRelationship) {
+      [self problem:[NSString stringWithFormat:@"%@: %@.%@ needs an inverse, for its object's rows to find their tuples", what, name, objectName]];
+      continue;
+    }
+    if (!OISIsKeyPath(source.user)) {
+      [self problem:[NSString stringWithFormat:@"%@: user names no key path", what]];
+      continue;
+    }
+    if (![[self property:source.user of:entity what:what] isKindOfClass:[NSAttributeDescription class]]) continue;
+    if ((source.relationName.length > 0) == (source.relationAttribute.length > 0)) {
+      [self problem:[NSString stringWithFormat:@"%@: give relation (an attribute) or relationName (the one relation), one of them", what]];
+      continue;
+    }
+    if (source.relationAttribute.length && !entity.attributesByName[source.relationAttribute]) {
+      [self problem:[NSString stringWithFormat:@"%@: %@ has no attribute %@", what, name, source.relationAttribute]];
+      continue;
+    }
+    [sources addObject:source];
   }
-  @synchronized (self) {
-    _definitions[key] = terms;
+  _sources = sources;
+}
+
+// The terms of a relation's definition, checked against the model: of an
+// entity, or (entity nil) of the service.
+- (NSArray<OISRelationTerm *> *)termsOf:(id)definition relation:(NSString *)relation entity:(NSEntityDescription *)entity
+{
+  NSString *what = entity ? [NSString stringWithFormat:@"%@.%@", entity.name, relation] : [@"Service." stringByAppendingString:relation];
+  if (![definition isKindOfClass:[NSArray class]]) {
+    [self problem:[NSString stringWithFormat:@"%@ is not a list of terms", what]];
+    return @[];
+  }
+  NSMutableArray *terms = [NSMutableArray array];
+  for (id item in definition) {
+    if (![item isKindOfClass:[NSDictionary class]]) {
+      [self problem:[NSString stringWithFormat:@"%@: a term is not a dictionary", what]];
+      continue;
+    }
+    NSDictionary *spec = item;
+    OISRelationTerm *term = [[OISRelationTerm alloc] init];
+    NSSet *allowed = nil;
+    if (spec[@"direct"]) {
+      allowed = [NSSet setWithObject:@"direct"];
+      if (!OISIsYes(spec[@"direct"]) || !entity) {
+        [self problem:[NSString stringWithFormat:@"%@: direct is YES, and only on an entity", what]];
+        continue;
+      }
+      term.kind = OISTermDirect;
+      BOOL any = NO;
+      for (OISRelationTupleSource *source in _sources) {
+        NSEntityDescription *object = source.object.destinationEntity;
+        if ([entity isKindOfEntity:object] || [object isKindOfEntity:entity]) any = YES;
+      }
+      if (!any) [self problem:[NSString stringWithFormat:@"%@: direct, but no Tuples have a %@ as their object", what, entity.name]];
+    } else if (spec[@"where"]) {
+      allowed = [NSSet setWithObject:@"where"];
+      term.kind = OISTermWhere;
+      term.text = [spec[@"where"] isKindOfClass:[NSString class]] ? spec[@"where"] : nil;
+      if (!term.text.length || !entity) {
+        [self problem:[NSString stringWithFormat:@"%@: where is a predicate, and only on an entity", what]];
+        continue;
+      }
+      @try {
+        (void)[NSPredicate predicateWithFormat:term.text];
+      } @catch (NSException *exception) {
+        [self problem:[NSString stringWithFormat:@"%@: where %@ does not parse: %@", what, term.text, exception.reason]];
+        continue;
+      }
+      NSMutableArray *paths = [NSMutableArray array];
+      OISConditionFormat(term.text, @"", @[], [NSMutableArray array], paths);
+      BOOL fits = YES;
+      for (NSString *path in paths) {
+        if (![self property:path of:entity what:what]) fits = NO;
+      }
+      if (!fits) continue;
+    } else if (spec[@"claim"]) {
+      allowed = [NSSet setWithObjects:@"claim", @"value", nil];
+      term.kind = OISTermClaim;
+      term.claim = [spec[@"claim"] isKindOfClass:[NSString class]] ? spec[@"claim"] : nil;
+      term.value = [spec[@"value"] isKindOfClass:[NSString class]] ? spec[@"value"] : nil;
+      if (!term.claim.length || !term.value.length) {
+        [self problem:[NSString stringWithFormat:@"%@: a claim term names its claim and its value", what]];
+        continue;
+      }
+    } else if (spec[@"relation"]) {
+      allowed = [NSSet setWithObjects:@"relation", @"from", @"on", nil];
+      term.relation = [spec[@"relation"] isKindOfClass:[NSString class]] ? spec[@"relation"] : nil;
+      if (!term.relation.length) {
+        [self problem:[NSString stringWithFormat:@"%@: relation names no relation", what]];
+        continue;
+      }
+      id on = spec[@"on"], from = spec[@"from"];
+      if (on && from) {
+        [self problem:[NSString stringWithFormat:@"%@: a term is from a relationship, or on the service, not both", what]];
+        continue;
+      }
+      if (on) {
+        if (![on isEqual:OISServiceTarget]) {
+          [self problem:[NSString stringWithFormat:@"%@: on is service", what]];
+          continue;
+        }
+        term.kind = OISTermComputed;
+        term.onService = YES;
+      } else if (from) {
+        NSRelationshipDescription *through = entity && [from isKindOfClass:[NSString class]] ? entity.relationshipsByName[from] : nil;
+        if (!through) {
+          [self problem:[NSString stringWithFormat:@"%@: from %@ is no relationship of %@", what, from, entity.name ?: @"the service"]];
+          continue;
+        }
+        term.kind = OISTermFrom;
+        term.through = from;
+      } else {
+        term.kind = OISTermComputed;
+        term.onService = !entity;
+      }
+    } else {
+      [self problem:[NSString stringWithFormat:@"%@: a term says direct, relation, where or claim", what]];
+      continue;
+    }
+    NSMutableSet *extra = [NSMutableSet setWithArray:spec.allKeys];
+    [extra minusSet:allowed];
+    if (extra.count) {
+      [self problem:[NSString stringWithFormat:@"%@: %@ is no key of this term", what,
+                                               [[extra.allObjects sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@", "]]];
+    }
+    [terms addObject:term];
   }
   return terms;
 }
 
+// The terms the entity (or a super-entity) defines the relation with; nil.
+- (NSArray<OISRelationTerm *> *)termsOf:(NSString *)relation entity:(NSEntityDescription *)entity
+{
+  for (NSEntityDescription *at = entity; at; at = at.superentity) {
+    NSArray *terms = _entities[at.name][relation];
+    if (terms) return terms;
+  }
+  return nil;
+}
+
+- (BOOL)entity:(NSEntityDescription *)entity defines:(NSString *)relation
+{
+  return [self termsOf:relation entity:entity] != nil;
+}
+
+// What a term names elsewhere is defined (once every relation is read).
+- (void)checkNamedRelations
+{
+  for (NSString *name in _entities) {
+    NSEntityDescription *entity = _model.entitiesByName[name];
+    for (NSString *relation in _entities[name]) {
+      NSString *what = [NSString stringWithFormat:@"%@.%@", name, relation];
+      for (OISRelationTerm *term in _entities[name][relation]) {
+        if (term.kind == OISTermComputed && !term.onService && ![self entity:entity defines:term.relation]) {
+          [self problem:[NSString stringWithFormat:@"%@ names %@, which %@ does not define", what, term.relation, name]];
+        }
+        if (term.kind == OISTermComputed && term.onService && !_service[term.relation]) {
+          [self problem:[NSString stringWithFormat:@"%@ names %@ on the service, which Service does not define", what, term.relation]];
+        }
+        if (term.kind == OISTermFrom) {
+          NSRelationshipDescription *through = entity.relationshipsByName[term.through];
+          NSEntityDescription *destination = through.destinationEntity;
+          if (![self entity:destination defines:term.relation]) {
+            [self problem:[NSString stringWithFormat:@"%@: %@ does not define %@", what, destination.name, term.relation]];
+          }
+        }
+      }
+    }
+  }
+  for (NSString *relation in _service) {
+    for (OISRelationTerm *term in _service[relation]) {
+      if (term.kind == OISTermComputed && !_service[term.relation]) {
+        [self problem:[NSString stringWithFormat:@"Service.%@ names %@, which Service does not define", relation, term.relation]];
+      }
+    }
+  }
+  // A tuple's one relation: its object's entity defines it.
+  for (OISRelationTupleSource *source in _sources) {
+    if (source.relationName.length && ![self entity:source.object.destinationEntity defines:source.relationName]) {
+      [self problem:[NSString stringWithFormat:@"Tuples.%@: %@ does not define %@", source.entity.name, source.object.destinationEntity.name,
+                                               source.relationName]];
+    }
+  }
+}
+
+// Computed relations that come back to themselves (a relation of the same
+// object, all the way round) hold for no one: a mistake. (A from that does
+// - a folder's viewers from its parent's - is a tree, followed to a depth.)
+- (void)checkCycles
+{
+  for (NSString *name in _entities) {
+    NSEntityDescription *entity = _model.entitiesByName[name];
+    for (NSString *relation in _entities[name]) {
+      NSMutableArray *path = [NSMutableArray array];
+      if ([self relation:relation entity:entity reaches:relation path:path first:YES]) {
+        [self problem:[NSString stringWithFormat:@"%@: %@ come round to %@", name, [path componentsJoinedByString:@" -> "], relation]];
+      }
+    }
+  }
+}
+
+- (BOOL)relation:(NSString *)relation entity:(NSEntityDescription *)entity reaches:(NSString *)target path:(NSMutableArray *)path first:(BOOL)first
+{
+  if (!first && [relation isEqualToString:target]) return YES;
+  if ([path containsObject:relation]) return NO;
+  [path addObject:relation];
+  for (OISRelationTerm *term in [self termsOf:relation entity:entity] ?: @[]) {
+    if (term.kind != OISTermComputed || term.onService) continue;
+    if ([self relation:term.relation entity:entity reaches:target path:path first:NO]) return YES;
+  }
+  [path removeLastObject];
+  return NO;
+}
+
+#pragma mark Who
+
+- (NSArray<NSString *> *)identitiesOfPrincipal:(HSPrincipal *)principal
+{
+  if (!principal) return @[];
+  NSMutableOrderedSet *identities = [NSMutableOrderedSet orderedSet];
+  for (NSString *claim in _identities) {
+    id value = [claim isEqualToString:@"sub"] ? (principal.subject ?: principal.claims[@"sub"]) : principal.claims[claim];
+    for (id item in [value isKindOfClass:[NSArray class]] ? value : (value ? @[ value ] : @[])) {
+      if ([item isKindOfClass:[NSString class]] && [item length]) [identities addObject:item];
+    }
+  }
+  return identities.array;
+}
+
+// A claim term: the principal's claim is the value, or (a list) has it.
+static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, NSString *value)
+{
+  id held = [claim isEqualToString:@"sub"] ? principal.subject : principal.claims[claim];
+  if ([held isKindOfClass:[NSArray class]]) return [held containsObject:value];
+  return [held isKindOfClass:[NSString class]] && [held isEqualToString:value];
+}
+
+// A relation of the service: held by the principal, or not.
+- (BOOL)principal:(HSPrincipal *)principal holdsOnService:(NSString *)relation seen:(NSMutableSet *)seen
+{
+  if (!principal || [seen containsObject:relation]) return NO;
+  [seen addObject:relation];
+  BOOL holds = NO;
+  for (OISRelationTerm *term in _service[relation] ?: @[]) {
+    if (term.kind == OISTermClaim && OISClaimHolds(principal, term.claim, term.value)) holds = YES;
+    if (term.kind == OISTermComputed && [self principal:principal holdsOnService:term.relation seen:seen]) holds = YES;
+    if (holds) break;
+  }
+  [seen removeObject:relation];
+  return holds;
+}
+
 #pragma mark Predicates
 
-- (NSPredicate *)predicateForRelation:(NSString *)relation entity:(NSEntityDescription *)entity identities:(NSArray<NSString *> *)identities
+- (NSPredicate *)predicateForRelation:(NSString *)relation entity:(NSEntityDescription *)entity principal:(HSPrincipal *)principal
 {
   if (![self entity:entity defines:relation]) return nil;
   NSMutableArray *arguments = [NSMutableArray array];
-  NSString *format = [self formatForRelation:relation entity:entity prefix:@"" identities:identities arguments:arguments depth:0
-                                        seen:[NSMutableSet set]];
+  NSString *format = [self formatForRelation:relation entity:entity prefix:@"" principal:principal identities:[self identitiesOfPrincipal:principal]
+                                   arguments:arguments depth:0 seen:[NSMutableSet set]];
   @try {
     return [NSPredicate predicateWithFormat:format argumentArray:arguments];
   } @catch (NSException *exception) {
@@ -355,6 +557,7 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
 - (NSString *)formatForRelation:(NSString *)relation
                          entity:(NSEntityDescription *)entity
                          prefix:(NSString *)prefix
+                      principal:(HSPrincipal *)principal
                      identities:(NSArray *)identities
                       arguments:(NSMutableArray *)arguments
                           depth:(NSUInteger)depth
@@ -384,29 +587,37 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
         }
         break;
       case OISTermComputed:
-        [alternatives addObject:[self formatForRelation:term.relation entity:entity prefix:prefix identities:identities arguments:arguments
-                                                  depth:depth seen:seen]];
+        if (term.onService) {
+          BOOL held = [self principal:principal holdsOnService:term.relation seen:[NSMutableSet set]];
+          [alternatives addObject:held ? @"TRUEPREDICATE" : @"FALSEPREDICATE"];
+        } else {
+          [alternatives addObject:[self formatForRelation:term.relation entity:entity prefix:prefix principal:principal identities:identities
+                                                arguments:arguments depth:depth seen:seen]];
+        }
         break;
       case OISTermFrom: {
         NSRelationshipDescription *through = entity.relationshipsByName[term.through];
         NSEntityDescription *destination = through.destinationEntity;
         NSString *path = [dot stringByAppendingString:term.through];
         if (!through.isToMany) {
-          [alternatives addObject:[self formatForRelation:term.relation entity:destination prefix:path identities:identities arguments:arguments
-                                                    depth:depth + 1 seen:seen]];
+          [alternatives addObject:[self formatForRelation:term.relation entity:destination prefix:path principal:principal identities:identities
+                                                arguments:arguments depth:depth + 1 seen:seen]];
           break;
         }
         // Through a to-many: any of its members (Zanzibar's tuple to
         // userset reads every tuple of the set), a subquery whose variable
         // the members' relation is under.
         NSString *v = [NSString stringWithFormat:@"$v%lu", (unsigned long)depth + 1];
-        NSString *member = [self formatForRelation:term.relation entity:destination prefix:v identities:identities arguments:arguments
-                                             depth:depth + 1 seen:seen];
+        NSString *member = [self formatForRelation:term.relation entity:destination prefix:v principal:principal identities:identities
+                                         arguments:arguments depth:depth + 1 seen:seen];
         [alternatives addObject:[NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, v, member]];
         break;
       }
       case OISTermWhere:
-        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments)];
+        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments, nil)];
+        break;
+      case OISTermClaim:
+        [alternatives addObject:principal && OISClaimHolds(principal, term.claim, term.value) ? @"TRUEPREDICATE" : @"FALSEPREDICATE"];
         break;
     }
   }
@@ -429,15 +640,16 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
     [done addObject:name];
     for (OISRelationTerm *term in [self termsOf:name entity:entity] ?: @[]) {
       if (term.kind == OISTermFrom) [through addObject:term.through];
-      if (term.kind == OISTermComputed) [pending addObject:term.relation];
+      if (term.kind == OISTermComputed && !term.onService) [pending addObject:term.relation];
     }
   }
   return through;
 }
 
-- (NSString *)versionOfIdentities:(NSArray<NSString *> *)identities context:(NSManagedObjectContext *)context
+- (NSString *)versionForPrincipal:(HSPrincipal *)principal context:(NSManagedObjectContext *)context
 {
-  if (!_sources.count) return nil;
+  if (!_sources.count && !_service.count) return nil;
+  NSArray *identities = [self identitiesOfPrincipal:principal];
   NSMutableArray *held = [NSMutableArray array];
   for (OISRelationTupleSource *source in _sources) {
     NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:source.entity.name];
@@ -450,6 +662,10 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
       [held addObject:[NSString stringWithFormat:@"%@#%@@%@", object.objectID.URIRepresentation.absoluteString, named,
                                                  [row valueForKeyPath:source.user]]];
     }
+  }
+  // What the caller holds on the service (a claim given or taken) too.
+  for (NSString *relation in [_service.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    if ([self principal:principal holdsOnService:relation seen:[NSMutableSet set]]) [held addObject:[@"service#" stringByAppendingString:relation]];
   }
   [held sortUsingSelector:@selector(compare:)];
   uint64_t hash = 14695981039346656037ULL;
@@ -487,6 +703,56 @@ static NSArray<NSString *> *OISTermTexts(NSString *text)
 - (id)valueForUndefinedKey:(NSString *)key
 {
   return nil;
+}
+
+@end
+
+#pragma mark - ODataPermissions
+
+@interface ODataPermissions ()
+- (instancetype)initWithPropertyList:(NSDictionary *)propertyList NS_DESIGNATED_INITIALIZER;
+@end
+
+@implementation ODataPermissions
+
++ (instancetype)permissionsWithContentsOfURL:(NSURL *)url error:(NSError **)error
+{
+  NSData *data = [NSData dataWithContentsOfURL:url options:0 error:error];
+  if (!data) return nil;
+  NSError *failure = nil;
+  id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:&failure];
+  if (!plist) {
+    if (error) {
+      *error = [NSError errorWithDomain:ODataPermissionsErrorDomain code:1 userInfo:@{
+        NSLocalizedDescriptionKey: [NSString stringWithFormat:@"%@ is not a property list: %@", url.path, failure.localizedDescription ?: @"?"] }];
+    }
+    return nil;
+  }
+  return [self permissionsWithPropertyList:plist error:error];
+}
+
++ (instancetype)permissionsWithPropertyList:(NSDictionary *)propertyList error:(NSError **)error
+{
+  if (![propertyList isKindOfClass:[NSDictionary class]] || [propertyList[@"Version"] integerValue] != 1) {
+    if (error) {
+      *error = [NSError errorWithDomain:ODataPermissionsErrorDomain code:2 userInfo:@{
+        NSLocalizedDescriptionKey: @"Not a permissions file: a dictionary with Version 1 is" }];
+    }
+    return nil;
+  }
+  return [[self alloc] initWithPropertyList:propertyList];
+}
+
+- (instancetype)initWithPropertyList:(NSDictionary *)propertyList
+{
+  if (!(self = [super init])) return nil;
+  _propertyList = [propertyList copy];
+  return self;
+}
+
+- (NSArray<NSString *> *)problemsWithModel:(NSManagedObjectModel *)model
+{
+  return [[OISAuthorization alloc] initWithPropertyList:_propertyList model:model].problems;
 }
 
 @end

@@ -208,6 +208,7 @@ ODataService_OBJC_FILES = \
 
 ODataService_HEADER_FILES = \
 	ODataMetadataWriter.h \
+	ODataPermissions.h \
 	ODataServer.h \
 	ODataService.h
 
