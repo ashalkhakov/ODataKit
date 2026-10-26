@@ -44,6 +44,7 @@ is a mistake.
 | permissions are relations | the service checks the relations `read`, `insert`, `update`, `delete` and `call.<Operation>` |
 | Check | the relation, evaluated on the row |
 | ListObjects | the relation, as a fetch predicate |
+| intersection, `define writer: keeper from source and keeper from destination` | `{ all = ( …, … ); }` |
 | conditions | `where`, from SAP CAP's `@restrict` |
 
 ## The permissions file
@@ -114,15 +115,24 @@ any of which grants it (they are joined by *or*):
 | `{ relation = admin; on = service; }` | the caller holds `admin` on the service (`Service`) |
 | `{ where = "owner.email IN $user"; }` | the predicate holds on the row; `$user` is the caller's identities |
 | `{ claim = roles; value = admin; }` | the caller's claim is the value, or (a list) has it; a boolean or number claim matches `true`/`YES`, `false`/`NO` or its digits |
+| `{ all = ( { relation = keeper; from = source; }, { relation = keeper; from = destination; } ); }` | every one of its terms holds (two or more, of any kind, `all` too): Zanzibar's intersection |
+
+**`all`** is how a rule says *and*: "a keeper at both ends of a move", "a
+keeper where it ships from, if it is a parts sale" (`{ where =
+"serviceAsPartsSale != nil"; }` as the second term). A `from` through a
+relationship that is nil holds nothing, so a move with no source fails
+`keeper from source`. Where a missing end is allowed, say so as another
+term: `( { all = ( …source…, …destination… ); }, { all = ( { where =
+"source == nil"; }, …destination… ); } )`.
 
 **`Service`**: relations held on the service as a whole, made of `claim`
-terms and other service relations. They are Zanzibar's relations on a
+terms, other service relations and `all` of them. They are Zanzibar's relations on a
 single object of type service, and what an identity provider can say
 without knowing the rows: an administrator, a support role.
 
 A sub-entity uses its super-entity's definitions, unless it defines its
-own. Relations can only be added this way, never taken away: there is no
-`but not` and no deny.
+own. A grant can only be narrowed by `all`, never taken away by another:
+there is no `but not` (Zanzibar's exclusion) and no deny.
 
 ## Checking a file
 
@@ -141,6 +151,7 @@ It prints what does not fit, one line each, and exits 1 if anything does
 - a `from` through something that is not a relationship;
 - a relation named but not defined (on the entity, on what `from`
   reaches, in `Service`, or a tuple's `relationName`);
+- an `all` of fewer than two terms;
 - a `where` that does not parse, or has a `%` outside quotes (there are
   no format arguments; `$user` is the caller). Inside quotes a `%` is
   only text: `name == 'C%'`;

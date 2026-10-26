@@ -47,6 +47,12 @@ $(BUILD_DIR)/odatakit-permissions: odatakit-permissions.m $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(FLAGS) $(INCLUDES) odatakit-permissions.m $(SOURCES) $(LIBS) -o $@
 
+# The checker as a release ships it (../Makefile.apple install): both of
+# the Mac's architectures, for the macOS the frameworks are for.
+$(BUILD_DIR)/universal/odatakit-permissions: odatakit-permissions.m $(SOURCES) $(HEADERS)
+	@mkdir -p $(dir $@)
+	$(CC) -arch arm64 -arch x86_64 -mmacosx-version-min=12.0 $(FLAGS) $(INCLUDES) odatakit-permissions.m $(SOURCES) $(LIBS) -o $@
+
 $(BUILD_DIR)/Catalog.momd: ../Examples/Catalog/Catalog.xcdatamodeld
 	@mkdir -p $(BUILD_DIR)
 	rm -rf $@ && xcrun momc $< $(abspath $@)

@@ -13,6 +13,8 @@
 //   tuple to userset              { relation = keeper; from = warehouse; }:
 //     keeper from warehouse         through the entity's own relationship
 //                                   (Core Data's), a to-many's any member
+//   intersection                  { all = ( …, … ); }: every one of them
+//     a and b
 //   Check(object, relation, user) the relation's predicate, on the row
 //   ListObjects                   the relation's predicate, fetched with
 //

@@ -8552,6 +8552,8 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     "      d = ( { relation = admin; on = service; colour = red; } );\n"
     "      e = ( { relation = staff; on = service; } );\n"
     "      f = ( { where = \"id IN %@\"; } );\n"
+    "      g = ( { all = ( { relation = a; } ); } );\n"
+    "      h = ( { all = ( { relation = nothing; }, { where = TRUEPREDICATE; } ); } );\n"
     "    };\n"
     "  };\n"
     "}"];
@@ -8570,6 +8572,8 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     @"Thing.e names staff on the service, which Service does not define",
     @"Service.boss names chief, which Service does not define",
     @"Thing.f: where id IN %@ has a % outside quotes",
+    @"Thing.g: all is a list of two terms or more",
+    @"Thing.h names nothing, which Thing does not define",
   ];
   NSString *offline = [[permissions problemsWithModel:model] componentsJoinedByString:@"\n"];
   for (NSString *problem in expected) XCTAssertTrue([offline containsString:problem], @"%@ in %@", problem, offline);
@@ -8584,6 +8588,39 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @[ @1 ] } error:&error], @"a Version that is no number");
   XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @{} } error:&error]);
   XCTAssertEqualObjects([[ODataPermissions permissionsWithPropertyList:@{ @"Version": @1 } error:NULL] problemsWithModel:model], @[]);
+}
+
+// Zanzibar's intersection (all), on an entity and on the service; and a
+// where with a subquery's count, through a from.
+- (void)testPermissionsOfAllAndSubqueries
+{
+  [self serveWarehouses];
+  _service.permissions = [self permissions:@"{ Version = 1;\n"
+    "  Service = { admin = ( { all = ( { claim = groups; value = staff; }, { claim = email_verified; value = true; } ); } ); };\n"
+    "  Entities = {\n"
+    "    Catalog = { read = ( { relation = admin; on = service; } ); };\n"
+    "    Warehouse = { read = ( { where = \"SUBQUERY(locations, $l, $l.name BEGINSWITH 'A').@count > 0\"; } ); };\n"
+    "    Location = {\n"
+    "      read = ( { relation = read; from = warehouse; } );\n"
+    "      insert = ( { where = \"$user.@count > 0\"; } );\n"
+    "      update = ( { all = ( { relation = read; from = warehouse; }, { where = \"name BEGINSWITH 'A'\"; } ); } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+  XCTAssertEqualObjects(_service.metadataProblems, @[], @"count, after SUBQUERY(…)., is no key path");
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Warehouses"], (@[ @"Garage" ]));
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Locations"], (@[ @"A1" ]), @"the subquery through warehouse");
+  XCTAssertEqual(([self as:@"eve@example.org" send:@"PATCH" path:@"Locations(1)" body:@{ @"Name": @"A1 (eve)" }].status), 204);
+  XCTAssertEqual(([self as:@"eve@example.org" send:@"POST" path:@"Locations" body:@{ @"Id": @7, @"Name": @"Z1",
+                   @"Warehouse@odata.bind": @"Warehouses(1)" }].status), 201);
+  OISServiceResponse *notA = [self as:@"eve@example.org" send:@"PATCH" path:@"Locations(7)" body:@{ @"Name": @"Z2" }];
+  XCTAssertEqual(notA.status, 403, @"seen, but not all of update holds: %@", notA.text);
+  // The service's admin: staff, and verified, both.
+  OISServiceResponse *staff = [self as:@"eve@example.org" claims:@{ @"groups": @[ @"staff" ] } send:@"GET" path:@"Catalogs" body:nil headers:nil];
+  XCTAssertEqualObjects([staff.json[@"value"] valueForKey:@"Name"], (@[]), @"%@", staff.text);
+  OISServiceResponse *both = [self as:@"eve@example.org" claims:@{ @"groups": @[ @"staff" ], @"email_verified": @YES } send:@"GET"
+                                 path:@"Catalogs?$orderby=Id" body:nil headers:nil];
+  XCTAssertEqualObjects([both.json[@"value"] valueForKey:@"Name"], (@[ @"Stock", @"Spares" ]), @"%@", both.text);
 }
 
 // Who the caller is, as the file says (Identities); what their claims give

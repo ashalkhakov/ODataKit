@@ -28,6 +28,7 @@ relation is the list of its terms:
 | `where owner.email IN $user` | `{ where = "owner.email IN $user"; }` |
 | `claim roles = admin` | `{ claim = roles; value = admin; }` |
 | `a or b` | `( a, b )` |
+| `a and b` | `{ all = ( a, b ); }` |
 
 So `Driver = [user] or Owner` on Vehicle is, under `Entities`:
 
@@ -152,8 +153,8 @@ Relations decide who may. Everything else stays where it is:
 - **Values a client may not change** after the insert (your
   `changeable:`).
 - **Consistency between rows** ("that warehouse is of another catalog").
-- **A rule the relations cannot state yet:** there is no `and` and no
-  deny. Logbook's moves are the one case below.
+- **A rule the relations cannot state:** there is no deny and no `but
+  not`.
 - **Sets with no writes at all:** `allowsInsert`, `allowsUpdate` and
   `allowsDelete` stay the plainest way, and `$metadata` says so.
 
@@ -296,12 +297,17 @@ A location's `Keeper` and `Manager` are its warehouse's
 (`Keeper = Keeper from warehouse`, and the same for `Manager`), so
 `Keeper from shippedFrom` works through a location.
 
+**Moves** need a keeper at both their source and their destination, an
+`and`: `insert = Keeper from source and Keeper from destination`, and the
+same with `Manager` for `update` and `delete`. A move with a missing end
+fails a `from` through it; allow that with another term if it may happen
+([permissions.md](permissions.md), `all`). The same goes for a parts sale
+a keeper writes where it ships from (`and where serviceAsPartsSale !=
+nil`) and a contact a warehouse's staff make for a user. Write these with
+`and`, not as a `where` that spells keeper and manager out as key paths:
+that repeats the relations and drifts from them.
+
 **Stays in handlers**
-- **Moves** need a keeper at both their source and their destination.
-  Relations have no `and` yet, so keep that check in the handler. Give
-  `Move` the relations for its source (`insert = Keeper from source`,
-  `update`, `delete = Manager from source`), and let the handler check the
-  destination.
 - **Consistency:** "that warehouse is of another catalog" stays.
 - **Stamping:** the catalog's owner, SKUs, and the running numbers of
   orders and counts.

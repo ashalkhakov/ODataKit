@@ -101,6 +101,14 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
         [out appendFormat:@"$%@", variable];
       }
       i = j;
+    } else if ([start characterIsMember:c] && i > 0 && ([text characterAtIndex:i - 1] == '.' || [text characterAtIndex:i - 1] == '@')) {
+      // Right after a . or @ that no key path began (one goes on through
+      // them): what follows ) or ], as SUBQUERY(…).@count's count goes on
+      // the expression as it is, no key path of the row's.
+      NSUInteger j = i;
+      while (j < n && [part characterIsMember:[text characterAtIndex:j]]) j++;
+      [out appendString:[text substringWithRange:NSMakeRange(i, j - i)]];
+      i = j;
     } else if ([start characterIsMember:c]) {
       NSUInteger j = i;
       while (j < n && [part characterIsMember:[text characterAtIndex:j]]) j++;
@@ -131,6 +139,15 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
   return out;
 }
 
+// Formats, each in parentheses, joined; none: nothing holds.
+static NSString *OISJoined(NSArray<NSString *> *formats, NSString *operator)
+{
+  if (!formats.count) return @"FALSEPREDICATE";
+  NSMutableArray *grouped = [NSMutableArray array];
+  for (NSString *format in formats) [grouped addObject:[NSString stringWithFormat:@"(%@)", format]];
+  return [grouped componentsJoinedByString:[NSString stringWithFormat:@" %@ ", operator]];
+}
+
 #pragma mark The model
 
 typedef NS_ENUM(NSInteger, OISRelationTermKind) {
@@ -139,6 +156,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   OISTermFrom,       // { relation = keeper; from = warehouse; }: a relation of what a relationship reaches (a to-many: any member)
   OISTermWhere,      // { where = "…"; }: the row's own values
   OISTermClaim,      // { claim = roles; value = admin; }: the caller's claim
+  OISTermAll,        // { all = ( …, … ); }: every one of its terms (Zanzibar's intersection)
 };
 
 @interface OISRelationTerm : NSObject
@@ -149,6 +167,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
 @property (nonatomic, copy) NSString *text;      // where: its predicate, as written
 @property (nonatomic, copy) NSString *claim;     // claim
 @property (nonatomic, copy) id value;            // a string, number or boolean
+@property (nonatomic, copy) NSArray *terms;      // all
 @end
 
 @implementation OISRelationTerm
@@ -390,6 +409,15 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
         [self problem:[NSString stringWithFormat:@"%@: a claim term names its claim and its value", what]];
         continue;
       }
+    } else if (spec[@"all"]) {
+      allowed = [NSSet setWithObject:@"all"];
+      term.kind = OISTermAll;
+      term.terms = [self termsOf:spec[@"all"] relation:relation entity:entity];
+      if (![spec[@"all"] isKindOfClass:[NSArray class]] || [spec[@"all"] count] < 2) {
+        [self problem:[NSString stringWithFormat:@"%@: all is a list of two terms or more", what]];
+        continue;
+      }
+      if (term.terms.count != [spec[@"all"] count]) continue;  // a term of it not read: said, and the whole holds for no one
     } else if (spec[@"relation"]) {
       allowed = [NSSet setWithObjects:@"relation", @"from", @"on", nil];
       term.relation = [spec[@"relation"] isKindOfClass:[NSString class]] ? spec[@"relation"] : nil;
@@ -422,7 +450,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
         term.onService = !entity;
       }
     } else {
-      [self problem:[NSString stringWithFormat:@"%@: a term says direct, relation, where or claim", what]];
+      [self problem:[NSString stringWithFormat:@"%@: a term says direct, relation, where, claim or all", what]];
       continue;
     }
     NSMutableSet *extra = [NSMutableSet setWithArray:spec.allKeys];
@@ -451,6 +479,18 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   return [self termsOf:relation entity:entity] != nil;
 }
 
+// The terms, with each all's own in its place: what they name, whichever
+// way they are joined.
+static NSArray<OISRelationTerm *> *OISEveryTerm(NSArray<OISRelationTerm *> *terms)
+{
+  NSMutableArray *every = [NSMutableArray array];
+  for (OISRelationTerm *term in terms) {
+    if (term.kind == OISTermAll) [every addObjectsFromArray:OISEveryTerm(term.terms)];
+    else [every addObject:term];
+  }
+  return every;
+}
+
 // What a term names elsewhere is defined (once every relation is read).
 - (void)checkNamedRelations
 {
@@ -458,7 +498,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
     NSEntityDescription *entity = _model.entitiesByName[name];
     for (NSString *relation in _entities[name]) {
       NSString *what = [NSString stringWithFormat:@"%@.%@", name, relation];
-      for (OISRelationTerm *term in _entities[name][relation]) {
+      for (OISRelationTerm *term in OISEveryTerm(_entities[name][relation])) {
         if (term.kind == OISTermComputed && !term.onService && ![self entity:entity defines:term.relation]) {
           [self problem:[NSString stringWithFormat:@"%@ names %@, which %@ does not define", what, term.relation, name]];
         }
@@ -476,7 +516,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
     }
   }
   for (NSString *relation in _service) {
-    for (OISRelationTerm *term in _service[relation]) {
+    for (OISRelationTerm *term in OISEveryTerm(_service[relation])) {
       if (term.kind == OISTermComputed && !_service[term.relation]) {
         [self problem:[NSString stringWithFormat:@"Service.%@ names %@, which Service does not define", relation, term.relation]];
       }
@@ -512,7 +552,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   if (!first && [relation isEqualToString:target]) return YES;
   if ([path containsObject:relation]) return NO;
   [path addObject:relation];
-  for (OISRelationTerm *term in [self termsOf:relation entity:entity] ?: @[]) {
+  for (OISRelationTerm *term in OISEveryTerm([self termsOf:relation entity:entity] ?: @[])) {
     if (term.kind != OISTermComputed || term.onService) continue;
     if ([self relation:term.relation entity:entity reaches:target path:path first:NO]) return YES;
   }
@@ -567,12 +607,31 @@ static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, id value)
   [seen addObject:relation];
   BOOL holds = NO;
   for (OISRelationTerm *term in _service[relation] ?: @[]) {
-    if (term.kind == OISTermClaim && OISClaimHolds(principal, term.claim, term.value)) holds = YES;
-    if (term.kind == OISTermComputed && [self principal:principal holdsOnService:term.relation seen:seen]) holds = YES;
-    if (holds) break;
+    if ([self principal:principal holdsTerm:term seen:seen]) {
+      holds = YES;
+      break;
+    }
   }
   [seen removeObject:relation];
   return holds;
+}
+
+// A term of a service relation: a claim, another service relation, or all of them.
+- (BOOL)principal:(HSPrincipal *)principal holdsTerm:(OISRelationTerm *)term seen:(NSMutableSet *)seen
+{
+  switch (term.kind) {
+    case OISTermClaim:
+      return OISClaimHolds(principal, term.claim, term.value);
+    case OISTermComputed:
+      return [self principal:principal holdsOnService:term.relation seen:seen];
+    case OISTermAll:
+      for (OISRelationTerm *part in term.terms) {
+        if (![self principal:principal holdsTerm:part seen:seen]) return NO;
+      }
+      return YES;
+    default:
+      return NO;
+  }
 }
 
 #pragma mark Predicates
@@ -604,65 +663,82 @@ static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, id value)
   if (depth > OISRelationDepth || [seen containsObject:visit]) return @"FALSEPREDICATE";
   [seen addObject:visit];
   NSMutableArray *alternatives = [NSMutableArray array];
-  NSString *dot = prefix.length ? [prefix stringByAppendingString:@"."] : @"";
   for (OISRelationTerm *term in [self termsOf:relation entity:entity] ?: @[]) {
-    switch (term.kind) {
-      case OISTermDirect:
-        for (OISRelationTupleSource *source in _sources) {
-          NSRelationshipDescription *inverse = source.object.inverseRelationship;
-          if (![entity isKindOfEntity:inverse.entity]) continue;
-          if (source.relationName.length && ![source.relationName isEqualToString:relation]) continue;
-          NSString *path = [dot stringByAppendingString:inverse.name];
-          // Each depth's own variable: a subquery within another's does not
-          // hide the outer one's.
-          NSString *t = inverse.isToMany ? [NSString stringWithFormat:@"$t%lu", (unsigned long)depth] : path;
-          NSString *named = source.relationName.length ? @"" : [NSString stringWithFormat:@" AND %@.%@ == %@", t, source.relationAttribute,
-                                                                                         OISQuoted(relation)];
-          NSString *tuple = [NSString stringWithFormat:@"%@.%@ IN %%@%@", t, source.user, named];
-          [arguments addObject:identities];
-          [alternatives addObject:inverse.isToMany ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, t, tuple] : tuple];
-        }
-        break;
-      case OISTermComputed:
-        if (term.onService) {
-          BOOL held = [self principal:principal holdsOnService:term.relation seen:[NSMutableSet set]];
-          [alternatives addObject:held ? @"TRUEPREDICATE" : @"FALSEPREDICATE"];
-        } else {
-          [alternatives addObject:[self formatForRelation:term.relation entity:entity prefix:prefix principal:principal identities:identities
-                                                arguments:arguments depth:depth seen:seen]];
-        }
-        break;
-      case OISTermFrom: {
-        NSRelationshipDescription *through = entity.relationshipsByName[term.through];
-        NSEntityDescription *destination = through.destinationEntity;
-        NSString *path = [dot stringByAppendingString:term.through];
-        if (!through.isToMany) {
-          [alternatives addObject:[self formatForRelation:term.relation entity:destination prefix:path principal:principal identities:identities
-                                                arguments:arguments depth:depth + 1 seen:seen]];
-          break;
-        }
-        // Through a to-many: any of its members (Zanzibar's tuple to
-        // userset reads every tuple of the set), a subquery whose variable
-        // the members' relation is under.
-        NSString *v = [NSString stringWithFormat:@"$v%lu", (unsigned long)depth + 1];
-        NSString *member = [self formatForRelation:term.relation entity:destination prefix:v principal:principal identities:identities
-                                         arguments:arguments depth:depth + 1 seen:seen];
-        [alternatives addObject:[NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, v, member]];
-        break;
-      }
-      case OISTermWhere:
-        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments, nil, NULL)];
-        break;
-      case OISTermClaim:
-        [alternatives addObject:principal && OISClaimHolds(principal, term.claim, term.value) ? @"TRUEPREDICATE" : @"FALSEPREDICATE"];
-        break;
-    }
+    [alternatives addObject:[self formatForTerm:term relation:relation entity:entity prefix:prefix principal:principal identities:identities
+                                      arguments:arguments depth:depth seen:seen]];
   }
   [seen removeObject:visit];
-  if (!alternatives.count) return @"FALSEPREDICATE";
-  NSMutableArray *grouped = [NSMutableArray array];
-  for (NSString *alternative in alternatives) [grouped addObject:[NSString stringWithFormat:@"(%@)", alternative]];
-  return [grouped componentsJoinedByString:@" OR "];
+  return OISJoined(alternatives, @"OR");
+}
+
+// One term of the relation's definition, as a format.
+- (NSString *)formatForTerm:(OISRelationTerm *)term
+                   relation:(NSString *)relation
+                     entity:(NSEntityDescription *)entity
+                     prefix:(NSString *)prefix
+                  principal:(HSPrincipal *)principal
+                 identities:(NSArray *)identities
+                  arguments:(NSMutableArray *)arguments
+                      depth:(NSUInteger)depth
+                       seen:(NSMutableSet *)seen
+{
+  NSString *dot = prefix.length ? [prefix stringByAppendingString:@"."] : @"";
+  switch (term.kind) {
+    case OISTermDirect: {
+      NSMutableArray *tuples = [NSMutableArray array];
+      for (OISRelationTupleSource *source in _sources) {
+        NSRelationshipDescription *inverse = source.object.inverseRelationship;
+        if (![entity isKindOfEntity:inverse.entity]) continue;
+        if (source.relationName.length && ![source.relationName isEqualToString:relation]) continue;
+        NSString *path = [dot stringByAppendingString:inverse.name];
+        // Each depth's own variable: a subquery within another's does not
+        // hide the outer one's.
+        NSString *t = inverse.isToMany ? [NSString stringWithFormat:@"$t%lu", (unsigned long)depth] : path;
+        NSString *named = source.relationName.length ? @"" : [NSString stringWithFormat:@" AND %@.%@ == %@", t, source.relationAttribute,
+                                                                                       OISQuoted(relation)];
+        NSString *tuple = [NSString stringWithFormat:@"%@.%@ IN %%@%@", t, source.user, named];
+        [arguments addObject:identities];
+        [tuples addObject:inverse.isToMany ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, t, tuple] : tuple];
+      }
+      return OISJoined(tuples, @"OR");
+    }
+    case OISTermComputed:
+      if (term.onService) {
+        return [self principal:principal holdsOnService:term.relation seen:[NSMutableSet set]] ? @"TRUEPREDICATE" : @"FALSEPREDICATE";
+      }
+      return [self formatForRelation:term.relation entity:entity prefix:prefix principal:principal identities:identities
+                           arguments:arguments depth:depth seen:seen];
+    case OISTermFrom: {
+      NSRelationshipDescription *through = entity.relationshipsByName[term.through];
+      NSEntityDescription *destination = through.destinationEntity;
+      NSString *path = [dot stringByAppendingString:term.through];
+      if (!through.isToMany) {
+        return [self formatForRelation:term.relation entity:destination prefix:path principal:principal identities:identities
+                             arguments:arguments depth:depth + 1 seen:seen];
+      }
+      // Through a to-many: any of its members (Zanzibar's tuple to
+      // userset reads every tuple of the set), a subquery whose variable
+      // the members' relation is under.
+      NSString *v = [NSString stringWithFormat:@"$v%lu", (unsigned long)depth + 1];
+      NSString *member = [self formatForRelation:term.relation entity:destination prefix:v principal:principal identities:identities
+                                       arguments:arguments depth:depth + 1 seen:seen];
+      return [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@).@count > 0", path, v, member];
+    }
+    case OISTermWhere:
+      return OISConditionFormat(term.text, prefix, identities, arguments, nil, NULL);
+    case OISTermClaim:
+      return principal && OISClaimHolds(principal, term.claim, term.value) ? @"TRUEPREDICATE" : @"FALSEPREDICATE";
+    case OISTermAll: {
+      // Zanzibar's intersection: every one of them.
+      NSMutableArray *each = [NSMutableArray array];
+      for (OISRelationTerm *part in term.terms) {
+        [each addObject:[self formatForTerm:part relation:relation entity:entity prefix:prefix principal:principal identities:identities
+                                  arguments:arguments depth:depth seen:seen]];
+      }
+      return OISJoined(each, @"AND");
+    }
+  }
+  return @"FALSEPREDICATE";
 }
 
 - (NSSet<NSString *> *)relationshipsOfRelation:(NSString *)relation entity:(NSEntityDescription *)entity
@@ -675,7 +751,7 @@ static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, id value)
     [pending removeLastObject];
     if ([done containsObject:name]) continue;
     [done addObject:name];
-    for (OISRelationTerm *term in [self termsOf:name entity:entity] ?: @[]) {
+    for (OISRelationTerm *term in OISEveryTerm([self termsOf:name entity:entity] ?: @[])) {
       if (term.kind == OISTermFrom) [through addObject:term.through];
       if (term.kind == OISTermComputed && !term.onService) [pending addObject:term.relation];
     }
