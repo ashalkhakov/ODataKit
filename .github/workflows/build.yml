@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   linux:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1.6.1
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -44,7 +44,7 @@ jobs:
       databases: postgres mysql mariadb
 
   macos:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1.6.1
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -52,7 +52,7 @@ jobs:
     secrets: inherit
 
   docker:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/docker.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/docker.yml@v1.6.1
     with:
       tag: ${{ inputs.tag }}
       dockerfile: Docker/Dockerfile
