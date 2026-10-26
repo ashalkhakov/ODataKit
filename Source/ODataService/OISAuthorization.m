@@ -28,6 +28,13 @@ static BOOL OISIsYes(id value)
   return [value isKindOfClass:[NSString class]] && ([value caseInsensitiveCompare:@"YES"] == NSOrderedSame || [value isEqualToString:@"1"]);
 }
 
+// Version 1: a number, or (OpenStep has none) its text.
+static BOOL OISIsVersion1(id version)
+{
+  if ([version isKindOfClass:[NSNumber class]]) return [version integerValue] == 1;
+  return [version isKindOfClass:[NSString class]] && [version isEqualToString:@"1"];
+}
+
 #pragma mark Formats
 
 // A relation is compiled to one predicate format, which the platform's own
@@ -35,12 +42,14 @@ static BOOL OISIsYes(id value)
 // stores translate (a subquery's, especially), and no predicate is written
 // back out and read again (gnustep-base's -predicateFormat does not quote
 // strings). The caller's identities go in as arguments (%@): a constant
-// array, as `IN %@` makes.
+// array, as `IN %@` makes. A quoted string is taken as it is, % and all
+// (Apple's parser and gnustep-base's alike): only a % outside quotes is a
+// conversion.
 
 static NSString *OISQuoted(NSString *text)
 {
   NSString *escaped = [[text stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
-  return [NSString stringWithFormat:@"\"%@\"", [escaped stringByReplacingOccurrencesOfString:@"%" withString:@"%%"]];
+  return [NSString stringWithFormat:@"\"%@\"", escaped];
 }
 
 static NSSet<NSString *> *OISFormatKeywords(void)
@@ -59,8 +68,10 @@ static NSSet<NSString *> *OISFormatKeywords(void)
 // subquery's variable: $v1.catalog), $user one argument more (the
 // identities). Quoted strings, variables, keywords, functions and options
 // ([c]) stay as they are. paths, when given, collects the key paths (for
-// the check against the model).
-static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *identities, NSMutableArray *arguments, NSMutableArray *paths)
+// the check against the model); stray, when given, is set when a % is
+// outside quotes, which the text has no arguments for.
+static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *identities, NSMutableArray *arguments, NSMutableArray *paths,
+                                    BOOL *stray)
 {
   NSMutableString *out = [NSMutableString string];
   NSCharacterSet *start = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"];
@@ -71,8 +82,7 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
     if (c == '\'' || c == '"') {
       NSUInteger j = i + 1;
       while (j < n && [text characterAtIndex:j] != c) j += [text characterAtIndex:j] == '\\' ? 2 : 1;
-      NSString *quoted = [text substringWithRange:NSMakeRange(i, MIN(j + 1, n) - i)];
-      [out appendString:[quoted stringByReplacingOccurrencesOfString:@"%" withString:@"%%"]];
+      [out appendString:[text substringWithRange:NSMakeRange(i, MIN(j + 1, n) - i)]];
       i = MIN(j + 1, n);
     } else if (c == '[') {
       NSUInteger j = i;
@@ -111,6 +121,7 @@ static NSString *OISConditionFormat(NSString *text, NSString *prefix, NSArray *i
       i = j;
     } else if (c == '%') {
       [out appendString:@"%%"];
+      if (stray) *stray = YES;
       i++;
     } else {
       [out appendFormat:@"%C", c];
@@ -137,7 +148,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
 @property (nonatomic, copy) NSString *through;   // from: the relationship
 @property (nonatomic, copy) NSString *text;      // where: its predicate, as written
 @property (nonatomic, copy) NSString *claim;     // claim
-@property (nonatomic, copy) NSString *value;
+@property (nonatomic, copy) id value;            // a string, number or boolean
 @end
 
 @implementation OISRelationTerm
@@ -175,8 +186,7 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
       [self problem:[NSString stringWithFormat:@"%@ is no key of a permissions file (Version, Identities, Service, Tuples, Entities)", key]];
     }
   }
-  id version = plist[@"Version"];
-  if (!version || [version integerValue] != 1) [self problem:@"Version is not 1"];
+  if (!OISIsVersion1(plist[@"Version"])) [self problem:@"Version is not 1"];
 
   id identities = plist[@"Identities"];
   if (identities && (![identities isKindOfClass:[NSArray class]] || ![identities count])) {
@@ -348,14 +358,23 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
         [self problem:[NSString stringWithFormat:@"%@: where is a predicate, and only on an entity", what]];
         continue;
       }
+      // What the service will parse, its arguments too: a % outside
+      // quotes has none (and gnustep-base takes nil for a missing one
+      // rather than raise), so it is a problem of its own.
+      NSMutableArray *arguments = [NSMutableArray array], *paths = [NSMutableArray array];
+      BOOL stray = NO;
+      NSString *format = OISConditionFormat(term.text, @"", @[], arguments, paths, &stray);
+      if (stray) {
+        [self problem:[NSString stringWithFormat:@"%@: where %@ has a %% outside quotes, which it has no arguments for ($user is the caller)",
+                                                 what, term.text]];
+        continue;
+      }
       @try {
-        (void)[NSPredicate predicateWithFormat:term.text];
+        (void)[NSPredicate predicateWithFormat:format argumentArray:arguments];
       } @catch (NSException *exception) {
         [self problem:[NSString stringWithFormat:@"%@: where %@ does not parse: %@", what, term.text, exception.reason]];
         continue;
       }
-      NSMutableArray *paths = [NSMutableArray array];
-      OISConditionFormat(term.text, @"", @[], [NSMutableArray array], paths);
       BOOL fits = YES;
       for (NSString *path in paths) {
         if (![self property:path of:entity what:what]) fits = NO;
@@ -365,8 +384,9 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
       allowed = [NSSet setWithObjects:@"claim", @"value", nil];
       term.kind = OISTermClaim;
       term.claim = [spec[@"claim"] isKindOfClass:[NSString class]] ? spec[@"claim"] : nil;
-      term.value = [spec[@"value"] isKindOfClass:[NSString class]] ? spec[@"value"] : nil;
-      if (!term.claim.length || !term.value.length) {
+      id value = spec[@"value"];
+      term.value = [value isKindOfClass:[NSNumber class]] || ([value isKindOfClass:[NSString class]] && [value length]) ? value : nil;
+      if (!term.claim.length || !term.value) {
         [self problem:[NSString stringWithFormat:@"%@: a claim term names its claim and its value", what]];
         continue;
       }
@@ -515,12 +535,29 @@ typedef NS_ENUM(NSInteger, OISRelationTermKind) {
   return identities.array;
 }
 
+// A claim's value is the term's: equal, or the same as text (a token's
+// email_verified, true, and an OpenStep file's value, which can only be
+// text: true, YES, 1).
+static BOOL OISClaimValueIs(id held, id value)
+{
+  if ([held isEqual:value]) return YES;
+  NSNumber *number = [held isKindOfClass:[NSNumber class]] ? held : [value isKindOfClass:[NSNumber class]] ? value : nil;
+  NSString *text = [held isKindOfClass:[NSString class]] ? held : [value isKindOfClass:[NSString class]] ? value : nil;
+  if (!number || !text) return NO;
+  NSString *lower = text.lowercaseString;
+  if ([lower isEqualToString:@"true"] || [lower isEqualToString:@"yes"]) return [number isEqual:@1];
+  if ([lower isEqualToString:@"false"] || [lower isEqualToString:@"no"]) return [number isEqual:@0];
+  return [number.stringValue isEqualToString:text];
+}
+
 // A claim term: the principal's claim is the value, or (a list) has it.
-static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, NSString *value)
+static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, id value)
 {
   id held = [claim isEqualToString:@"sub"] ? principal.subject : principal.claims[claim];
-  if ([held isKindOfClass:[NSArray class]]) return [held containsObject:value];
-  return [held isKindOfClass:[NSString class]] && [held isEqualToString:value];
+  for (id item in [held isKindOfClass:[NSArray class]] ? held : (held ? @[ held ] : @[])) {
+    if (OISClaimValueIs(item, value)) return YES;
+  }
+  return NO;
 }
 
 // A relation of the service: held by the principal, or not.
@@ -614,7 +651,7 @@ static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, NSString *val
         break;
       }
       case OISTermWhere:
-        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments, nil)];
+        [alternatives addObject:OISConditionFormat(term.text, prefix, identities, arguments, nil, NULL)];
         break;
       case OISTermClaim:
         [alternatives addObject:principal && OISClaimHolds(principal, term.claim, term.value) ? @"TRUEPREDICATE" : @"FALSEPREDICATE"];
@@ -733,7 +770,7 @@ static BOOL OISClaimHolds(HSPrincipal *principal, NSString *claim, NSString *val
 
 + (instancetype)permissionsWithPropertyList:(NSDictionary *)propertyList error:(NSError **)error
 {
-  if (![propertyList isKindOfClass:[NSDictionary class]] || [propertyList[@"Version"] integerValue] != 1) {
+  if (![propertyList isKindOfClass:[NSDictionary class]] || !OISIsVersion1(propertyList[@"Version"])) {
     if (error) {
       *error = [NSError errorWithDomain:ODataPermissionsErrorDomain code:2 userInfo:@{
         NSLocalizedDescriptionKey: @"Not a permissions file: a dictionary with Version 1 is" }];

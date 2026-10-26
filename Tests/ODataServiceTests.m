@@ -8378,6 +8378,14 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
 // A request as someone: their email, and their groups.
 - (OISServiceResponse *)as:(NSString *)email groups:(NSArray *)groups send:(NSString *)method path:(NSString *)path body:(id)body headers:(NSDictionary *)headers
 {
+  NSMutableDictionary *claims = [NSMutableDictionary dictionary];
+  if (groups) claims[@"groups"] = groups;
+  return [self as:email claims:claims send:method path:path body:body headers:headers];
+}
+
+// A request as someone: their email, and these claims besides.
+- (OISServiceResponse *)as:(NSString *)email claims:(NSDictionary *)more send:(NSString *)method path:(NSString *)path body:(id)body headers:(NSDictionary *)headers
+{
   NSString *encoded = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[@"http://example.test/odata/" stringByAppendingString:encoded]]];
   request.HTTPMethod = method;
@@ -8389,7 +8397,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   HSPrincipal *principal = nil;
   if (email) {
     NSMutableDictionary *claims = [NSMutableDictionary dictionaryWithObject:email forKey:@"email"];
-    if (groups) claims[@"groups"] = groups;
+    [claims addEntriesFromDictionary:more];
     principal = [[HSPrincipal alloc] initWithSubject:[email componentsSeparatedByString:@"@"].firstObject claims:claims];
   }
   _finished = dispatch_semaphore_create(0);
@@ -8543,6 +8551,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     "      c = ( { direct = YES; } );\n"
     "      d = ( { relation = admin; on = service; colour = red; } );\n"
     "      e = ( { relation = staff; on = service; } );\n"
+    "      f = ( { where = \"id IN %@\"; } );\n"
     "    };\n"
     "  };\n"
     "}"];
@@ -8560,6 +8569,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     @"Thing.d: colour is no key of this term",
     @"Thing.e names staff on the service, which Service does not define",
     @"Service.boss names chief, which Service does not define",
+    @"Thing.f: where id IN %@ has a % outside quotes",
   ];
   NSString *offline = [[permissions problemsWithModel:model] componentsJoinedByString:@"\n"];
   for (NSString *problem in expected) XCTAssertTrue([offline containsString:problem], @"%@ in %@", problem, offline);
@@ -8571,6 +8581,8 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   // Not a permissions file at all: no permissions.
   XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Entities": @{} } error:&error]);
   XCTAssertEqualObjects(error.domain, ODataPermissionsErrorDomain);
+  XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @[ @1 ] } error:&error], @"a Version that is no number");
+  XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @{} } error:&error]);
   XCTAssertEqualObjects([[ODataPermissions permissionsWithPropertyList:@{ @"Version": @1 } error:NULL] problemsWithModel:model], @[]);
 }
 
@@ -8580,12 +8592,15 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
 {
   [self serveWarehouses];
   // ann by her subject only (no email); a keeper of every warehouse by a
-  // claim; an admin of the service sees every catalog.
+  // claim; an admin of the service sees every catalog; a location, by a
+  // where whose quoted text has a % (taken as it is); a verified email (a
+  // boolean claim) sees them all.
   _service.permissions = [self permissions:@"{ Version = 1; Identities = ( sub );\n"
     "  Service = { admin = ( { claim = groups; value = admins; } ); };\n"
     "  Entities = {\n"
     "    Catalog = { read = ( { where = \"owner.email IN $user\"; }, { relation = admin; on = service; } ); };\n"
     "    Warehouse = { read = ( { claim = groups; value = keepers; } ); };\n"
+    "    Location = { read = ( { where = \"name == 'C%'\"; }, { claim = email_verified; value = true; } ); };\n"
     "  };\n"
     "}"];
   XCTAssertEqualObjects(_service.metadataProblems, @[]);
@@ -8596,6 +8611,15 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertEqualObjects([keeper.json[@"value"] valueForKey:@"Name"], (@[ @"Garage", @"Shed" ]), @"%@", keeper.text);
   XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Warehouses"], (@[]));
   XCTAssertEqualObjects([self namesAs:nil path:@"Catalogs"], (@[]));
+  XCTAssertEqual(([self as:@"eve@example.org" groups:@[ @"keepers" ] send:@"POST" path:@"Locations" body:@{ @"Id": @9, @"Name": @"C%",
+                   @"Warehouse@odata.bind": @"Warehouses(1)" } headers:nil].status), 201, @"a warehouse seen; Location defines no insert");
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Locations"], (@[ @"C%" ]), @"'C%%' is the text C%%");
+  OISServiceResponse *verified = [self as:@"eve@example.org" claims:@{ @"email_verified": @YES } send:@"GET" path:@"Locations?$orderby=Id"
+                                     body:nil headers:nil];
+  XCTAssertEqualObjects([verified.json[@"value"] valueForKey:@"Name"], (@[ @"A1", @"B1", @"C%" ]), @"%@", verified.text);
+  OISServiceResponse *unverified = [self as:@"eve@example.org" claims:@{ @"email_verified": @NO } send:@"GET" path:@"Locations"
+                                       body:nil headers:nil];
+  XCTAssertEqualObjects([unverified.json[@"value"] valueForKey:@"Name"], (@[ @"C%" ]), @"%@", unverified.text);
   // No permissions: no limits.
   _service.permissions = nil;
   XCTAssertEqualObjects([self namesAs:nil path:@"Catalogs"], (@[ @"Stock", @"Spares" ]));

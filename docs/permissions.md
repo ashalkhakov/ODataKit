@@ -113,7 +113,7 @@ any of which grants it (they are joined by *or*):
 | `{ relation = keeper; from = warehouses; }` | the caller holds `keeper` on any of the objects the to-many `warehouses` reaches |
 | `{ relation = admin; on = service; }` | the caller holds `admin` on the service (`Service`) |
 | `{ where = "owner.email IN $user"; }` | the predicate holds on the row; `$user` is the caller's identities |
-| `{ claim = roles; value = admin; }` | the caller's claim is the value, or (a list) has it |
+| `{ claim = roles; value = admin; }` | the caller's claim is the value, or (a list) has it; a boolean or number claim matches `true`/`YES`, `false`/`NO` or its digits |
 
 **`Service`**: relations held on the service as a whole, made of `claim`
 terms and other service relations. They are Zanzibar's relations on a
@@ -141,7 +141,9 @@ It prints what does not fit, one line each, and exits 1 if anything does
 - a `from` through something that is not a relationship;
 - a relation named but not defined (on the entity, on what `from`
   reaches, in `Service`, or a tuple's `relationName`);
-- a `where` that does not parse;
+- a `where` that does not parse, or has a `%` outside quotes (there are
+  no format arguments; `$user` is the caller). Inside quotes a `%` is
+  only text: `name == 'C%'`;
 - computed relations in a cycle (`a = b`, `b = a`). A `from` that comes
   back to the same entity, such as a folder's viewers from its parent's,
   is a tree and is allowed; it is followed to a depth of eight;

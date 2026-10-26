@@ -135,8 +135,9 @@ Vehicle = {
 - **A row made in the same request** (a new record with its new answers)
   decides for the rows reached through it: their `insert` is not checked
   against it, and its own `insert` is.
-- **Avoid `%` in `where` text.** Format specifiers are not supported
-  there. Quote a `where` in the file (`where = "…";`): OpenStep text needs
+- **No `%` outside quotes in `where` text.** There are no format
+  arguments (`$user` is the caller), so the check reports one. Inside
+  quotes, `%` is plain text. Quote a `where` in the file (`where = "…";`): OpenStep text needs
   quotes around anything but letters, digits and `_.$`.
 - **Delta links:**
   - A deletion is told to everyone who follows a delta link of the set.
