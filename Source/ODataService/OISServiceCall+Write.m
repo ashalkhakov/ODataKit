@@ -1339,6 +1339,25 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
 
 #pragma mark Checks
 
+- (BOOL)holds:(NSString *)relation on:(id)row entity:(NSEntityDescription *)entity existing:(NSManagedObject *)existing
+{
+  OISAuthorization *authorization = self.service.authorization;
+  NSArray *identities = OISIdentitiesOfPrincipal(self.request.principal);
+  NSPredicate *holding = [authorization predicateForRelation:relation entity:entity identities:identities];
+  if (!holding || [holding evaluateWithObject:row]) return YES;
+  NSString *set = [self.service entitySetForEntity:OISRootEntity(entity)];
+  if (existing) {
+    NSPredicate *seen = [authorization predicateForRelation:@"read" entity:existing.entity identities:identities];
+    if (seen && ![seen evaluateWithObject:existing]) {
+      [self fail:404 message:[NSString stringWithFormat:@"%@ has no such entity", set]];
+      return NO;
+    }
+  }
+  NSString *what = existing ? [self canonicalPathOf:existing] : [NSString stringWithFormat:@"a new entity of %@", set];
+  [self fail:403 message:[NSString stringWithFormat:@"That needs the relation %@ on %@", relation, what]];
+  return NO;
+}
+
 // Every check, before anything is written: NO once one has failed
 // (answered).
 - (BOOL)checkFor:(OISPlanNode *)node
@@ -1364,6 +1383,16 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
     }
     case OISPlanInsert: {
       if (![self permitsTo:OISAccessInsert entity:node.entity]) return NO;
+      // The relation insert, on the row to be: as its values reach (a bound
+      // warehouse); through a row made in this request too, its own insert
+      // decides.
+      BOOL throughNew = NO;
+      for (NSString *name in [self.service.authorization relationshipsOfRelation:@"insert" entity:node.entity]) {
+        id value = node.values[name];
+        if ([value isKindOfClass:[OISPlanNode class]] && OISIsWrite(value)) throughNew = YES;
+      }
+      OISRowToBe *row = [[OISRowToBe alloc] initWithValues:[self rowsIn:node.values object:nil] object:nil];
+      if (!throughNew && ![self holds:@"insert" on:row entity:node.entity existing:nil]) return NO;
       NSMutableDictionary *keys = [NSMutableDictionary dictionary];
       for (NSString *name in node.sequences) keys[name] = [self nextKeyOf:node.sequences[name]];
       self.planMemo[OISWriteKey(@"k", node)] = keys;
@@ -1384,6 +1413,13 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
         }
         // Anything it changes, named or dynamic properties alike.
         if (values.count && ![self permitsTo:OISAccessUpdate entity:object.entity]) return NO;
+        // The relation update, on the row as it is and as it will be (one
+        // moved to another warehouse needs it there too).
+        if (values.count) {
+          if (![self holds:@"update" on:object entity:object.entity existing:object]) return NO;
+          OISRowToBe *after = [[OISRowToBe alloc] initWithValues:[self rowsIn:values object:object] object:object];
+          if (![self holds:@"update" on:after entity:object.entity existing:object]) return NO;
+        }
         [all addObject:values];
       }
       self.planMemo[OISWriteKey(@"v", node)] = all;
@@ -1397,6 +1433,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
         if ([kept containsObject:object]) continue;
         if (![self allows:node object:object]) return NO;
         if (![self permitsTo:OISAccessDelete entity:object.entity]) return NO;
+        if (![self holds:@"delete" on:object entity:object.entity existing:object]) return NO;
         [objects addObject:object];
         [paths addObject:[self removedOf:object]];
       }
@@ -1409,6 +1446,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
       NSManagedObject *holder = [self resultOf:node.target];
       if (![self allows:node object:holder]) return NO;
       if (![self permitsTo:OISAccessUpdate entity:holder.entity ?: node.target.entity]) return NO;
+      if (holder && ![self holds:@"update" on:holder entity:holder.entity existing:holder]) return NO;
       if (!node.member || OISIsWrite(node.member)) return YES;
       NSManagedObject *member = [self resultOf:node.member];
       if (member && ![member.entity isKindOfEntity:node.relationship.destinationEntity]) {

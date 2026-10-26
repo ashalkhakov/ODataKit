@@ -303,8 +303,10 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // application moves when a membership changes, or a digest of the claims
 // that decide it), which delta links carry; one followed with another
 // version is answered 410, and the client reads the set again (or
-// reconciles its keys: docs/offline-sync.md, 4.1). nil, the default: delta
-// links do not depend on it.
+// reconciles its keys: docs/offline-sync.md, 4.1). The default: for an
+// entity whose read the model grants by relations (docs/permissions.md),
+// a digest of the caller's relation tuples, so that a grant given or taken
+// sends its clients to read again; else nil: delta links do not depend on it.
 - (nullable NSString *)scopeVersionForRequest:(ODataRequest *)request;
 
 // Whether the set's entity type is open (OpenType in $metadata): its
@@ -390,6 +392,9 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 // see the deleted row, evaluated on what its tombstone kept: so keep the
 // attributes it reads (preservesValueInHistoryOnDeletion), or every caller
 // is told of every deletion, as when it reads anything not kept.
+// The default: the rows on which the caller holds the relation read, where
+// the entity defines one (docs/permissions.md); else nil. An override that
+// adds its own ANDs it with super's.
 - (nullable NSPredicate *)predicateForVisibleObjectsInRequest:(ODataRequest *)request;
 
 // The rows of a request, already filtered, sorted and paged, with
@@ -626,8 +631,19 @@ FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 
 // $metadata, in the CSDL of 4.0 or 4.01.
 - (NSString *)metadataXMLForVersion:(NSString *)version;
-// What $metadata had to leave out of the model, one sentence each.
+// What $metadata had to leave out of the model, one sentence each; and what
+// the model's relation annotations could not say (docs/permissions.md).
 @property (nonatomic, readonly) NSArray<NSString *> *metadataProblems;
+
+// Permissions on objects, as Zanzibar models them (docs/permissions.md).
+// Check: whether the request's caller holds the relation on the object (a
+// row of an entity that defines it; one that does not: YES, no limit).
+- (BOOL)request:(ODataRequest *)request holds:(NSString *)relation onObject:(NSManagedObject *)object;
+// ListObjects, as a predicate: the rows of the entity on which the caller
+// holds the relation; nil when the entity defines no such relation.
+- (nullable NSPredicate *)predicateForObjectsOfEntity:(NSEntityDescription *)entity
+                                    onWhichRequest:(ODataRequest *)request
+                                             holds:(NSString *)relation;
 
 // ODataTransport: answers the exchange's request. A request whose handlers
 // answer at once is finished before this returns.

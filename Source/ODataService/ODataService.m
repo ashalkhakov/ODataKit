@@ -516,12 +516,15 @@ static NSArray *OISFetch(NSManagedObjectContext *context, NSFetchRequest *fetchR
 
 - (NSPredicate *)predicateForVisibleObjectsInRequest:(ODataRequest *)request
 {
-  return nil;
+  return [self.service predicateForObjectsOfEntity:self.entity onWhichRequest:request holds:@"read"];
 }
 
 - (NSString *)scopeVersionForRequest:(ODataRequest *)request
 {
-  return nil;
+  ODataService *service = self.service;
+  [service prepare];
+  if (!request.context || ![service.authorization entity:self.entity defines:@"read"]) return nil;
+  return [service.authorization versionOfIdentities:OISIdentitiesOfPrincipal(request.principal) context:request.context];
 }
 
 - (NSArray *)objectsForFetchRequest:(NSFetchRequest *)fetchRequest request:(ODataRequest *)request reply:(ODataReply *)reply
@@ -4750,6 +4753,9 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     self.request.collectionFetchRequest = collection;
   } else {
     target = self.object;
+    // Bound to a row: the relation call.<Name> on it, where its entity
+    // defines one (docs/permissions.md).
+    if (target && ![self holds:[@"call." stringByAppendingString:operation.name] on:target entity:self.object.entity existing:self.object]) return;
   }
   if (!target) {
     [self fail:500 message:[NSString stringWithFormat:@"%@ has nothing to call", operation.signature]];
@@ -5220,6 +5226,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     writer.additionalSchemaElements = catalog.schemaElements;
     writer.additionalContainerElements = catalog.containerElements;
     self.catalog = catalog;
+    self.authorization = [[OISAuthorization alloc] initWithModel:self.model];
     NSString *xml = [writer XMLStringForVersion:@"4.01"];
     ODataSchema *schema = [ODataSchema schemaWithData:[xml dataUsingEncoding:NSUTF8StringEncoding] error:NULL];
     if (schema) self.mapper.schema = schema;
@@ -5585,7 +5592,21 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
 - (NSArray *)metadataProblems
 {
   [self prepare];
-  return [self.configurationProblems arrayByAddingObjectsFromArray:self.writer.problems ?: @[]];
+  NSArray *problems = [self.configurationProblems arrayByAddingObjectsFromArray:self.writer.problems ?: @[]];
+  return [problems arrayByAddingObjectsFromArray:self.authorization.problems ?: @[]];
+}
+
+- (BOOL)request:(ODataRequest *)request holds:(NSString *)relation onObject:(NSManagedObject *)object
+{
+  NSPredicate *holding = [self predicateForObjectsOfEntity:object.entity onWhichRequest:request holds:relation];
+  return !holding || [holding evaluateWithObject:object];
+}
+
+- (NSPredicate *)predicateForObjectsOfEntity:(NSEntityDescription *)entity onWhichRequest:(ODataRequest *)request holds:(NSString *)relation
+{
+  if (!entity) return nil;
+  [self prepare];
+  return [self.authorization predicateForRelation:relation entity:entity identities:OISIdentitiesOfPrincipal(request.principal)];
 }
 
 // The roots configurationName lists, each served with its sub-entities;

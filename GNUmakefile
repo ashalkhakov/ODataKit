@@ -200,6 +200,7 @@ ODataService_OBJC_FILES = \
 	Source/ODataService/ODataService.m \
 	Source/ODataService/ODataServiceBatch.m \
 	Source/ODataService/ODataTimeline.m \
+	Source/ODataService/OISAuthorization.m \
 	Source/ODataService/OISPlan.m \
 	Source/ODataService/OISServiceCall+Plan.m \
 	Source/ODataService/OISServiceCall+Tracing.m \

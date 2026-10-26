@@ -8238,6 +8238,247 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertEqualObjects([self productIDsOf:@"Categories(1)/Products"], (@[ @1, @3 ]));
 }
 
+#pragma mark Permissions on objects
+
+// Logbook's stock, as Zanzibar models permissions (docs/permissions.md): a
+// catalog's owner; its warehouses' staff, rows of WarehouseStaff that are
+// relation tuples (warehouse#role@user); a warehouse's locations reached
+// through it. Who sees, adds, changes and deletes which rows.
+- (void)serveWarehouses
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    a.preservesValueInHistoryOnDeletion = key;  // delta links
+    return a;
+  };
+  NSMutableArray *entities = [NSMutableArray array];
+  NSEntityDescription *(^entity)(NSString *, NSDictionary *) = ^(NSString *name, NSDictionary *info) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    e.userInfo = info;
+    [entities addObject:e];
+    return e;
+  };
+  void (^pair)(NSEntityDescription *, NSString *, NSEntityDescription *, NSString *) =
+      ^(NSEntityDescription *one, NSString *toOne, NSEntityDescription *many, NSString *toMany) {
+        NSRelationshipDescription *a = [[NSRelationshipDescription alloc] init], *b = [[NSRelationshipDescription alloc] init];
+        a.name = toOne;
+        a.destinationEntity = many;
+        a.maxCount = 1;
+        a.optional = YES;
+        b.name = toMany;
+        b.destinationEntity = one;
+        b.maxCount = 0;
+        b.optional = YES;
+        a.inverseRelationship = b;
+        b.inverseRelationship = a;
+        one.properties = [one.properties arrayByAddingObject:a];
+        many.properties = [many.properties arrayByAddingObject:b];
+      };
+  NSEntityDescription *user = entity(@"User", nil);
+  NSEntityDescription *catalog = entity(@"Catalog", @{ @"OData.relation.owner": @"where owner.email IN $user", @"OData.relation.manager": @"owner",
+                                                     @"OData.relation.keeper": @"manager", @"OData.relation.read": @"keeper" });
+  NSEntityDescription *warehouse = entity(@"Warehouse", @{
+    @"OData.relation.owner": @"owner from catalog", @"OData.relation.manager": @"[user] or owner",
+    @"OData.relation.keeper": @"[user] or manager", @"OData.relation.read": @"keeper", @"OData.relation.update": @"manager",
+    @"OData.relation.insert": @"owner from catalog", @"OData.relation.delete": @"owner" });
+  NSEntityDescription *staff = entity(@"WarehouseStaff", @{ @"OData.tuple.object": @"warehouse", @"OData.tuple.relation": @"role",
+                                                           @"OData.tuple.user": @"user.email" });
+  NSEntityDescription *location = entity(@"Location", @{
+    @"OData.relation.read": @"read from warehouse", @"OData.relation.insert": @"manager from warehouse",
+    @"OData.relation.update": @"manager from warehouse", @"OData.relation.delete": @"manager from warehouse" });
+  user.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"email", NSStringAttributeType, NO) ];
+  catalog.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
+  warehouse.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
+  staff.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"role", NSStringAttributeType, NO) ];
+  location.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
+  pair(catalog, @"owner", user, @"ownedCatalogs");
+  pair(warehouse, @"catalog", catalog, @"warehouses");
+  pair(staff, @"warehouse", warehouse, @"staffs");
+  pair(staff, @"user", user, @"staffs");
+  pair(location, @"warehouse", warehouse, @"locations");
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = entities;
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+  [_storeFiles addObject:url];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url
+                                                   options:@{ NSPersistentHistoryTrackingKey: @YES } error:&error], @"%@", error);
+  NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+  seed.persistentStoreCoordinator = _coordinator;
+  NSMutableDictionary *users = [NSMutableDictionary dictionary];
+  NSInteger n = 0;
+  for (NSString *email in @[ @"ann@example.org", @"ben@example.org", @"dee@example.org", @"garage-crew" ]) {
+    users[email] = [self insert:@"User" into:seed values:@{ @"id": @(++n), @"email": email }];
+  }
+  NSManagedObject *stock = [self insert:@"Catalog" into:seed values:@{ @"id": @1, @"name": @"Stock", @"owner": users[@"ann@example.org"] }];
+  NSManagedObject *garage = [self insert:@"Warehouse" into:seed values:@{ @"id": @1, @"name": @"Garage", @"catalog": stock }];
+  NSManagedObject *shed = [self insert:@"Warehouse" into:seed values:@{ @"id": @2, @"name": @"Shed", @"catalog": stock }];
+  [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @1, @"role": @"keeper", @"warehouse": garage, @"user": users[@"ben@example.org"] }];
+  [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @2, @"role": @"manager", @"warehouse": garage, @"user": users[@"dee@example.org"] }];
+  [self insert:@"WarehouseStaff" into:seed values:@{ @"id": @3, @"role": @"keeper", @"warehouse": garage, @"user": users[@"garage-crew"] }];
+  [self insert:@"Location" into:seed values:@{ @"id": @1, @"name": @"A1", @"warehouse": garage }];
+  [self insert:@"Location" into:seed values:@{ @"id": @2, @"name": @"B1", @"warehouse": shed }];
+  XCTAssertTrue([seed save:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+}
+
+// A request as someone: their email, and their groups.
+- (OISServiceResponse *)as:(NSString *)email groups:(NSArray *)groups send:(NSString *)method path:(NSString *)path body:(id)body headers:(NSDictionary *)headers
+{
+  NSString *encoded = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[@"http://example.test/odata/" stringByAppendingString:encoded]]];
+  request.HTTPMethod = method;
+  for (NSString *name in headers) [request setValue:headers[name] forHTTPHeaderField:name];
+  if (body) {
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  }
+  HSPrincipal *principal = nil;
+  if (email) {
+    NSMutableDictionary *claims = [NSMutableDictionary dictionaryWithObject:email forKey:@"email"];
+    if (groups) claims[@"groups"] = groups;
+    principal = [[HSPrincipal alloc] initWithSubject:[email componentsSeparatedByString:@"@"].firstObject claims:claims];
+  }
+  _finished = dispatch_semaphore_create(0);
+  ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:request target:self action:@selector(exchangeDidFinish:)];
+  [_service startExchange:exchange principal:principal];
+  XCTAssertEqual(dispatch_semaphore_wait(_finished, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC))), 0L, @"%@ %@", method, path);
+  OISServiceResponse *response = [[OISServiceResponse alloc] init];
+  NSHTTPURLResponse *http = (NSHTTPURLResponse *)exchange.URLResponse;
+  response.status = http.statusCode;
+  response.headers = http.allHeaderFields;
+  response.data = exchange.data;
+  return response;
+}
+
+- (OISServiceResponse *)as:(NSString *)email send:(NSString *)method path:(NSString *)path body:(id)body
+{
+  return [self as:email groups:nil send:method path:path body:body headers:nil];
+}
+
+- (NSArray *)namesAs:(NSString *)email path:(NSString *)path
+{
+  return [[[self as:email send:@"GET" path:[path stringByAppendingString:@"?$orderby=Id"] body:nil].json[@"value"] valueForKey:@"Name"] copy];
+}
+
+- (void)testGrantsOnObjects
+{
+  [self serveWarehouses];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+
+  // Who sees what: the catalog's owner, all; the Garage's staff, its rows;
+  // a group's member, as the group; nobody else, nothing.
+  XCTAssertEqualObjects([self namesAs:@"ann@example.org" path:@"Locations"], (@[ @"A1", @"B1" ]));
+  XCTAssertEqualObjects([self namesAs:@"ben@example.org" path:@"Locations"], (@[ @"A1" ]));
+  XCTAssertEqualObjects([self namesAs:@"ben@example.org" path:@"Warehouses"], (@[ @"Garage" ]));
+  XCTAssertEqualObjects([self namesAs:@"dee@example.org" path:@"Locations"], (@[ @"A1" ]));
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Locations"], (@[]));
+  XCTAssertEqualObjects([self namesAs:nil path:@"Locations"], (@[]), @"no one: nothing");
+  OISServiceResponse *crew = [self as:@"fay@example.org" groups:@[ @"garage-crew" ] send:@"GET" path:@"Locations" body:nil headers:nil];
+  XCTAssertEqualObjects([crew.json[@"value"] valueForKey:@"Name"], (@[ @"A1" ]), @"as the group: %@", crew.text);
+  XCTAssertEqual([self as:@"ben@example.org" send:@"GET" path:@"Locations(2)" body:nil].status, 404, @"another warehouse's: not there");
+
+  // Changes: a keeper sees but may not change; a manager may, in their
+  // warehouse only; the owner anywhere.
+  OISServiceResponse *keeper = [self as:@"ben@example.org" send:@"PATCH" path:@"Locations(1)" body:@{ @"Name": @"A1 (ben)" }];
+  XCTAssertEqual(keeper.status, 403, @"%@", keeper.text);
+  XCTAssertTrue([keeper.json[@"error"][@"message"] containsString:@"update"], @"%@", keeper.text);
+  XCTAssertEqual(([self as:@"dee@example.org" send:@"PATCH" path:@"Locations(1)" body:@{ @"Name": @"A1 (dee)" }].status), 204);
+  // Another warehouse's, not seen: to dee there is no such row, and a
+  // PATCH of its key would make one (an upsert), which dee may not there.
+  OISServiceResponse *unseen = [self as:@"dee@example.org" send:@"PATCH" path:@"Locations(2)" body:@{ @"Name": @"B1 (dee)" }];
+  XCTAssertEqual(unseen.status, 403, @"%@", unseen.text);
+  XCTAssertTrue([unseen.json[@"error"][@"message"] containsString:@"insert"], @"%@", unseen.text);
+  XCTAssertEqual(([self as:@"ann@example.org" send:@"PATCH" path:@"Locations(2)" body:@{ @"Name": @"B1 (ann)" }].status), 204);
+  // Moved to a warehouse where one is no manager: refused there too.
+  XCTAssertEqual(([self as:@"ann@example.org" send:@"POST" path:@"WarehouseStaffs" body:@{ @"Id": @9, @"Role": @"keeper",
+                   @"Warehouse@odata.bind": @"Warehouses(2)", @"User@odata.bind": @"Users(3)" }].status), 201);
+  OISServiceResponse *moved = [self as:@"dee@example.org" send:@"PATCH" path:@"Locations(1)" body:@{ @"Warehouse@odata.bind": @"Warehouses(2)" }];
+  XCTAssertEqual(moved.status, 403, @"a keeper at the Shed, no manager there: %@", moved.text);
+  XCTAssertEqualObjects([self namesAs:@"ann@example.org" path:@"Locations"], (@[ @"A1 (dee)", @"B1 (ann)" ]));
+
+  // Adding: into one's own warehouse, not another's.
+  XCTAssertEqual(([self as:@"dee@example.org" send:@"POST" path:@"Locations" body:@{ @"Id": @3, @"Name": @"A2",
+                   @"Warehouse@odata.bind": @"Warehouses(1)" }].status), 201);
+  OISServiceResponse *elsewhere = [self as:@"dee@example.org" send:@"POST" path:@"Locations" body:@{ @"Id": @4, @"Name": @"B2",
+                                    @"Warehouse@odata.bind": @"Warehouses(2)" }];
+  XCTAssertEqual(elsewhere.status, 403, @"%@", elsewhere.text);
+  XCTAssertEqual(([self as:@"ben@example.org" send:@"POST" path:@"Warehouses(1)/Locations" body:@{ @"Id": @5, @"Name": @"A3" }].status), 403,
+                 @"a keeper adds nothing");
+
+  // Deleting: a manager, in their warehouse; a warehouse, its catalog's owner only.
+  XCTAssertEqual([self as:@"ben@example.org" send:@"DELETE" path:@"Locations(3)" body:nil].status, 403);
+  XCTAssertEqual([self as:@"dee@example.org" send:@"DELETE" path:@"Locations(3)" body:nil].status, 204);
+  XCTAssertEqual([self as:@"dee@example.org" send:@"DELETE" path:@"Warehouses(1)" body:nil].status, 403);
+
+  // A grant given changes what a delta link was for: read again (410).
+  OISServiceResponse *tracked = [self as:@"ben@example.org" groups:nil send:@"GET" path:@"Locations" body:nil
+                                 headers:@{ @"Prefer": @"odata.track-changes" }];
+  NSString *link = tracked.json[@"@odata.deltaLink"];
+  XCTAssertNotNil(link, @"%@", tracked.text);
+  XCTAssertEqual([self as:@"ben@example.org" send:@"GET" path:[self pathOfLink:link] body:nil].status, 200, @"nothing changed");
+  XCTAssertEqual(([self as:@"ann@example.org" send:@"POST" path:@"WarehouseStaffs" body:@{ @"Id": @10, @"Role": @"keeper",
+                   @"Warehouse@odata.bind": @"Warehouses(2)", @"User@odata.bind": @"Users(2)" }].status), 201);
+  XCTAssertEqual([self as:@"ben@example.org" send:@"GET" path:[self pathOfLink:link] body:nil].status, 410, @"ben keeps the Shed too now");
+  XCTAssertEqualObjects([self namesAs:@"ben@example.org" path:@"Locations"], (@[ @"A1 (dee)", @"B1 (ann)" ]));
+}
+
+// An operation bound to a row: the relation call.<Name> on it, where the
+// entity defines one.
+- (void)testGrantsOnBoundOperations
+{
+  NSManagedObjectModel *model = [OISCatalogModel() conformsToProtocol:@protocol(NSCopying)]
+      ? [OISCatalogModel() copy]
+      : [[NSManagedObjectModel alloc] initWithContentsOfURL:OISCatalogModelURL()];
+  NSEntityDescription *product = model.entitiesByName[@"Product"];
+  product.managedObjectClassName = @"OISServedProduct";
+  NSMutableDictionary *info = [product.userInfo mutableCopy] ?: [NSMutableDictionary dictionary];
+  info[@"OData.relation.call.RaisePriceByPercent"] = @"where name == 'Chai'";
+  product.userInfo = info;
+  [self serveModel:model];
+  _service.serviceOperations = [[OISCatalogOperations alloc] init];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  OISServiceResponse *chai = [self send:@"POST" path:@"Products(1)/Default.RaisePriceByPercent" headers:nil body:@{ @"Percent": @10 }];
+  XCTAssertLessThan(chai.status, 300, @"%@", chai.text);
+  OISServiceResponse *chang = [self send:@"POST" path:@"Products(2)/Default.RaisePriceByPercent" headers:nil body:@{ @"Percent": @10 }];
+  XCTAssertEqual(chang.status, 403, @"%@", chang.text);
+  XCTAssertTrue([chang.json[@"error"][@"message"] containsString:@"call.RaisePriceByPercent"], @"%@", chang.text);
+  XCTAssertEqualObjects([self get:@"Products(2)"].json[@"UnitPrice"], @19, @"not raised");
+}
+
+// What the annotations cannot say is a problem of the model's.
+- (void)testGrantsThatDoNotParseAreProblems
+{
+  NSEntityDescription *thing = [[NSEntityDescription alloc] init];
+  thing.name = @"Thing";
+  thing.managedObjectClassName = @"NSManagedObject";
+  thing.userInfo = @{ @"OData.relation.read": @"viewer from nowhere", @"OData.relation.update": @"editor",
+                      @"OData.relation.delete": @"where (" };
+  NSAttributeDescription *key = [[NSAttributeDescription alloc] init];
+  key.name = @"id";
+  key.attributeType = NSInteger32AttributeType;
+  key.userInfo = @{ @"OData.key": @"YES" };
+  thing.properties = @[ key ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ thing ];
+  _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+  NSError *error = nil;
+  XCTAssertNotNil([_coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+  _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  NSString *problems = [_service.metadataProblems componentsJoinedByString:@"\n"];
+  XCTAssertTrue([problems containsString:@"nowhere is no to-one of Thing"], @"%@", problems);
+  XCTAssertTrue([problems containsString:@"does not parse"], @"%@", problems);
+  XCTAssertTrue([problems containsString:@"names editor, which Thing does not define"], @"%@", problems);
+  XCTAssertEqualObjects([[self get:@"Things"].json[@"value"] valueForKey:@"Id"], @[], @"a relation that holds nothing: nothing seen");
+}
+
 // What a caller may do is the scopes it has: reading a set, through any
 // path or expansion, writing it, calling an operation; $metadata says
 // which each needs.

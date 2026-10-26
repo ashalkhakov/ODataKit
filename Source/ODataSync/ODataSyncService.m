@@ -304,7 +304,22 @@ NSDictionary *ODSAnswerMergeAttributes(ODataSyncEngine *engine, NSString *replic
         failed([NSString stringWithFormat:@"%@ does not merge: %@", item[@"Property"], error.localizedDescription ?: @"not a state or delta"]);
         continue;
       }
-      // Through the handler: merged, written as any update is.
+      // Through the handler: merged, written as any update is, and allowed
+      // as any update is: the set's, its scopes, the relation update on it.
+      if (!handler.allowsUpdate) {
+        failed([NSString stringWithFormat:@"%@ cannot be updated here", item[@"EntitySet"]]);
+        continue;
+      }
+      NSSet *scopes = handler.updateScopes;
+      if (scopes.count && ![scopes intersectsSet:request.principal.scopes ?: [NSSet set]]) {
+        failed([NSString stringWithFormat:@"To update %@ needs one of the scopes %@", item[@"EntitySet"],
+                                          [[scopes.allObjects sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@" "]]);
+        continue;
+      }
+      if (![service request:request holds:@"update" onObject:object]) {
+        failed([NSString stringWithFormat:@"That needs the relation update on %@", item[@"EntitySet"]]);
+        continue;
+      }
       if (![handler updateObject:object values:@{ attribute.name: delta } request:request reply:reply]) return nil;
       state = [object valueForKey:attribute.name];
       // What every copy had seen when it was collected comes back no more:
