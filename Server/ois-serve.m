@@ -57,6 +57,8 @@
 //                 HSApplication subclass is the application, and
 //                 can add routes and pipeline stages too; an operation the
 //                 service cannot declare stops it from starting
+//   Permissions   a permissions file: who may see and change which rows
+//                 (docs/permissions.md); check one with odatakit-permissions
 //   PrintMetadata YES: write $metadata to standard output and exit
 //
 // It serves until SIGINT or SIGTERM, logs to standard error, and exits 0

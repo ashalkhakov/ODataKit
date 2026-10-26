@@ -14,6 +14,7 @@
 #import "ODataSchema.h"
 #import "ODataMetadataWriter.h"
 #import <ODataKit/ODataPredicateBuilder.h>
+#import "OISAuthorization.h"
 #import "ODataOperationCatalog.h"
 #import "ODataApply.h"
 #import "ODataTimeline.h"
@@ -59,6 +60,8 @@ typedef NS_ENUM(NSInteger, OISAccess) { OISAccessRead, OISAccessInsert, OISAcces
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *metadataByVersion;
 @property (nonatomic, strong) ODataMetadataWriter *writer;
 @property (nonatomic, strong) OISOperationCatalog *catalog;
+// The model's relations and tuples (docs/permissions.md).
+@property (nonatomic, strong) OISAuthorization *authorization;
 // What configurationName could not say, one sentence each.
 @property (nonatomic, copy) NSArray<NSString *> *configurationProblems;
 @property (nonatomic) BOOL prepared;
@@ -259,6 +262,11 @@ typedef NS_ENUM(NSInteger, OISTargetKind) {
 // The save may change what was written (ODataSync's bookkeeping, willSave),
 // and with it the ETag the part answered (#58).
 - (void)answersAgain:(NSManagedObject *)object withBody:(BOOL)withBody;
+// Zanzibar's Check, where the row's entity defines the relation
+// (docs/permissions.md): YES when the caller holds it on the row (or the
+// row to be: an OISRowToBe), or the entity defines none. Refused: 404 for
+// a row the caller cannot see (existing, not read), else 403; answered.
+- (BOOL)holds:(NSString *)relation on:(id)row entity:(NSEntityDescription *)entity existing:(nullable NSManagedObject *)existing;
 - (nullable NSData *)dataForResponseJSON:(id)json;
 // Who is asking is known: the authenticator has answered, or a batch
 // the request is part of has been authenticated.

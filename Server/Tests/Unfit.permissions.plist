@@ -1,0 +1,9 @@
+// What does not fit the Catalog model: make check expects
+// odatakit-permissions to say so, and exit 1.
+{
+  Version = 1;
+  Entities = {
+    Stock = { read = ( { relation = read; from = warehouse; } ); };
+    Product = { read = ( { where = "colour == 'red'"; } ); };
+  };
+}

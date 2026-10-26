@@ -758,6 +758,39 @@ static NSManagedObjectModel *OSMModel(void)
   XCTAssertEqualObjects([self elementsOf:@"d2" in:_server], (@[ @"kiwi", @"pear" ]));
 }
 
+// A merge is an update: allowed as one is (the set's, its scopes, the
+// relation update), else the item's error and nothing merged (#60).
+- (void)testAMergeIsAllowedAsAnUpdateIs
+{
+  ODataSyncEngine *a = [self device];
+  [self edit:@"d1" in:a adding:@[ @"apple" ] deleting:nil];
+  [self sync:a];
+  NSString *kiwi = [[OSMTwoPhaseSet stateAdding:@[ @"kiwi" ] deleting:@[]] base64EncodedStringWithOptions:0];
+  NSDictionary *body = @{ @"Replica": @"r1", @"Items": @[
+    @{ @"EntitySet": @"Docs", @"Key": @{ @"Id": @"d1" }, @"Property": @"Body", @"Version": @"", @"Delta": kiwi } ] };
+  NSArray *(^merge)(void) = ^NSArray *(void) {
+    NSError *error = nil;
+    ODataHTTPResponse *response = [self send:@"POST" to:@"MergeAttributes" JSON:body error:&error];
+    XCTAssertNotNil(response, @"%@", error);
+    id json = [response JSONWithError:NULL];
+    return ([json[@"value"] isKindOfClass:[NSDictionary class]] ? json[@"value"] : json)[@"Items"];
+  };
+  ODataEntitySetHandler *docs = [_service handlerForEntitySet:@"Docs"];
+  docs.updateScopes = [NSSet setWithObject:@"Docs.Write"];
+  NSArray *items = merge();
+  XCTAssertTrue([items.firstObject[@"Error"] containsString:@"Docs.Write"], @"%@", items);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple" ]), @"nothing merged without the scope");
+  docs.updateScopes = nil;
+  docs.allowsUpdate = NO;
+  items = merge();
+  XCTAssertNotNil(items.firstObject[@"Error"], @"%@", items);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple" ]), @"nor where the set takes no updates");
+  docs.allowsUpdate = YES;
+  items = merge();
+  XCTAssertNil(items.firstObject[@"Error"], @"%@", items);
+  XCTAssertEqualObjects([self elementsOf:@"d1" in:_server], (@[ @"apple", @"kiwi" ]));
+}
+
 // One that never merges is set aside after a few syncs (an issue the app
 // sees), and holds up nothing else.
 - (void)testAnItemThatNeverMergesIsSetAside

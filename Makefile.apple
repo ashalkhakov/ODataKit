@@ -5,7 +5,9 @@
 #                                                 (macOS, iOS, the iOS Simulator),
 #                                                 and the Workbench, universal
 #   make -f Makefile.apple check                  the tests
-#   make -f Makefile.apple install DESTDIR=<dir>  the XCFrameworks and Workbench.app
+#   make -f Makefile.apple install DESTDIR=<dir>  the XCFrameworks, Workbench.app, and
+#                                                 bin/odatakit-permissions (the permissions
+#                                                 file's checker, universal)
 #   make -f Makefile.apple installcheck DESTDIR=<dir>
 #                                                 the installed Workbench's signature,
 #                                                 and its offline self-test
@@ -71,6 +73,9 @@ install: all
 	@for fw in $(FRAMEWORKS); do rm -rf $(DESTDIR)/$$fw.xcframework && ditto $(BUILD)/$$fw.xcframework $(DESTDIR)/$$fw.xcframework || exit 1; done
 	rm -rf $(DESTDIR)/Workbench.app
 	ditto $(PRODUCTS)/Release/Workbench.app $(DESTDIR)/Workbench.app
+	$(MAKE) -C Server -f Makefile.apple build/universal/odatakit-permissions
+	mkdir -p $(DESTDIR)/bin
+	cp Server/build/universal/odatakit-permissions $(DESTDIR)/bin/
 
 installcheck:
 	codesign --verify --deep --strict $(DESTDIR)/Workbench.app
