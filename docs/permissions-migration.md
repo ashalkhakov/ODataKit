@@ -133,9 +133,11 @@ Vehicle = {
 - **Updates are checked twice:** on the row as it is and as it will be.
   Moving a record to another vehicle needs `update` there as well. That
   replaces hand-written "moved: theirs to write there too" checks.
-- **A row made in the same request** (a new record with its new answers)
-  decides for the rows reached through it: their `insert` is not checked
-  against it, and its own `insert` is.
+- **A new row** (a new record with its new answers) decides for the rows
+  reached through it: their `insert` is not checked against it, and its
+  own `insert` is. New means made in the same request, or by an earlier
+  request of the same atomic change set (bound by key, as ODataSync and
+  the desktop send them), not a row your handler made.
 - **No `%` outside quotes in `where` text.** There are no format
   arguments (`$user` is the caller), so the check reports one. Inside
   quotes, `%` is plain text. Quote a `where` in the file (`where = "…";`): OpenStep text needs
@@ -233,8 +235,9 @@ user = "user.email"; };`
   them" is `insert = Driver`, `update = Owner`. Moving a record to another
   vehicle is checked there too.
 - **Things of a record** (`LBOfRecordHandler`):
-  - "added with a new record of one's own" holds because a row made in the
-    same request decides: the new record's own `insert = Driver`;
+  - "added with a new record of one's own" holds because a new row
+    decides: the new record's own `insert = Driver`, whether its things
+    come in the same request or later in the same change set;
   - otherwise it's the vehicle owner's.
 
 **Notes**
