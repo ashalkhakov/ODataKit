@@ -711,6 +711,23 @@ static _Atomic long OISCountedProductsAlive;
 }
 @end
 
+// A catalog made with a warehouse of its own, which the handler makes: a
+// row no insert of the client's checked.
+@interface OISCatalogsWithAWarehouse : ODataEntitySetHandler
+@end
+
+@implementation OISCatalogsWithAWarehouse
+- (NSManagedObject *)insertObjectWithValues:(NSDictionary *)values request:(ODataRequest *)request reply:(ODataReply *)reply
+{
+  NSManagedObject *catalog = [super insertObjectWithValues:values request:request reply:reply];
+  NSManagedObject *warehouse = [NSEntityDescription insertNewObjectForEntityForName:@"Warehouse" inManagedObjectContext:request.context];
+  [warehouse setValue:@11 forKey:@"id"];
+  [warehouse setValue:@"Side" forKey:@"name"];
+  [warehouse setValue:catalog forKey:@"catalog"];
+  return catalog;
+}
+@end
+
 // Signs in with an API key in X-API-Key, and says so in $metadata.
 @interface OISKeyAuthenticator : NSObject <HSAuthenticator>
 @end
@@ -8588,6 +8605,66 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @[ @1 ] } error:&error], @"a Version that is no number");
   XCTAssertNil([ODataPermissions permissionsWithPropertyList:@{ @"Version": @{} } error:&error]);
   XCTAssertEqualObjects([[ODataPermissions permissionsWithPropertyList:@{ @"Version": @1 } error:NULL] problemsWithModel:model], @[]);
+}
+
+// A row an earlier request of the same change set made, bound by its key,
+// decides for what is added under it, as a row made in the same request
+// does (#64): its own insert was checked. Not a row the handler made, nor
+// one a request outside the change set made (saved, it is there).
+- (void)testAChangeSetsNewRowDecidesForItsChildren
+{
+  [self serveWarehouses];
+  _service.permissions = [self permissions:@"{ Version = 1;\n"
+    "  Tuples = { WarehouseStaff = { object = warehouse; relation = role; user = \"user.email\"; }; };\n"
+    "  Entities = {\n"
+    "    Catalog = { insert = ( { where = \"$user.@count > 0\"; } ); };\n"
+    "    Warehouse = {\n"
+    "      manager = ( { direct = YES; } );\n"
+    "      read = ( { where = \"$user.@count > 0\"; } );\n"
+    "      insert = ( { where = \"$user.@count > 0\"; } );\n"
+    "    };\n"
+    "    Location = {\n"
+    "      read = ( { relation = read; from = warehouse; } );\n"
+    "      insert = ( { relation = manager; from = warehouse; } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  [_service setHandler:[[OISCatalogsWithAWarehouse alloc] initWithEntity:_coordinator.managedObjectModel.entitiesByName[@"Catalog"]]
+          forEntitySet:@"Catalogs"];
+  NSArray *(^statuses)(NSArray *) = ^NSArray *(NSArray *requests) {
+    OISServiceResponse *r = [self as:@"eve@example.org" claims:@{} send:@"POST" path:@"$batch" body:@{ @"requests": requests }
+                             headers:@{ @"Prefer": @"odata.continue-on-error" }];
+    XCTAssertEqual(r.status, 200, @"%@", r.text);
+    return [r.json[@"responses"] valueForKey:@"status"];
+  };
+
+  // In one change set: the warehouse, then a location in it, bound by key.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"w", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Warehouses",
+       @"body": @{ @"Id": @9, @"Name": @"Eve's", @"Catalog@odata.bind": @"Catalogs(1)" } },
+    @{ @"id": @"l", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Locations",
+       @"body": @{ @"Id": @20, @"Name": @"E1", @"Warehouse@odata.bind": @"Warehouses(9)" } },
+  ]), (@[ @201, @201 ]));
+  // Each its own request: the warehouse is there, and eve is no manager of it.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"w", @"method": @"post", @"url": @"Warehouses",
+       @"body": @{ @"Id": @10, @"Name": @"Eve's too", @"Catalog@odata.bind": @"Catalogs(1)" } },
+    @{ @"id": @"l", @"method": @"post", @"url": @"Locations",
+       @"body": @{ @"Id": @21, @"Name": @"E2", @"Warehouse@odata.bind": @"Warehouses(10)" } },
+  ]), (@[ @201, @403 ]));
+  // A warehouse the handler made with a catalog: no insert of eve's made it.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"c", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Catalogs", @"body": @{ @"Id": @5, @"Name": @"Eve's" } },
+    @{ @"id": @"l", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Locations",
+       @"body": @{ @"Id": @22, @"Name": @"S1", @"Warehouse@odata.bind": @"Warehouses(11)" } },
+  ]), (@[ @424, @403 ]));
+  // An existing warehouse, in a change set or not: eve is no manager there.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"l", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Locations",
+       @"body": @{ @"Id": @23, @"Name": @"A9", @"Warehouse@odata.bind": @"Warehouses(1)" } },
+  ]), (@[ @403 ]));
+  XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Locations"], (@[ @"A1", @"B1", @"E1" ]));
 }
 
 // Zanzibar's intersection (all), on an entity and on the service; and a

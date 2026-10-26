@@ -10,6 +10,7 @@
 
 #import "ODataServiceInternal.h"
 #import "OISPlan.h"
+#import <objc/runtime.h>
 
 static NSString *OISWriteKey(NSString *pass, OISPlanNode *node)
 {
@@ -31,6 +32,22 @@ static BOOL OISIsIntegerAttribute(NSAttributeDescription *attribute)
 {
   NSAttributeType type = attribute.attributeType;
   return type == NSInteger16AttributeType || type == NSInteger32AttributeType || type == NSInteger64AttributeType;
+}
+
+// The rows the context's inserts made, each checked as it was (its own
+// insert, or the row made with it deciding), by their object IDs: a change
+// set's requests share the context, so a later one's insert under such a
+// row is decided by that row's, as under a row made in the same request.
+static char OISMadeInContextKey;
+
+static NSMutableSet<NSManagedObjectID *> *OISMadeIn(NSManagedObjectContext *context, BOOL create)
+{
+  NSMutableSet *made = objc_getAssociatedObject(context, &OISMadeInContextKey);
+  if (!made && create) {
+    made = [NSMutableSet set];
+    objc_setAssociatedObject(context, &OISMadeInContextKey, made, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+  return made;
 }
 
 static BOOL OISIsWrite(OISPlanNode *node)
@@ -1385,11 +1402,16 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
       if (![self permitsTo:OISAccessInsert entity:node.entity]) return NO;
       // The relation insert, on the row to be: as its values reach (a bound
       // warehouse); through a row made in this request too, its own insert
-      // decides.
+      // decides, and through one an earlier request of the change set made
+      // (bound by its key), not saved yet.
       BOOL throughNew = NO;
+      NSSet *made = OISMadeIn(self.request.context, NO);
       for (NSString *name in [self.service.authorization relationshipsOfRelation:@"insert" entity:node.entity]) {
         id value = node.values[name];
-        if ([value isKindOfClass:[OISPlanNode class]] && OISIsWrite(value)) throughNew = YES;
+        if (![value isKindOfClass:[OISPlanNode class]]) continue;
+        if (OISIsWrite(value)) throughNew = YES;
+        NSManagedObject *bound = made.count ? [self resultOf:value] : nil;
+        if ([bound isKindOfClass:[NSManagedObject class]] && bound.isInserted && [made containsObject:bound.objectID]) throughNew = YES;
       }
       OISRowToBe *row = [[OISRowToBe alloc] initWithValues:[self rowsIn:node.values object:nil] object:nil];
       if (!throughNew && ![self holds:@"insert" on:row entity:node.entity existing:nil]) return NO;
@@ -1735,6 +1757,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
       if (!made) return nil;
       written = [self objectAnswered:made what:@"created" entity:node.entity];
       if (!written) return nil;
+      if ([written isKindOfClass:[NSManagedObject class]]) [OISMadeIn(self.request.context, YES) addObject:[written objectID]];
       if (node.values[OISDynamicKey]) self.planMemo[OISWriteKey(@"y", node)] = @[ @[ written, node.values[OISDynamicKey] ] ];
       break;
     }

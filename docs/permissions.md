@@ -228,8 +228,15 @@ What this gives:
 - **Inserts:** checked in the write check pass, before anything is written.
   The caller must hold `insert` on the row as its values make it, e.g.
   `manager from warehouse` through the warehouse it is bound to. A row
-  that reaches its object through another row made in the same request
-  (a deep insert) leaves the decision to that row's own `insert`.
+  that reaches its object through a new row leaves the decision to that
+  row's own `insert`, which was checked when it was made. A new row is
+  one made in the same request (a deep insert), or by an earlier request
+  of the same atomic change set and bound by its key: a client that
+  sends each row as its own request (ODataSync does) is answered as one
+  that nests them. A row the server's own code made (a handler, a save
+  hook) does not count, since no `insert` checked it; neither does one
+  made outside the change set, which is saved and simply there. This rule
+  is ODataKit's: Zanzibar checks writes, not creation.
 - **Updates:** the caller must hold `update` on the row as it is, *and* as
   it will be. Moving a location to another warehouse needs `update` there
   too.
