@@ -50,6 +50,8 @@ ifneq ($(filter mingw% windows%,$(GNUSTEP_TARGET_OS)),)
 OSP_TESTS =
 # Windows names every DLL a bundle uses.
 ODataIncrementalStoreTests_OBJC_LIBS += -ldispatch -ldl
+# FreeCoreData's SQL backends as Windows names their DLLs.
+ADDITIONAL_OBJCFLAGS += '-DOIS_STORE_LIBRARY_FORMAT=@"%@-0.dll"'
 else
 OSP_TESTS = ODataSyncPeerTests.m linux/OSPSystem.m
 endif

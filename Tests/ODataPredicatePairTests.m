@@ -37,13 +37,19 @@
 + (BOOL)destroyStoreAtURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 @end
 
+// A SQL backend's library from its class name: the makefile says how the
+// platform names it (CDPostgreSQLStore-0.dll on Windows).
+#ifndef OIS_STORE_LIBRARY_FORMAT
+#define OIS_STORE_LIBRARY_FORMAT @"lib%@.so"
+#endif
+
 // The stores each case runs over: the store type, and for a SQL backend
 // its class name, the variable that holds its server's URL, and its
 // library.
 static NSArray<NSArray<NSString *> *> *OISPairSQLBackends(void)
 {
-  return @[ @[ @"CDPostgreSQLStore", @"CD_TEST_POSTGRES_URL", @"libCDPostgreSQLStore.so" ],
-            @[ @"CDMySQLStore", @"CD_TEST_MYSQL_URL", @"libCDMySQLStore.so" ] ];
+  return @[ @[ @"CDPostgreSQLStore", @"CD_TEST_POSTGRES_URL", [NSString stringWithFormat:OIS_STORE_LIBRARY_FORMAT, @"CDPostgreSQLStore"] ],
+            @[ @"CDMySQLStore", @"CD_TEST_MYSQL_URL", [NSString stringWithFormat:OIS_STORE_LIBRARY_FORMAT, @"CDMySQLStore"] ] ];
 }
 
 static NSAttributeDescription *OISPairAttribute(NSString *name, NSAttributeType type)
@@ -194,7 +200,7 @@ static id OISPairGET(ODataService *service, NSString *path)
                          return [environment[backend[1]] length] > 0;
                        }]];
   for (NSArray *backend in wanted) {
-    if (!NSClassFromString(backend[0]) && !dlopen([backend[2] fileSystemRepresentation], RTLD_NOW | RTLD_GLOBAL)) {
+    if (!NSClassFromString(backend[0]) && !dlopen([backend[2] UTF8String], RTLD_NOW | RTLD_GLOBAL)) {
       XCTFail(@"%@ is set, but %@ cannot be loaded (FREECOREDATA_BACKENDS): %s", backend[1], backend[2], dlerror());
       continue;
     }
