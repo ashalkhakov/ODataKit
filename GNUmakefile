@@ -372,7 +372,7 @@ after-clean::
 #   the Device app syncing with the Workbench, as peers
 # The windows run under Xvfb when there is no display.
 XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
-ODATAKIT_RUN = LD_LIBRARY_PATH="$(CURDIR)/obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" AVAHI_COMPAT_NOWARN=1
+ODATAKIT_RUN = LD_LIBRARY_PATH="$(CURDIR)/obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/obj:$$PATH" AVAHI_COMPAT_NOWARN=1
 
 check::
 	AVAHI_COMPAT_NOWARN=1 $(MAKE) -C Tests run-tests

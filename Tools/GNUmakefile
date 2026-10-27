@@ -43,7 +43,7 @@ after-clean::
 
 # The one check of ois-filter: the predicate in its usage, translated.
 check:: all
-	@got=$$(LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./$(GNUSTEP_OBJ_DIR_NAME)/ois-filter 'unitPrice > 20 AND discontinued == NO'); \
+	@got=$$(LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./$(GNUSTEP_OBJ_DIR_NAME)/ois-filter 'unitPrice > 20 AND discontinued == NO'); \
 	  want='UnitPrice gt 20 and Discontinued eq false'; \
 	  [ "$$got" = "$$want" ] || { echo "check: ois-filter printed '$$got', expected '$$want'"; exit 1; }; \
 	  echo "ois-filter: $$got"

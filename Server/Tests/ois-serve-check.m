@@ -1175,7 +1175,7 @@ int main(int argc, const char *argv[])
     // Behind a proxy that sends a secret: a request without it is refused by
     // the authentication stage, before any route, in the format of the API
     // it was for.
-    setenv("OIS_CHECK_PROXY_SECRET", "s3cret", 1);
+    putenv("OIS_CHECK_PROXY_SECRET=s3cret");  // POSIX's and Windows' both
     HSConfiguration *briefly = [[HSConfiguration alloc] initWithSettings:@{
       @"Model": modelPath, @"KeepAliveTimeout": @0.5, @"AccessLog": @NO, @"Localhost": @NO,
       @"TrustedUserHeader": @"X-Forwarded-User", @"ProxySecretHeader": @"X-Proxy-Secret", @"ProxySecretEnvironment": @"OIS_CHECK_PROXY_SECRET",

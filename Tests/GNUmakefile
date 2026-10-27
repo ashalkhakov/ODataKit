@@ -81,6 +81,7 @@ XCTEST ?= xctest
 .PHONY: check run-tests
 run-tests: all $(BUNDLE_NAME).bundle
 	LD_LIBRARY_PATH="$(CURDIR)/../obj$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH))$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
+	PATH="$(CURDIR)/../obj$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH)):$$PATH" \
 	OIS_SNAPSHOTS="$(CURDIR)/Snapshots" $(XCTEST) "$(BUNDLE_NAME).bundle"
 
 # FreeCoreData loads compiled models only, so Catalog.xcdatamodeld is

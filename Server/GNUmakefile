@@ -51,7 +51,7 @@ obj/Catalog.momd: ../Examples/Catalog/Catalog.xcdatamodeld
 	rm -rf $@ && momc $< $@
 
 check:: all obj/Catalog.momd
-	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/ois-serve-check obj/Catalog.momd
-	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Examples/Catalog.permissions.plist
-	! LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Tests/Unfit.permissions.plist
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/ois-serve-check obj/Catalog.momd
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/odatakit-permissions check obj/Catalog.momd Examples/Catalog.permissions.plist
+	! LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/odatakit-permissions check obj/Catalog.momd Tests/Unfit.permissions.plist
 
