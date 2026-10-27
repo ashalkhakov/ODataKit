@@ -39,9 +39,9 @@ $(BUILD_DIR)/catalog-server: Examples/CatalogServer.m $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(FLAGS) $(INCLUDES) Examples/CatalogServer.m $(SOURCES) $(LIBS) -o $@
 
-$(BUILD_DIR)/ois-serve-check: Tests/ois-serve-check.m $(SOURCES) $(HEADERS)
+$(BUILD_DIR)/ois-serve-check: Tests/ois-serve-check.m Tests/posix/OISSockets.m Tests/OISSockets.h $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(FLAGS) $(INCLUDES) Tests/ois-serve-check.m $(SOURCES) $(LIBS) -o $@
+	$(CC) $(FLAGS) $(INCLUDES) Tests/ois-serve-check.m Tests/posix/OISSockets.m $(SOURCES) $(LIBS) -o $@
 
 $(BUILD_DIR)/odatakit-permissions: odatakit-permissions.m $(SOURCES) $(HEADERS)
 	@mkdir -p $(BUILD_DIR)

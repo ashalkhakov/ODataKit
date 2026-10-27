@@ -48,6 +48,8 @@ ODataIncrementalStoreTests_OBJC_FILES = \
 # Syncing with devices nearby, and its system half: not on Windows yet.
 ifneq ($(filter mingw% windows%,$(GNUSTEP_TARGET_OS)),)
 OSP_TESTS =
+# Windows names every DLL a bundle uses.
+ODataIncrementalStoreTests_OBJC_LIBS += -ldispatch -ldl
 else
 OSP_TESTS = ODataSyncPeerTests.m linux/OSPSystem.m
 endif
