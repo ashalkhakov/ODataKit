@@ -175,6 +175,11 @@
   return _server.running;
 }
 
++ (NSString *)primaryAddress
+{
+  return GCDWebServerGetPrimaryIPAddress(NO);
+}
+
 - (NSUInteger)port
 {
   return _server.port;

@@ -843,7 +843,7 @@ static void WBCheck(BOOL ok, NSString *what, NSString *detail)
 // store of its own), its edit at the service.
 - (void)checkServedOnTheNetwork
 {
-  self.connection.servePort = 18640 + arc4random_uniform(1000);
+  self.connection.servePort = 18640 + [NSUUID UUID].hash % 1000;
   [self toggleServeNetwork:nil];
   [self waitWhileConnecting];
   NSURL *root = self.connection.servedRoot;

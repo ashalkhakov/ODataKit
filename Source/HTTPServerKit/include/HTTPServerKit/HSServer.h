@@ -55,6 +55,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Requests answered since it started.
 @property (atomic, readonly) NSUInteger requestsAnswered;
 
+// This machine's IPv4 address on its primary network, which others on that
+// network reach a server listening on every address by; nil for none.
++ (nullable NSString *)primaryAddress;
+
 @end
 
 NS_ASSUME_NONNULL_END
