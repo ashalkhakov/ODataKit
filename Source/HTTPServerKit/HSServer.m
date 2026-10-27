@@ -105,6 +105,7 @@
   _maxBodyInMemory = 1024 * 1024;
   _keepAliveTimeout = 5;
   _maxRequestsPerConnection = 100;
+  _maxPendingConnections = 128;
   _server = [[GCDWebServer alloc] init];
   __weak HSServer *weakSelf = self;
   [_server addHandlerWithMatchBlock:^GCDWebServerRequest *(NSString *method, NSURL *url, NSDictionary *headers, NSString *path, NSDictionary *query) {
@@ -134,6 +135,7 @@
     GCDWebServerOption_AutomaticallyMapHEADToGET: @NO,
     GCDWebServerOption_KeepAliveTimeout: @(self.keepAliveTimeout),
     GCDWebServerOption_MaxRequestsPerConnection: @(self.maxRequestsPerConnection),
+    GCDWebServerOption_MaxPendingConnections: @(self.maxPendingConnections),
   };
 }
 
