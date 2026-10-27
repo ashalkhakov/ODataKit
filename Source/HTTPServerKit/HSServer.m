@@ -5,6 +5,7 @@
 #import "HSLog.h"
 #import "HSRouter.h"
 #import <GCDWebServer/GCDWebServer.h>
+#import <GCDWebServer/GCDWebServerFunctions.h>
 #import <GCDWebServer/GCDWebServerDataRequest.h>
 #import <GCDWebServer/GCDWebServerFileRequest.h>
 #import <GCDWebServer/GCDWebServerDataResponse.h>
