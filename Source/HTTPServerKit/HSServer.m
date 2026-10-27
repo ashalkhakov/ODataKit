@@ -5,6 +5,7 @@
 #import "HSLog.h"
 #import "HSRouter.h"
 #import <GCDWebServer/GCDWebServer.h>
+#import <GCDWebServer/GCDWebServerFunctions.h>
 #import <GCDWebServer/GCDWebServerDataRequest.h>
 #import <GCDWebServer/GCDWebServerFileRequest.h>
 #import <GCDWebServer/GCDWebServerDataResponse.h>
@@ -104,6 +105,7 @@
   _maxBodyInMemory = 1024 * 1024;
   _keepAliveTimeout = 5;
   _maxRequestsPerConnection = 100;
+  _maxPendingConnections = 128;
   _server = [[GCDWebServer alloc] init];
   __weak HSServer *weakSelf = self;
   [_server addHandlerWithMatchBlock:^GCDWebServerRequest *(NSString *method, NSURL *url, NSDictionary *headers, NSString *path, NSDictionary *query) {
@@ -133,6 +135,7 @@
     GCDWebServerOption_AutomaticallyMapHEADToGET: @NO,
     GCDWebServerOption_KeepAliveTimeout: @(self.keepAliveTimeout),
     GCDWebServerOption_MaxRequestsPerConnection: @(self.maxRequestsPerConnection),
+    GCDWebServerOption_MaxPendingConnections: @(self.maxPendingConnections),
   };
 }
 
@@ -173,6 +176,11 @@
 - (BOOL)isRunning
 {
   return _server.running;
+}
+
++ (NSString *)primaryAddress
+{
+  return GCDWebServerGetPrimaryIPAddress(NO);
 }
 
 - (NSUInteger)port

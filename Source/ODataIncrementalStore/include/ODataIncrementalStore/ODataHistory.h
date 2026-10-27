@@ -19,8 +19,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* ODataIncrementalStore's own: exported where ODataIncrementalStore is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAINCREMENTALSTORE_EXPORT
+#define ODATAINCREMENTALSTORE_EXPORT FOUNDATION_EXPORT
+#endif
+
 // The author of the transactions that record the service's changes.
-FOUNDATION_EXPORT NSString * const ODataRemoteChangesAuthor;  // @"ODataIncrementalStore.remote"
+ODATAINCREMENTALSTORE_EXPORT NSString * const ODataRemoteChangesAuthor;  // @"ODataIncrementalStore.remote"
 
 @interface ODataHistoryToken : NSPersistentHistoryToken <NSSecureCoding>
 @property (nonatomic, readonly, copy) NSString *storeID;

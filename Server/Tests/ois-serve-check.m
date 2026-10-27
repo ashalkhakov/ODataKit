@@ -14,10 +14,7 @@
 #import <ODataKit/ODataBatch.h>
 #import <ODataKit/ODataError.h>
 #import <ODataSync/ODataSync.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#import "OISSockets.h"
 #include <zlib.h>
 
 static int failures;
@@ -88,30 +85,22 @@ static NSData *OISGunzip(NSData *data)
 // (the server closes each connection).
 static OISReply *OISSendRaw(NSData *request)
 {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in address;
-  memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_port = htons((uint16_t)port);
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
-    close(fd);
-    return nil;
-  }
+  OISSocket fd = OISSocketToLoopback(port, 0);
+  if (fd == OIS_NO_SOCKET) return nil;
   const uint8_t *bytes = request.bytes;
   for (NSUInteger sent = 0; sent < request.length;) {
-    ssize_t n = write(fd, bytes + sent, request.length - sent);
+    long n = OISSocketWrite(fd, bytes + sent, request.length - sent);
     if (n <= 0) break;
     sent += (NSUInteger)n;
   }
   NSMutableData *all = [NSMutableData data];
   uint8_t buffer[16384];
   for (;;) {
-    ssize_t n = read(fd, buffer, sizeof(buffer));
+    long n = OISSocketRead(fd, buffer, sizeof(buffer));
     if (n <= 0) break;
     [all appendBytes:buffer length:(NSUInteger)n];
   }
-  close(fd);
+  OISSocketClose(fd);
 
   NSData *separator = [@"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding];
   NSRange end = [all rangeOfData:separator options:0 range:NSMakeRange(0, all.length)];
@@ -136,29 +125,17 @@ static OISReply *OISSendRaw(NSData *request)
 
 #pragma mark A connection kept open
 
-static int OISConnect(void)
+static OISSocket OISConnect(void)
 {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in address;
-  memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_port = htons((uint16_t)port);
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
-    close(fd);
-    return -1;
-  }
-  struct timeval timeout = { 5, 0 };
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  return fd;
+  return OISSocketToLoopback(port, 5);
 }
 
 // Bytes from the socket into buffer until it holds at least count; NO at its end.
-static BOOL OISFill(int fd, NSMutableData *buffer, NSUInteger count)
+static BOOL OISFill(OISSocket fd, NSMutableData *buffer, NSUInteger count)
 {
   uint8_t chunk[16384];
   while (buffer.length < count) {
-    ssize_t n = read(fd, chunk, sizeof(chunk));
+    long n = OISSocketRead(fd, chunk, sizeof(chunk));
     if (n <= 0) return NO;
     [buffer appendBytes:chunk length:(NSUInteger)n];
   }
@@ -167,7 +144,7 @@ static BOOL OISFill(int fd, NSMutableData *buffer, NSUInteger count)
 
 // One response off a kept connection, its end found by its Content-Length or
 // its chunks (none for HEAD); what follows it stays in buffer.
-static OISReply *OISReadOne(int fd, NSMutableData *buffer, BOOL head)
+static OISReply *OISReadOne(OISSocket fd, NSMutableData *buffer, BOOL head)
 {
   NSData *separator = [@"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding];
   NSRange end;
@@ -208,22 +185,22 @@ static OISReply *OISReadOne(int fd, NSMutableData *buffer, BOOL head)
   return reply;
 }
 
-static void OISWrite(int fd, NSString *text)
+static void OISWrite(OISSocket fd, NSString *text)
 {
   NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
   const uint8_t *bytes = data.bytes;
   for (NSUInteger sent = 0; sent < data.length;) {
-    ssize_t n = write(fd, bytes + sent, data.length - sent);
+    long n = OISSocketWrite(fd, bytes + sent, data.length - sent);
     if (n <= 0) return;
     sent += (NSUInteger)n;
   }
 }
 
 // Whether the server has closed the connection (a read gives its end).
-static BOOL OISClosed(int fd)
+static BOOL OISClosed(OISSocket fd)
 {
   uint8_t byte;
-  return read(fd, &byte, 1) == 0;
+  return OISSocketRead(fd, &byte, 1) == 0;
 }
 
 static OISReply *OISSend(NSString *method, NSString *target, NSDictionary *headers, id json)
@@ -724,18 +701,7 @@ static NSPersistentStoreCoordinator *OISSyncStore(NSManagedObjectModel *model, N
 // A port nothing listens on now.
 static NSUInteger OISFreePort(void)
 {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in address;
-  memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  socklen_t length = sizeof(address);
-  NSUInteger free = 0;
-  if (bind(fd, (struct sockaddr *)&address, sizeof(address)) == 0 && getsockname(fd, (struct sockaddr *)&address, &length) == 0) {
-    free = ntohs(address.sin_port);
-  }
-  close(fd);
-  return free;
+  return OISSocketFreeLoopbackPort();
 }
 
 static NSArray *OISSyncValues(NSPersistentStoreCoordinator *coordinator, NSString *entity, NSString *key)
@@ -1067,7 +1033,7 @@ int main(int argc, const char *argv[])
 
     // One connection, several requests: kept open between them, closed when
     // asked, or after a while with nothing more.
-    int fd = OISConnect();
+    OISSocket fd = OISConnect();
     NSMutableData *buffer = [NSMutableData data];
     NSString *host = [NSString stringWithFormat:@"Host: 127.0.0.1:%lu\r\n", (unsigned long)port];
     OISWrite(fd, [NSString stringWithFormat:@"GET /hello/one HTTP/1.1\r\n%@\r\n", host]);
@@ -1086,21 +1052,21 @@ int main(int argc, const char *argv[])
           OISClosed(fd),
           @"keep-alive", [NSString stringWithFormat:@"%ld %ld %ld %ld %ld, %@ then %@", (long)first.status, (long)second.status, (long)third.status,
                                                     (long)fourth.status, (long)last.status, first.headers[@"connection"], last.headers[@"connection"]]);
-    close(fd);
+    OISSocketClose(fd);
     // HTTP/1.0, and a request that came with the next one behind it: closed.
     fd = OISConnect();
     buffer = [NSMutableData data];
     OISWrite(fd, @"GET /hello/old HTTP/1.0\r\n\r\n");
     OISReply *old10 = OISReadOne(fd, buffer, NO);
     check(old10.status == 200 && OISClosed(fd), @"keep-alive-http10", [NSString stringWithFormat:@"%ld %@", (long)old10.status, old10.headers[@"connection"]]);
-    close(fd);
+    OISSocketClose(fd);
     fd = OISConnect();
     buffer = [NSMutableData data];
     OISWrite(fd, [NSString stringWithFormat:@"GET /hello/a HTTP/1.1\r\n%@\r\nGET /hello/b HTTP/1.1\r\n%@\r\n", host, host]);
     OISReply *pipelined = OISReadOne(fd, buffer, NO);
     check(pipelined.status == 200 && [pipelined.headers[@"connection"] caseInsensitiveCompare:@"close"] == NSOrderedSame,
           @"keep-alive-pipelined", [NSString stringWithFormat:@"%ld %@", (long)pipelined.status, pipelined.headers[@"connection"]]);
-    close(fd);
+    OISSocketClose(fd);
 
     [application.server stop];
     [[NSFileManager defaultManager] removeItemAtURL:application.file error:NULL];
@@ -1209,7 +1175,7 @@ int main(int argc, const char *argv[])
     // Behind a proxy that sends a secret: a request without it is refused by
     // the authentication stage, before any route, in the format of the API
     // it was for.
-    setenv("OIS_CHECK_PROXY_SECRET", "s3cret", 1);
+    putenv("OIS_CHECK_PROXY_SECRET=s3cret");  // POSIX's and Windows' both
     HSConfiguration *briefly = [[HSConfiguration alloc] initWithSettings:@{
       @"Model": modelPath, @"KeepAliveTimeout": @0.5, @"AccessLog": @NO, @"Localhost": @NO,
       @"TrustedUserHeader": @"X-Forwarded-User", @"ProxySecretHeader": @"X-Proxy-Secret", @"ProxySecretEnvironment": @"OIS_CHECK_PROXY_SECRET",
@@ -1226,7 +1192,7 @@ int main(int argc, const char *argv[])
       NSTimeInterval waited = -[started timeIntervalSinceNow];
       check(healthy.status == 401 && closed && waited > 0.3 && waited < 3, @"keep-alive-timeout",
             [NSString stringWithFormat:@"%ld, closed %@ after %.2fs", (long)healthy.status, closed ? @"YES" : @"NO", waited]);
-      close(fd);
+      OISSocketClose(fd);
       NSDictionary *proxied = @{ @"X-Proxy-Secret": @"s3cret" };
       OISReply *odataRefused = OISSend(@"GET", @"/odata/Products", nil, nil);
       OISReply *otherRefused = OISSend(@"GET", @"/health", nil, nil);

@@ -38,10 +38,16 @@ NS_ASSUME_NONNULL_BEGIN
 @class ODataService, ODataRequest, ODataPermissions, HSPrincipal, HSMetrics, OTTracer, OTSpan;
 @protocol HSAuthenticator;
 
+/* ODataService's own: exported where ODataService is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASERVICE_EXPORT
+#define ODATASERVICE_EXPORT FOUNDATION_EXPORT
+#endif
+
 // userInfo on an Integer attribute: the entity's version, sent as its ETag
 // and incremented by every update. Without one, an entity's ETag is a hash
 // of its values.
-FOUNDATION_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
+ODATASERVICE_EXPORT NSString * const ODataUserInfoETag;  // @"OData.etag"
 
 // How a handler answers. The service is the only caller of a handler's
 // methods, and the reply is its end of the call. A method that can answer

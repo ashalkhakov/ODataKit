@@ -244,11 +244,10 @@ static BOOL OISIsVariableName(NSString *name)
     e.literalType = @"Edm.String";
   } else if ([value isKindOfClass:[NSNumber class]]) {
     const char *type = [value objCType];
-#ifdef __APPLE__
-    BOOL boolean = CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID();
-#else
-    BOOL boolean = strcmp(type, @encode(BOOL)) == 0 || strcmp(type, @encode(bool)) == 0;
-#endif
+    // @YES and @NO are of a class of their own, on Apple and on GNUstep (as
+    // ODataValue tells them); not by their type, which @encode(BOOL)
+    // shares with an int's on Windows.
+    BOOL boolean = [value isKindOfClass:[@YES class]];
     e.literalType = boolean ? @"Edm.Boolean"
                   : [value isKindOfClass:[NSDecimalNumber class]] ? @"Edm.Decimal"
                   : (strcmp(type, @encode(double)) == 0 || strcmp(type, @encode(float)) == 0) ? @"Edm.Double" : @"Edm.Int64";

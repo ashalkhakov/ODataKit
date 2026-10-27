@@ -4,9 +4,6 @@
 #import "WBConnection.h"
 #import "WorkbenchSupport.h"
 #import <ODataService/ODataServer.h>
-#include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <net/if.h>
 
 static NSString * const WBBuiltInRoot = @"http://workbench.local/odata/";
 static NSString * const WBNorthwindRoot = @"https://services.odata.org/V4/Northwind/Northwind.svc/";
@@ -34,29 +31,10 @@ static NSURL *WBTripPinSession(void)
 {
   NSMutableString *key = [NSMutableString stringWithString:@"oiswb"];
   const char *alphabet = "abcdefghijklmnopqrstuvwxyz012345";
-  while (key.length < 24) [key appendFormat:@"%c", alphabet[arc4random_uniform(32)]];
+  uuid_t random;
+  [[NSUUID UUID] getUUIDBytes:random];
+  for (NSUInteger i = 0; key.length < 24; i++) [key appendFormat:@"%c", alphabet[random[i] % 32]];
   return [NSURL URLWithString:[NSString stringWithFormat:@"https://services.odata.org/V4/(S(%@))/TripPinServiceRW/", key]];
-}
-
-// This machine's address on the local network: the first IPv4 address of
-// an interface that is up and not the loopback (en0 first); nil for none.
-static NSString *WBLocalAddress(void)
-{
-  struct ifaddrs *list = NULL;
-  if (getifaddrs(&list) != 0) return nil;
-  NSString *found = nil;
-  for (int pass = 0; pass < 2 && !found; pass++) {
-    for (struct ifaddrs *each = list; each && !found; each = each->ifa_next) {
-      if (!each->ifa_addr || each->ifa_addr->sa_family != AF_INET) continue;
-      if (!(each->ifa_flags & IFF_UP) || (each->ifa_flags & IFF_LOOPBACK)) continue;
-      if (pass == 0 && strcmp(each->ifa_name, "en0") != 0) continue;
-      char text[INET_ADDRSTRLEN];
-      const struct sockaddr_in *address = (const struct sockaddr_in *)(const void *)each->ifa_addr;
-      if (inet_ntop(AF_INET, &address->sin_addr, text, sizeof text)) found = @(text);
-    }
-  }
-  freeifaddrs(list);
-  return found;
 }
 
 @implementation WBConnection {
@@ -105,7 +83,7 @@ static NSString *WBLocalAddress(void)
   _servedRoot = nil;
   _serveFailure = nil;
   if (!_servesNetwork) return [NSURL URLWithString:WBBuiltInRoot];
-  NSString *address = WBLocalAddress();
+  NSString *address = [HSServer primaryAddress];
   if (!address) {
     _serveFailure = @"this Mac has no address on a network";
     return [NSURL URLWithString:WBBuiltInRoot];

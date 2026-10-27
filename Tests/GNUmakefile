@@ -42,9 +42,19 @@ ODataIncrementalStoreTests_OBJC_FILES = \
 	ODataSyncTests.m \
 	ODataSyncMergeTests.m \
 	ODataSyncConvergenceTests.m \
-	ODataSyncPeerTests.m \
-	linux/OSPSystem.m \
+	$(OSP_TESTS) \
 	ODataXMLTests.m
+
+# Syncing with devices nearby, and its system half: not on Windows yet.
+ifneq ($(filter mingw% windows%,$(GNUSTEP_TARGET_OS)),)
+OSP_TESTS =
+# Windows names every DLL a bundle uses.
+ODataIncrementalStoreTests_OBJC_LIBS += -ldispatch -ldl
+# FreeCoreData's SQL backends as Windows names their DLLs.
+ADDITIONAL_OBJCFLAGS += '-DOIS_STORE_LIBRARY_FORMAT=@"%@-0.dll"'
+else
+OSP_TESTS = ODataSyncPeerTests.m linux/OSPSystem.m
+endif
 
 ODataIncrementalStoreTests_RESOURCE_FILES = Snapshots
 ODataIncrementalStoreTests_INCLUDE_DIRS = -I../Source/ODataKit/include -I../Source/ODataIncrementalStore/include -I../Source/ODataService/include -I../Source/ODataKit/include/ODataKit -I../Source/ODataIncrementalStore/include/ODataIncrementalStore -I../Source/ODataService/include/ODataService -I../Source/HTTPServerKit/include -I../Source/HTTPServerKit/include/HTTPServerKit -I../Source/OTelKit/include -I../Source/OTelKit/include/OTelKit -I../Source/ODataSync/include -I../Source/ODataSync/include/ODataSync -I. \
@@ -73,6 +83,7 @@ XCTEST ?= xctest
 .PHONY: check run-tests
 run-tests: all $(BUNDLE_NAME).bundle
 	LD_LIBRARY_PATH="$(CURDIR)/../obj$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH))$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
+	PATH="$(CURDIR)/../obj$(if $(BACKEND_LD_PATH),:$(BACKEND_LD_PATH)):$$PATH" \
 	OIS_SNAPSHOTS="$(CURDIR)/Snapshots" $(XCTEST) "$(BUNDLE_NAME).bundle"
 
 # FreeCoreData loads compiled models only, so Catalog.xcdatamodeld is

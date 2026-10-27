@@ -28,6 +28,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable instancetype)identifierFromReference:(id)ref;
 @end
 
-FOUNDATION_EXPORT NSString *OISKeyLiteral(id value);
+/* ODataIncrementalStore's own: exported where ODataIncrementalStore is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAINCREMENTALSTORE_EXPORT
+#define ODATAINCREMENTALSTORE_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAINCREMENTALSTORE_EXPORT NSString *OISKeyLiteral(id value);
 
 NS_ASSUME_NONNULL_END

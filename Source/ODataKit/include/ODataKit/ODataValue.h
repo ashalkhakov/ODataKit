@@ -24,7 +24,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT NSString * const ODataUserInfoType;  // @"OData.type", e.g. @"Edm.Date"
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAKIT_EXPORT NSString * const ODataUserInfoType;  // @"OData.type", e.g. @"Edm.Date"
 
 typedef NS_ENUM(NSInteger, ODataEdmType) {
   ODataEdmUnknown = 0,
@@ -107,28 +113,28 @@ typedef NS_ENUM(NSInteger, ODataEdmType) {
 @end
 
 // The textual forms, for anyone who needs them without an attribute.
-FOUNDATION_EXPORT NSDate * _Nullable ODataDateFromString(NSString *string);  // DateTimeOffset or Date
-FOUNDATION_EXPORT NSString *ODataDateTimeOffsetString(NSDate *date);         // UTC, fraction only when there is one
-FOUNDATION_EXPORT NSString *ODataDateString(NSDate *date);                   // the UTC calendar day
-FOUNDATION_EXPORT NSNumber * _Nullable ODataDurationFromString(NSString *string);  // seconds
-FOUNDATION_EXPORT NSString *ODataDurationString(double seconds);
-FOUNDATION_EXPORT NSData * _Nullable ODataDataFromBase64(NSString *string);  // base64url or base64
-FOUNDATION_EXPORT NSString *ODataBase64URLString(NSData *data);
+ODATAKIT_EXPORT NSDate * _Nullable ODataDateFromString(NSString *string);  // DateTimeOffset or Date
+ODATAKIT_EXPORT NSString *ODataDateTimeOffsetString(NSDate *date);         // UTC, fraction only when there is one
+ODATAKIT_EXPORT NSString *ODataDateString(NSDate *date);                   // the UTC calendar day
+ODATAKIT_EXPORT NSNumber * _Nullable ODataDurationFromString(NSString *string);  // seconds
+ODATAKIT_EXPORT NSString *ODataDurationString(double seconds);
+ODATAKIT_EXPORT NSData * _Nullable ODataDataFromBase64(NSString *string);  // base64url or base64
+ODATAKIT_EXPORT NSString *ODataBase64URLString(NSData *data);
 // An enumeration value's number, from member names and numbers
 // ("Red,Blue", "Red, 4"); nil for text that is neither.
-FOUNDATION_EXPORT NSNumber * _Nullable ODataEnumValue(ODataSchemaEnumType *type, NSString *text);
+ODATAKIT_EXPORT NSNumber * _Nullable ODataEnumValue(ODataSchemaEnumType *type, NSString *text);
 // A number as its canonical text: the member with that value, or for
 // flags, the members whose bits make it up, in declaration order; a value
 // no member names stays a number. One value, one text, so an enumeration
 // kept as text compares as its values do.
-FOUNDATION_EXPORT NSString *ODataEnumText(ODataSchemaEnumType *type, NSNumber *value);
+ODATAKIT_EXPORT NSString *ODataEnumText(ODataSchemaEnumType *type, NSNumber *value);
 // A type name from @odata.type: "#NS.Type", "NS.Type", or a context URL
 // ending in "#NS.Type", as NS.Type.
-FOUNDATION_EXPORT NSString *ODataTypeNameFromControlInformation(NSString *value);
+ODATAKIT_EXPORT NSString *ODataTypeNameFromControlInformation(NSString *value);
 // The bytes JSON (dictionaries, arrays, strings, numbers, null) takes as
 // NSJSONSerialization writes it, at most: strings as UTF-8 with what it
 // escapes, read a chunk at a time (a file's base64 is not copied to be
 // measured). For a page or a batch kept to a size, without writing it twice.
-FOUNDATION_EXPORT NSUInteger ODataJSONByteCount(id json);
+ODATAKIT_EXPORT NSUInteger ODataJSONByteCount(id json);
 
 NS_ASSUME_NONNULL_END

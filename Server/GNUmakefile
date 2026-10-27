@@ -27,13 +27,22 @@ TOOL_LIBS_ALL = -lODataSync -lODataIncrementalStore -lODataService -lHTTPServerK
 
 TOOL_NAME = ois-serve ois-serve-check catalog-server odatakit-permissions
 ois-serve_OBJC_FILES = ois-serve.m
-ois-serve-check_OBJC_FILES = Tests/ois-serve-check.m
+ois-serve-check_OBJC_FILES = Tests/ois-serve-check.m Tests/$(OIS_SOCKETS)/OISSockets.m
+# The check's loopback sockets (Tests/OISSockets.h): Winsock on Windows.
+ifneq ($(filter mingw% windows%,$(GNUSTEP_TARGET_OS)),)
+OIS_SOCKETS = windows
+OIS_SOCKETS_LIBS = -lws2_32
+else
+OIS_SOCKETS = posix
+OIS_SOCKETS_LIBS =
+endif
 catalog-server_OBJC_FILES = Examples/CatalogServer.m
 odatakit-permissions_OBJC_FILES = odatakit-permissions.m
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_INCLUDE_DIRS = $(INCLUDE_DIRS)))
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_OBJCFLAGS = $(FLAGS)))
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_LIB_DIRS = -L../obj))
 $(foreach tool,$(TOOL_NAME),$(eval $(tool)_TOOL_LIBS = $(TOOL_LIBS_ALL)))
+ois-serve-check_TOOL_LIBS += $(OIS_SOCKETS_LIBS)
 
 include $(GNUSTEP_MAKEFILES)/tool.make
 
@@ -42,7 +51,7 @@ obj/Catalog.momd: ../Examples/Catalog/Catalog.xcdatamodeld
 	rm -rf $@ && momc $< $@
 
 check:: all obj/Catalog.momd
-	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/ois-serve-check obj/Catalog.momd
-	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Examples/Catalog.permissions.plist
-	! LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" ./obj/odatakit-permissions check obj/Catalog.momd Tests/Unfit.permissions.plist
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/ois-serve-check obj/Catalog.momd
+	LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/odatakit-permissions check obj/Catalog.momd Examples/Catalog.permissions.plist
+	! LD_LIBRARY_PATH="$(CURDIR)/../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../obj:$$PATH" ./obj/odatakit-permissions check obj/Catalog.momd Tests/Unfit.permissions.plist
 

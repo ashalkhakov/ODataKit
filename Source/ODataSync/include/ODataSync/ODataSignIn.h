@@ -101,10 +101,16 @@ typedef NS_ENUM(NSInteger, ODataSignInKind) {
 - (void)send:(NSURLRequest *)request done:(void (^)(NSData *_Nullable data, NSHTTPURLResponse *_Nullable response, NSError *_Nullable error))done;
 @end
 
-FOUNDATION_EXPORT NSString * const ODataSignInErrorDomain;
+/* ODataSync's own: exported where ODataSync is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASYNC_EXPORT
+#define ODATASYNC_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATASYNC_EXPORT NSString * const ODataSignInErrorDomain;
 
 // PKCE's S256 challenge of a verifier (RFC 7636): sent with the device
 // flow, which some providers ask for (Keycloak, with PKCE set on the client).
-FOUNDATION_EXPORT NSString *ODataSignInChallengeOfVerifier(NSString *verifier);
+ODATASYNC_EXPORT NSString *ODataSignInChallengeOfVerifier(NSString *verifier);
 
 NS_ASSUME_NONNULL_END

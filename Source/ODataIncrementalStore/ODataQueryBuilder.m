@@ -650,9 +650,9 @@ static NSString *OISGroupedLiteral(id value)
   if (!value || value == [NSNull null]) return @"null";
   if ([value isKindOfClass:[NSString class]]) return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
   if (![value isKindOfClass:[NSNumber class]]) return nil;
-  const char *type = [value objCType];
-  // A boolean, as @YES and predicateWithFormat:'s YES are.
-  if (type && (!strcmp(type, "c") || !strcmp(type, "B")) && ![value isKindOfClass:[NSDecimalNumber class]]) {
+  // A boolean, as @YES and predicateWithFormat:'s YES are: of @YES's class
+  // (as ODataValue tells it), not by a type a small integer can share.
+  if ([value isKindOfClass:[@YES class]]) {
     return [value boolValue] ? @"true" : @"false";
   }
   if ([value isKindOfClass:[NSDecimalNumber class]]) return [value description];

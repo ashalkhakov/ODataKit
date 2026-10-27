@@ -46,10 +46,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSDictionary *)JSONObject;
 @end
 
-FOUNDATION_EXPORT NSString * const ODataMessagesAnnotation;  // @"@Org.OData.Core.V1.Messages"
+/* ODataKit's own: exported where ODataKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATAKIT_EXPORT
+#define ODATAKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATAKIT_EXPORT NSString * const ODataMessagesAnnotation;  // @"@Org.OData.Core.V1.Messages"
 
 // The same, for JSON already parsed, from a payload of this OData-Version.
-FOUNDATION_EXPORT id ODataNormalizedControlInformation(id json, NSString * _Nullable version);
+ODATAKIT_EXPORT id ODataNormalizedControlInformation(id json, NSString * _Nullable version);
 
 // One request on its way, and once it is done, how it went. Whoever
 // starts an exchange gives it a target and an action; -finish sends the
@@ -96,6 +102,6 @@ FOUNDATION_EXPORT id ODataNormalizedControlInformation(id json, NSString * _Null
 // Foundation has it (Apple, and gnustep-base built with libcurl), else
 // NSURLConnection on a thread of its own. For a transport that wraps the
 // network (one that logs, say) to hand exchanges on to.
-FOUNDATION_EXPORT id<ODataTransport> ODataDefaultTransport(void);
+ODATAKIT_EXPORT id<ODataTransport> ODataDefaultTransport(void);
 
 NS_ASSUME_NONNULL_END

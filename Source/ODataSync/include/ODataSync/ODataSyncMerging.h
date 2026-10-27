@@ -30,8 +30,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/* ODataSync's own: exported where ODataSync is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASYNC_EXPORT
+#define ODATASYNC_EXPORT FOUNDATION_EXPORT
+#endif
+
 // userInfo key on a Binary attribute: the merger's name.
-FOUNDATION_EXPORT NSString * const ODataSyncMergeKey;   // @"ODataSync.merge"
+ODATASYNC_EXPORT NSString * const ODataSyncMergeKey;   // @"ODataSync.merge"
 
 @protocol ODataSyncMerging <NSObject>
 // What a state has seen (nil: nothing).

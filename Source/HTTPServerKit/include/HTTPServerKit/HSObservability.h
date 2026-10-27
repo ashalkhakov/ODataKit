@@ -65,9 +65,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // The version the build says (HTTPSERVERKIT_VERSION when compiled), for
 // httpserverkit_build_info and logs.
-FOUNDATION_EXPORT NSString * const HSVersion;
+HTTPSERVERKIT_EXPORT NSString * const HSVersion;
 
 #pragma mark - Trace context
 
@@ -85,9 +91,9 @@ FOUNDATION_EXPORT NSString * const HSVersion;
 // traceparent to send on to what it calls (HSTraceparentKey); a mounted
 // service's handlers see it as the request's traceparent header. The
 // access log writes the trace id.
-FOUNDATION_EXPORT NSString * const HSTraceIDKey;
-FOUNDATION_EXPORT NSString * const HSSpanIDKey;
-FOUNDATION_EXPORT NSString * const HSTraceparentKey;
+HTTPSERVERKIT_EXPORT NSString * const HSTraceIDKey;
+HTTPSERVERKIT_EXPORT NSString * const HSSpanIDKey;
+HTTPSERVERKIT_EXPORT NSString * const HSTraceparentKey;
 @class OTTracer;
 @interface HSTraceContextStage : HSStage
 // Default: HTTPServerKit's, from the shared provider.

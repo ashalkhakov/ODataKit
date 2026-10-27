@@ -36,7 +36,7 @@ include $(GNUSTEP_MAKEFILES)/tool.make
 
 NORTHWIND = https://services.odata.org/V4/Northwind/Northwind.svc/
 TRIPPIN = https://services.odata.org/V4/TripPinServiceRW/
-RUN = LD_LIBRARY_PATH="$(CURDIR)/../../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"
+RUN = LD_LIBRARY_PATH="$(CURDIR)/../../obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/../../obj:$$PATH"
 
 .PHONY: live classes Catalog.momd Northwind.momd TripPin.momd NorthwindGenerated.momd
 Catalog.momd: ../../Examples/Catalog/Catalog.xcdatamodeld

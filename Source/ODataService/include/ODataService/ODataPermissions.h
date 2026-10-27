@@ -48,6 +48,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
-FOUNDATION_EXPORT NSErrorDomain const ODataPermissionsErrorDomain;
+/* ODataService's own: exported where ODataService is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef ODATASERVICE_EXPORT
+#define ODATASERVICE_EXPORT FOUNDATION_EXPORT
+#endif
+
+ODATASERVICE_EXPORT NSErrorDomain const ODataPermissionsErrorDomain;
 
 NS_ASSUME_NONNULL_END

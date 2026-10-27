@@ -266,11 +266,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (int)run;
 @end
 
+/* HTTPServerKit's own: exported where HTTPServerKit is built for Windows (its
+   GNUmakefile), imported everywhere else, as FOUNDATION_EXPORT. */
+#ifndef HTTPSERVERKIT_EXPORT
+#define HTTPSERVERKIT_EXPORT FOUNDATION_EXPORT
+#endif
+
 // What an application's main can be: the settings from the command line
 // (into applicationClass's configuration class); the bundles they name
 // loaded; the application made (of applicationClass, or of the one bundle
 // whose principal class is its subclass), the other bundles' principal
 // classes its bundleClasses; then run. Exits 1 for settings it cannot use.
-FOUNDATION_EXPORT int HSMain(int argc, const char *_Nonnull argv[_Nonnull], Class applicationClass);
+HTTPSERVERKIT_EXPORT int HSMain(int argc, const char *_Nonnull argv[_Nonnull], Class applicationClass);
 
 NS_ASSUME_NONNULL_END

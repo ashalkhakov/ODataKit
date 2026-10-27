@@ -42,6 +42,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) NSTimeInterval keepAliveTimeout;
 @property (nonatomic) NSUInteger maxRequestsPerConnection;
 
+// How many connections may wait to be accepted (listen's backlog). Past it
+// Windows refuses a connection outright where Linux and macOS let it wait,
+// so it is sized for a burst of clients at once. Default: 128.
+@property (nonatomic) NSUInteger maxPendingConnections;
+
 // Starts listening; port 0 asks the system for a free one. Handlers run on
 // dispatch queues, so the caller need not run a run loop.
 - (BOOL)startOnPort:(NSUInteger)port error:(NSError **)error;
@@ -54,6 +59,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (atomic, readonly) NSUInteger requestsInFlight;
 // Requests answered since it started.
 @property (atomic, readonly) NSUInteger requestsAnswered;
+
+// This machine's IPv4 address on its primary network, which others on that
+// network reach a server listening on every address by; nil for none.
++ (nullable NSString *)primaryAddress;
 
 @end
 

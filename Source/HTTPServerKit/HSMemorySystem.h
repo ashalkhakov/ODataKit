@@ -8,6 +8,7 @@
 //   apple/   nothing: the system's allocator hands freed pages back itself
 //   linux/   glibc's malloc: fewer arenas, and what they keep freed handed
 //            back
+//   windows/ the C runtime's heap: no arenas; what it keeps freed handed back
 //
 // Private to HSApplication.
 
