@@ -7201,7 +7201,7 @@ static NSDate *OISDay(NSString *day)
   for (int i = 0; i < 200; i++) {
     response = [self send:@"GET" path:path headers:headers body:nil];
     if (response.status != 202) break;
-    usleep(10000);
+    [NSThread sleepForTimeInterval:0.01];
   }
   return response;
 }

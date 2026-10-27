@@ -72,11 +72,14 @@ HS_MEMORY_SYSTEM = windows
 ODS_SYSTEM = windows
 ODS_DISCOVERY = Source/ODataSync/windows/ODataSyncPeerDiscovery.m
 ODS_SYSTEM_LIBS =
+ODATAKIT_PEERS =
 else
 HS_MEMORY_SYSTEM = linux
 ODS_SYSTEM = linux
 ODS_DISCOVERY = Source/ODataSync/ODataSyncPeerDiscovery.m
 ODS_SYSTEM_LIBS = -lcurl $(DNSSD_LIBS)
+# The Device app, which syncs with devices nearby, and its check.
+ODATAKIT_PEERS = Examples/DeviceDesktop
 endif
 
 # The version httpserverkit_build_info says.
@@ -344,8 +347,8 @@ after-uninstall::
 # (Tools/), the example apps and the server's tools (Server/); the tools,
 # the Workbench, the Device app, the launcher that chooses between them,
 # and the server's tools installed beside the libraries.
-ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
-ODATAKIT_INSTALLED = Tools Examples/Workbench Examples/DeviceDesktop Examples/Launcher Server
+ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench $(ODATAKIT_PEERS) Examples/Launcher Server
+ODATAKIT_INSTALLED = Tools Examples/Workbench $(ODATAKIT_PEERS) Examples/Launcher Server
 
 after-all::
 	@for part in $(ODATAKIT_PARTS); do $(MAKE) -C $$part || exit 1; done
@@ -389,5 +392,7 @@ check::
 	$(MAKE) -C Tests/Live live || echo "::warning::the live service checks failed (services.odata.org)"
 	cd Examples/Workbench && $(ODATAKIT_RUN) $(XVFB) ./Workbench.app/Workbench --self-test \
 	  || echo "::warning::the Workbench's online self-test failed"
-	$(ODATAKIT_RUN) XVFB="$(XVFB)" Scripts/peer-sync-check.sh \
-	  Examples/Workbench/Workbench.app/Workbench Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop
+	@if [ -n "$(ODATAKIT_PEERS)" ]; then \
+	  $(ODATAKIT_RUN) XVFB="$(XVFB)" Scripts/peer-sync-check.sh \
+	    Examples/Workbench/Workbench.app/Workbench Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop || exit 1; \
+	else echo "check: devices nearby are not synced with here yet: the peer sync check is skipped"; fi
