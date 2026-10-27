@@ -4,6 +4,8 @@
 //
 //   apple/   Security, Network.framework, URLSession (the Xcode project)
 //   linux/   GnuTLS, libcurl (the GNUmakefiles)
+//   windows/ GnuTLS and Windows' own files; devices nearby not yet (each
+//            peer piece says so), and its own ODataSyncPeerDiscovery
 //
 // Each directory also has the system's ODataSyncPeerListener. Nothing
 // outside them asks which system it is on.

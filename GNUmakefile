@@ -67,8 +67,16 @@ HTTPServerKit_CPPFLAGS += -D_POSIX_THREAD_SAFE_FUNCTIONS
 HTTPServerKit_LIBRARIES_DEPEND_UPON += -ldl -lpthread -lz
 ODataService_LIBRARIES_DEPEND_UPON += -ldl
 HS_MEMORY_SYSTEM = windows
+# ODataSync syncs with a server there, not yet with devices nearby
+# (Source/ODataSync/windows): no libcurl, no dns_sd.
+ODS_SYSTEM = windows
+ODS_DISCOVERY = Source/ODataSync/windows/ODataSyncPeerDiscovery.m
+ODS_SYSTEM_LIBS =
 else
 HS_MEMORY_SYSTEM = linux
+ODS_SYSTEM = linux
+ODS_DISCOVERY = Source/ODataSync/ODataSyncPeerDiscovery.m
+ODS_SYSTEM_LIBS = -lcurl $(DNSSD_LIBS)
 endif
 
 # The version httpserverkit_build_info says.
@@ -258,7 +266,7 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODSVersions.m \
 	Source/ODataSync/ODataSyncChange.m \
 	Source/ODataSync/ODataSyncEngine.m \
-	Source/ODataSync/ODataSyncPeerDiscovery.m \
+	$(ODS_DISCOVERY) \
 	Source/ODataSync/ODataSyncPeerIdentity.m \
 	Source/ODataSync/ODataSyncPeerServer.m \
 	Source/ODataSync/ODataSyncPeerTokens.m \
@@ -267,10 +275,10 @@ ODataSync_OBJC_FILES = \
 	Source/ODataSync/ODataSyncPeerTrust.m \
 	Source/ODataSync/ODataSyncRemote.m \
 	Source/ODataSync/ODataSyncService.m \
-	Source/ODataSync/linux/ODSSystem.m \
-	Source/ODataSync/linux/ODSSystemIdentity.m \
-	Source/ODataSync/linux/ODSSystemPeerClient.m \
-	Source/ODataSync/linux/ODataSyncPeerListener.m
+	Source/ODataSync/$(ODS_SYSTEM)/ODSSystem.m \
+	Source/ODataSync/$(ODS_SYSTEM)/ODSSystemIdentity.m \
+	Source/ODataSync/$(ODS_SYSTEM)/ODSSystemPeerClient.m \
+	Source/ODataSync/$(ODS_SYSTEM)/ODataSyncPeerListener.m
 
 ODataSync_HEADER_FILES = \
 	ODataSync.h \
@@ -298,7 +306,7 @@ DNSSD_LIBS := $(shell pkg-config --libs avahi-compat-libdns_sd 2>/dev/null || ec
 ODataSync_INCLUDE_DIRS = $(OIS_INCLUDE_DIRS) -ISource/ODataSync $(DNSSD_CFLAGS)
 ODataSync_LIB_DIRS = -L./obj
 ODataSync_LIBRARIES_DEPEND_UPON += -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch \
-	-lgnutls -lcurl $(DNSSD_LIBS)
+	-lgnutls $(ODS_SYSTEM_LIBS)
 ODataSync_OBJCFLAGS += $(OIS_OBJCFLAGS)
 ODataSync_CFLAGS += -fblocks
 
