@@ -4035,6 +4035,44 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   return [response.json[@"value"] valueForKey:@"ProductID"];
 }
 
+// An integer property compared with a number that is no whole number, as
+// OData compares them (as decimals): alike in memory and in SQLite, which
+// would make 2.5 the column's type, 2.
+- (void)testIntegersComparedWithFractions
+{
+  for (NSString *storeType in @[ NSInMemoryStoreType, NSSQLiteStoreType ]) {
+    [self serveModel:OISCatalogModel() storeType:storeType];
+    // IDs 1 to 5.
+    NSDictionary *expected = @{
+      @"ProductID lt 2.5": @[ @1, @2 ],
+      @"ProductID le 2.5": @[ @1, @2 ],
+      @"ProductID gt 2.5": @[ @3, @4, @5 ],
+      @"ProductID ge 2.5": @[ @3, @4, @5 ],
+      @"ProductID eq 2.5": @[],
+      @"ProductID ne 2.5": @[ @1, @2, @3, @4, @5 ],
+      @"ProductID lt 3.0": @[ @1, @2 ],
+      @"ProductID gt -0.5": @[ @1, @2, @3, @4, @5 ],
+      @"ProductID lt -0.5": @[],
+      @"ProductID gt 4.99999999999999999999": @[ @5 ],
+      @"2.5 gt ProductID": @[ @1, @2 ],
+      @"cast(ProductID,Edm.Double) lt 2.5": @[ @1, @2 ],
+      @"cast(ProductID,Edm.Decimal) ge 2.5": @[ @3, @4, @5 ],
+      @"cast(ProductID,Edm.Double) eq 2.5": @[],
+      @"ProductID in (2.5,3)": @[ @3 ],
+      @"ProductID in (2.5,2.75)": @[],
+      @"cast(ProductID,Edm.Double) in (2.5,3)": @[ @3 ],
+      @"ProductID lt INF": @[ @1, @2, @3, @4, @5 ],
+      @"ProductID gt INF": @[],
+      @"ProductID gt -INF": @[ @1, @2, @3, @4, @5 ],
+      @"ProductID eq NaN": @[],
+      @"ProductID ne NaN": @[ @1, @2, @3, @4, @5 ],
+    };
+    for (NSString *filter in [expected.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+      XCTAssertEqualObjects([self productIDsWhere:filter], expected[filter], @"%@, %@", filter, storeType);
+    }
+  }
+}
+
 // Casts to a primitive type that holds every value of the property's own
 // (Part 2 section 5.1.1.10.1); the rest depend on rounding or on text.
 - (void)testPrimitiveCastsInFilters
