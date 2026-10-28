@@ -45,6 +45,9 @@ typedef NS_ENUM(NSInteger, OISTermKind) {
 // NSNumbers (Apple's SQLite store compares a computed value with an
 // NSDecimalNumber as text).
 @property (nonatomic) BOOL computed;
+// A widening cast of an integer attribute: what the store holds is whole
+// numbers still (OISHoldsIntegers).
+@property (nonatomic) BOOL castOfIntegers;
 @end
 
 @implementation OISTerm
@@ -334,6 +337,11 @@ static BOOL OISWidens(NSString *from, NSString *to)
   return [wider[from] containsObject:to];
 }
 
+static BOOL OISIsIntegerType(NSAttributeType type)
+{
+  return type == NSInteger16AttributeType || type == NSInteger32AttributeType || type == NSInteger64AttributeType;
+}
+
 // A property's value as a primitive type that holds every value of its
 // own: itself, compared as the wider type. Another cast (a narrowing one,
 // which the spec rounds as it sees fit, or to and from strings) is 501.
@@ -354,6 +362,7 @@ static BOOL OISWidens(NSString *from, NSString *to)
   t.nullables = base.nullables;
   // Untyped by the attribute: 2.5 is a Decimal here, compared as a plain number.
   t.computed = YES;
+  t.castOfIntegers = OISIsIntegerType(base.attribute.attributeType);
   t.wireName = [NSString stringWithFormat:@"cast(%@,%@)", base.wireName ?: @"", type];
   return t;
 }
@@ -1031,6 +1040,72 @@ static NSString *OISConstantString(OISTerm *t)
   return [self fail:400 message:[NSString stringWithFormat:@"%@ has no property %@", self.root.name, name]];
 }
 
+// A term whose values the store holds as whole numbers: an integer
+// attribute, as it is or widened by a cast.
+static BOOL OISHoldsIntegers(OISTerm *t)
+{
+  if (t.kind != OISTermValue || !t.keyPath || t.expression || t.caseFunction || t.stepFunction) return NO;
+  return t.castOfIntegers || OISIsIntegerType(t.attribute.attributeType);
+}
+
+// A number literal that is no whole number: one with a fraction, or INF,
+// -INF or NaN; nil otherwise. As a decimal, for its digits (an Int64's
+// worth, and more).
+static NSDecimalNumber *OISFraction(ODataExpression *literal)
+{
+  id value = literal.value;
+  if (![value isKindOfClass:[NSNumber class]] || [literal.literalType isEqualToString:@"Edm.Boolean"]) return nil;
+  double x = [value doubleValue];
+  if (isnan(x) || isinf(x)) return [NSDecimalNumber notANumber];
+  NSDecimalNumber *d = [value isKindOfClass:[NSDecimalNumber class]] ? value : [NSDecimalNumber decimalNumberWithDecimal:[value decimalValue]];
+  NSDecimalNumberHandler *down = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:NSRoundDown scale:0 raiseOnExactness:NO
+                                                                              raiseOnOverflow:NO raiseOnUnderflow:NO raiseOnDivideByZero:NO];
+  return [[d decimalNumberByRoundingAccordingToBehavior:down] isEqualToNumber:d] ? nil : d;
+}
+
+// An integer property compared with a number that is no whole number. A
+// SQL store (Apple's SQLite as FreeCoreData's) makes the number the
+// column's type, 2.5 then being 2, and the literal typed by the attribute
+// is 2 everywhere: so the comparison is put as the same one with a whole
+// number, which every store answers alike (x lt 2.5: x lt 3), or as what
+// it always is (x eq 2.5: never). OData compares them as decimals.
+- (NSPredicate *)integers:(OISTerm *)l type:(NSPredicateOperatorType)type fraction:(ODataExpression *)literal
+{
+  double x = [literal.value doubleValue];
+  BOOL below = NO, above = NO;  // every value is below it (INF), above it (-INF)
+  NSNumber *floor = nil;
+  if (isnan(x)) {
+    return [NSPredicate predicateWithValue:type == NSNotEqualToPredicateOperatorType];
+  } else if (isinf(x)) {
+    below = x > 0;
+    above = x < 0;
+  } else {
+    NSDecimalNumber *d = OISFraction(literal);
+    NSDecimalNumberHandler *down = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:NSRoundDown scale:0 raiseOnExactness:NO
+                                                                                raiseOnOverflow:NO raiseOnUnderflow:NO raiseOnDivideByZero:NO];
+    NSDecimalNumber *f = [d decimalNumberByRoundingAccordingToBehavior:down];
+    // NSRoundDown is toward zero for some: -2.5's floor is -3.
+    if ([f compare:d] == NSOrderedDescending) f = [f decimalNumberBySubtracting:[NSDecimalNumber one]];
+    if ([f compare:@(LLONG_MAX)] != NSOrderedAscending) below = YES;
+    else if ([f compare:@(LLONG_MIN)] == NSOrderedAscending) above = YES;
+    else floor = @([f longLongValue]);
+  }
+  switch (type) {
+    case NSEqualToPredicateOperatorType: return [NSPredicate predicateWithValue:NO];
+    case NSNotEqualToPredicateOperatorType: return [NSPredicate predicateWithValue:YES];
+    case NSLessThanPredicateOperatorType:
+    case NSLessThanOrEqualToPredicateOperatorType:
+      if (below || above) return [NSPredicate predicateWithValue:below];
+      return OISCompare([self pathExpression:l], NSLessThanOrEqualToPredicateOperatorType, [NSExpression expressionForConstantValue:floor], 0);
+    case NSGreaterThanPredicateOperatorType:
+    case NSGreaterThanOrEqualToPredicateOperatorType:
+      if (below || above) return [NSPredicate predicateWithValue:above];
+      return OISCompare([self pathExpression:l], NSGreaterThanPredicateOperatorType, [NSExpression expressionForConstantValue:floor], 0);
+    default:
+      return nil;
+  }
+}
+
 - (NSPredicate *)compare:(NSString *)op left:(ODataExpression *)left right:(ODataExpression *)right
 {
   NSArray *dynamicLeft = [self dynamicPathOf:left];
@@ -1555,6 +1630,10 @@ static const NSUInteger OISMaxDateRanges = 200;
       return [self fail:400 message:[NSString stringWithFormat:@"%@ is a collection: use any, all or $count", side.wireName]];
     }
   }
+  if (r.kind == OISTermLiteral && OISHoldsIntegers(l) && OISFraction(r.literal)) {
+    NSPredicate *whole = [self integers:l type:type fraction:r.literal];
+    if (whole) return whole;
+  }
   NSExpression *le = [self valueExpression:l typedBy:r];
   NSExpression *re = le ? [self valueExpression:r typedBy:l] : nil;
   if (!re) return nil;
@@ -1679,15 +1758,19 @@ static const NSUInteger OISMaxDateRanges = 200;
     return [self guarded:[self nullSafe:any terms:@[ l ] type:NSInPredicateOperatorType] terms:@[ l ] whenNull:NO];
   }
   NSMutableArray *values = [NSMutableArray array];
+  BOOL integers = OISHoldsIntegers(l);
   for (ODataExpression *item in list.arguments) {
     ODataExpression *value = [self resolve:item];
     if (!value) return nil;
     if (value.kind != ODataExpressionLiteral) return [self unsupported:@"in with anything but a list of values"];
+    // An integer property is no number with a fraction (comparison:).
+    if (integers && OISFraction(value)) continue;
     BOOL ok;
     id typed = [self valueOfLiteral:value attribute:l.attribute ok:&ok];
     if (!ok) return nil;
     [values addObject:typed ?: [NSNull null]];
   }
+  if (!values.count) return [NSPredicate predicateWithValue:NO];
   NSPredicate *p = OISCompare([self valueExpression:l typedBy:nil], NSInPredicateOperatorType,
                               [NSExpression expressionForConstantValue:values], 0);
   if (![values containsObject:[NSNull null]]) p = [self nullSafe:p terms:@[ l ] type:NSInPredicateOperatorType];
