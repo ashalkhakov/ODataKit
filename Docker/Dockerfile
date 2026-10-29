@@ -26,7 +26,9 @@
 # What it builds on is what CI builds on: the releases .github/pins.env names
 # (the GNUstep stack, FreeCoreData, GCDWebServer), each an archive unpacked
 # at /. gnustep-release-actions' docker.yml passes their versions as build
-# arguments of the same names; built by hand, pins.env's are taken.
+# arguments of the same names; built by hand, pins.env's are taken. The
+# parts of them pins.env names (FREECOREDATA_PARTS: the PostgreSQL and MySQL
+# stores) are archives of their own, fetched after, as deps.sh fetches them.
 
 # The runtime image is the same Ubuntu the archives are built on, so its
 # libraries are the ones built against.
@@ -51,8 +53,11 @@ RUN set -e; \
       eval "version=\${${name}_VERSION:-}"; \
       [ -n "$version" ] || version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
       repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
-      curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz" \
-        | tar -C / -xJ; \
+      parts=$(sed -n "s/^${name}_PARTS=\"*\([^\"]*\)\"*$/\1/p" /tmp/pins.env); \
+      for archive in "$repo" $(for part in $parts; do echo "$repo-$part"; done); do \
+        curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$archive-$version-ubuntu22.04-$(uname -m).tar.xz" \
+          | tar -C / -xJ; \
+      done; \
     done; \
     grep -v '^#' /opt/gnustep/share/gnustep-patches/packages-ubuntu.txt \
       | xargs apt-get install -y --no-install-recommends libsqlite3-dev libpq-dev libmariadb-dev libavahi-compat-libdnssd-dev; \
