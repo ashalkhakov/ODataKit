@@ -143,6 +143,36 @@
   XCTAssertNil([mapper dynamicPropertiesAttributeOfEntity:closedModel.entitiesByName[@"Person"]]);
 }
 
+// The mapper keeps the wire names it worked out (a read asks for them for
+// every row); what names them, set again, renames them.
+- (void)testWireNamesFollowTheMappersSettings
+{
+  NSEntityDescription *product = [[NSEntityDescription alloc] init], *category = [[NSEntityDescription alloc] init];
+  product.name = @"Product";
+  category.name = @"Category";
+  NSAttributeDescription *price = [[NSAttributeDescription alloc] init];
+  price.name = @"unitPrice";
+  price.attributeType = NSDoubleAttributeType;
+  NSRelationshipDescription *kind = [[NSRelationshipDescription alloc] init];
+  kind.name = @"category";
+  kind.destinationEntity = category;
+  kind.maxCount = 1;
+  product.properties = @[ price, kind ];
+  ODataPropertyMapper *mapper = [[ODataPropertyMapper alloc] init];
+  XCTAssertEqualObjects([mapper propertyForAttribute:price], @"UnitPrice");
+  XCTAssertEqual([mapper propertyForWireName:@"UnitPrice" entity:product], price);
+  XCTAssertEqual([mapper propertyForWireName:@"Category" entity:product], kind);
+
+  mapper.naming = ODataPropertyNamingAsIs;
+  XCTAssertEqualObjects([mapper propertyForAttribute:price], @"unitPrice", @"renamed");
+  XCTAssertNil([mapper propertyForWireName:@"UnitPrice" entity:product]);
+  XCTAssertEqual([mapper propertyForWireName:@"unitPrice" entity:product], price);
+
+  mapper.servedEntityNames = [NSSet setWithObject:@"Product"];
+  XCTAssertNil([mapper propertyForWireName:@"category" entity:product], @"to an entity not served: no navigation");
+  XCTAssertEqual([mapper propertyForWireName:@"unitPrice" entity:product], price);
+}
+
 - (void)testVersionIdentifierFollowsTheSchema
 {
   NSString *v1 = [ODataModelBuilder versionIdentifierForSchema:_zoo];

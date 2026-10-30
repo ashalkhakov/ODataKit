@@ -1902,6 +1902,84 @@ static const NSUInteger OISMaxDateRanges = 200;
   return build;
 }
 
+// TRUEPREDICATE or FALSEPREDICATE: 1 or 0; anything else -1.
+static NSInteger OISConstantOf(NSPredicate *p)
+{
+  if ([p isKindOfClass:[NSCompoundPredicate class]] || [p isKindOfClass:[NSComparisonPredicate class]]) return -1;
+  NSString *format = p.predicateFormat;
+  return [format isEqualToString:@"TRUEPREDICATE"] ? 1 : [format isEqualToString:@"FALSEPREDICATE"] ? 0 : -1;
+}
+
+static NSPredicate *OISSimplified(NSPredicate *p);
+
+// A lambda's count:(SUBQUERY(...)), its predicate simplified: of none,
+// 0; of every member, the collection's count (as any() is).
+static NSExpression *OISSimplifiedExpression(NSExpression *e)
+{
+  if (e.expressionType == NSSubqueryExpressionType) {
+    NSPredicate *inner = OISSimplified(e.predicate);
+    return inner == e.predicate ? e : [NSExpression expressionForSubquery:e.collection usingIteratorVariable:e.variable predicate:inner];
+  }
+  if (e.expressionType == NSFunctionExpressionType && [e.function isEqualToString:@"count:"] && e.arguments.count == 1) {
+    NSExpression *argument = OISSimplifiedExpression(e.arguments.firstObject);
+    if (argument.expressionType == NSSubqueryExpressionType && [argument.collection isKindOfClass:[NSExpression class]]) {
+      NSInteger constant = OISConstantOf(argument.predicate);
+      if (constant == 0) return [NSExpression expressionForConstantValue:@0];
+      if (constant == 1) return [NSExpression expressionForFunction:@"count:" arguments:@[ argument.collection ]];
+    }
+    return argument == e.arguments.firstObject ? e : [NSExpression expressionForFunction:@"count:" arguments:@[ argument ]];
+  }
+  return e;
+}
+
+// The predicate without the constants a term can come to (isof of a type
+// the value has, a guard that always holds): x AND TRUEPREDICATE is x,
+// inside a lambda's subquery too, where Apple's SQLite store cannot have
+// one (an unsupported count:(SUBQUERY(...)), 501).
+static NSPredicate *OISSimplified(NSPredicate *p)
+{
+  if ([p isKindOfClass:[NSCompoundPredicate class]]) {
+    NSCompoundPredicate *compound = (NSCompoundPredicate *)p;
+    NSCompoundPredicateType type = compound.compoundPredicateType;
+    NSMutableArray *kept = [NSMutableArray array];
+    BOOL changed = NO;
+    for (NSPredicate *sub in compound.subpredicates) {
+      NSPredicate *simple = OISSimplified(sub);
+      changed = changed || simple != sub;
+      NSInteger constant = OISConstantOf(simple);
+      if (type == NSNotPredicateType) {
+        if (constant >= 0) return [NSPredicate predicateWithValue:!constant];
+      } else if (constant == (type == NSAndPredicateType ? 0 : 1)) {
+        return [NSPredicate predicateWithValue:constant];  // decides it
+      } else if (constant >= 0) {
+        changed = YES;  // changes nothing
+        continue;
+      }
+      [kept addObject:simple];
+    }
+    if (!changed) return p;
+    if (type == NSNotPredicateType) return [NSCompoundPredicate notPredicateWithSubpredicate:kept.firstObject];
+    if (!kept.count) return [NSPredicate predicateWithValue:type == NSAndPredicateType];
+    if (kept.count == 1) return kept.firstObject;
+    return [[NSCompoundPredicate alloc] initWithType:type subpredicates:kept];
+  }
+  if ([p isKindOfClass:[NSComparisonPredicate class]]) {
+    NSComparisonPredicate *comparison = (NSComparisonPredicate *)p;
+    if (comparison.predicateOperatorType == NSCustomSelectorPredicateOperatorType) return p;
+    NSExpression *left = OISSimplifiedExpression(comparison.leftExpression), *right = OISSimplifiedExpression(comparison.rightExpression);
+    if (left == comparison.leftExpression && right == comparison.rightExpression) return p;
+    NSComparisonPredicate *simple = [NSComparisonPredicate predicateWithLeftExpression:left rightExpression:right
+                                                                              modifier:comparison.comparisonPredicateModifier
+                                                                                  type:comparison.predicateOperatorType options:comparison.options];
+    // Two constants (a count of none against 0): what it comes to.
+    if (left.expressionType == NSConstantValueExpressionType && right.expressionType == NSConstantValueExpressionType) {
+      return [NSPredicate predicateWithValue:[simple evaluateWithObject:nil]];
+    }
+    return simple;
+  }
+  return p;
+}
+
 - (NSPredicate *)predicateForExpression:(ODataExpression *)expression
                                  entity:(NSEntityDescription *)entity
                                 aliases:(NSDictionary *)aliases
@@ -1918,7 +1996,7 @@ static const NSUInteger OISMaxDateRanges = 200;
 {
   OISPredicateBuild *build = [self buildForEntity:entity aliases:aliases];
   build.context = context;
-  NSPredicate *predicate = [build predicate:expression];
+  NSPredicate *predicate = OISSimplified([build predicate:expression]);
   if (!predicate && error) *error = build.error ?: ODataServiceError(400, @"The filter does not apply");
   return predicate;
 }
@@ -1938,7 +2016,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   OISPredicateBuild *build = [self buildForEntity:entity aliases:aliases];
   build.spans = spans ?: @{};
   build.computed = computed ?: @{};
-  NSPredicate *predicate = [build predicate:expression];
+  NSPredicate *predicate = OISSimplified([build predicate:expression]);
   if (!predicate && error) *error = build.error ?: ODataServiceError(400, @"The filter does not apply");
   return predicate;
 }
@@ -1963,7 +2041,7 @@ static const NSUInteger OISMaxDateRanges = 200;
   OISPredicateBuild *build = [self buildForEntity:entity aliases:aliases];
   build.context = context;
   build.computed = computed ?: @{};
-  NSPredicate *predicate = [build predicate:expression];
+  NSPredicate *predicate = OISSimplified([build predicate:expression]);
   if (!predicate && error) *error = build.error ?: ODataServiceError(400, @"The filter does not apply");
   return predicate;
 }

@@ -3606,6 +3606,29 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   return [[self employeeNames:response] sortedArrayUsingSelector:@selector(compare:)];
 }
 
+// A lambda's member compared with $it, through casts; one to the type the
+// member has already is always true, which Apple's SQLite store cannot
+// have inside the subquery (#69: 501).
+- (void)testItInALambdaThroughCasts
+{
+  for (NSString *storeType in @[ NSInMemoryStoreType, NSSQLiteStoreType, NSXMLStoreType ]) {
+    [self serveStaffInStoreOfType:storeType];
+    NSDictionary *expected = @{
+      @"Reports/any(r: r/Name ne $it/Name)": @[ @"Ann", @"Bob" ],
+      @"Reports/any(r: isof(r, Default.Manager) and r/Default.Manager/Budget lt $it/Budget)": @[ @"Ann" ],
+      @"Reports/any(r: isof(r, Default.Employee) and r/Name ne $it/Name)": @[ @"Ann", @"Bob" ],
+      @"Reports/any(r: r/Default.Employee/Name ne $it/Name)": @[ @"Ann", @"Bob" ],
+      @"Reports/all(r: isof(r, Default.Employee) or r/Name eq $it/Name)": @[ @"Ann", @"Bob" ],
+    };
+    for (NSString *filter in [expected.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+      NSString *path = [NSString stringWithFormat:@"Employees/Default.Manager?$filter=%@&$select=Name&$orderby=Name", filter];
+      OISServiceResponse *r = [self get:path];
+      XCTAssertEqual(r.status, 200, @"%@, %@: %@", filter, storeType, r.text);
+      XCTAssertEqualObjects([r.json[@"value"] valueForKey:@"Name"], expected[filter], @"%@, %@", filter, storeType);
+    }
+  }
+}
+
 - (void)testTypeCastsAndIsOfInFilters
 {
   // Each store asks an object's type its own way: SQL, or the predicate
