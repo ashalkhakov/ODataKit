@@ -24,7 +24,15 @@ NSString * const ODataUserInfoClosedClosedPeriods = @"OData.closedClosedPeriods"
 NSString * const ODataUserInfoDynamicProperties = @"OData.dynamicProperties";
 NSString * const ODataUserInfoServed = @"OData.served";
 
-@implementation ODataPropertyMapper
+@implementation ODataPropertyMapper {
+  // Wire names, worked out once each (a read writes them for every row):
+  // property -> its name, and entity -> its properties by name. What
+  // names them (the naming, the schema, the served entities) setting
+  // anew forgets them.
+  NSLock *_namesLock;
+  NSMapTable<NSPropertyDescription *, NSString *> *_wireNames;
+  NSMapTable<NSEntityDescription *, NSDictionary<NSString *, NSPropertyDescription *> *> *_propertiesByWireName;
+}
 
 - (instancetype)init
 {
@@ -32,11 +40,36 @@ NSString * const ODataUserInfoServed = @"OData.served";
   if (!self) return nil;
   _naming = ODataPropertyNamingPascalCase;
   _values = [[ODataValueCoder alloc] init];
+  _namesLock = [[NSLock alloc] init];
+  [self forgetNames];
   return self;
+}
+
+- (void)forgetNames
+{
+  [_namesLock lock];
+  _wireNames = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+                                     valueOptions:NSPointerFunctionsStrongMemory];
+  _propertiesByWireName = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+                                                valueOptions:NSPointerFunctionsStrongMemory];
+  [_namesLock unlock];
+}
+
+- (void)setNaming:(ODataPropertyNaming)naming
+{
+  _naming = naming;
+  [self forgetNames];
+}
+
+- (void)setServedEntityNames:(NSSet<NSString *> *)servedEntityNames
+{
+  _servedEntityNames = [servedEntityNames copy];
+  [self forgetNames];
 }
 
 - (void)setSchema:(ODataSchema *)schema
 {
+  [self forgetNames];
   _schema = schema;
   _values.schema = schema;
   __weak ODataPropertyMapper *weakSelf = self;
@@ -384,18 +417,33 @@ static NSError *OISViolation(NSManagedObject *object, NSString *key, NSString *m
   return guess;
 }
 
+// A property's wire name, worked out the first time it is asked for.
+- (NSString *)nameOf:(NSPropertyDescription *)property navigation:(BOOL)navigation
+{
+  if (!property) return nil;
+  [_namesLock lock];
+  NSString *name = [_wireNames objectForKey:property];
+  [_namesLock unlock];
+  if (name) return name;
+  NSString *override = property.userInfo[ODataUserInfoProperty];
+  name = [self schemaName:[override isKindOfClass:[NSString class]] ? override : [self wireName:property.name] inEntity:property.entity
+               navigation:navigation];
+  if (name) {
+    [_namesLock lock];
+    [_wireNames setObject:name forKey:property];
+    [_namesLock unlock];
+  }
+  return name;
+}
+
 - (NSString *)propertyForAttribute:(NSAttributeDescription *)attribute
 {
-  NSString *override = attribute.userInfo[ODataUserInfoProperty];
-  if ([override isKindOfClass:[NSString class]]) return [self schemaName:override inEntity:attribute.entity navigation:NO];
-  return [self schemaName:[self wireName:attribute.name] inEntity:attribute.entity navigation:NO];
+  return [self nameOf:attribute navigation:NO];
 }
 
 - (NSString *)propertyForRelationship:(NSRelationshipDescription *)relationship
 {
-  NSString *override = relationship.userInfo[ODataUserInfoProperty];
-  if ([override isKindOfClass:[NSString class]]) return [self schemaName:override inEntity:relationship.entity navigation:YES];
-  return [self schemaName:[self wireName:relationship.name] inEntity:relationship.entity navigation:YES];
+  return [self nameOf:relationship navigation:YES];
 }
 
 - (BOOL)attributeHoldsDynamicProperties:(NSAttributeDescription *)attribute
@@ -433,18 +481,30 @@ static NSError *OISViolation(NSManagedObject *object, NSString *key, NSString *m
 
 - (NSPropertyDescription *)propertyForWireName:(NSString *)name entity:(NSEntityDescription *)entity
 {
-  for (NSPropertyDescription *property in entity.properties) {
-    NSString *wire = nil;
-    if (![self servesProperty:property]) continue;
-    if ([property isKindOfClass:[NSAttributeDescription class]]) {
-      if ([self attributeHoldsDynamicProperties:(NSAttributeDescription *)property]) continue;
-      wire = [self propertyForAttribute:(NSAttributeDescription *)property];
-    } else if ([property isKindOfClass:[NSRelationshipDescription class]]) {
-      wire = [self propertyForRelationship:(NSRelationshipDescription *)property];
+  if (!entity || !name) return nil;
+  [_namesLock lock];
+  NSDictionary *byName = [_propertiesByWireName objectForKey:entity];
+  [_namesLock unlock];
+  if (!byName) {
+    // The first served property of a name, as the scan in order found it.
+    NSMutableDictionary *built = [NSMutableDictionary dictionary];
+    for (NSPropertyDescription *property in entity.properties) {
+      NSString *wire = nil;
+      if (![self servesProperty:property]) continue;
+      if ([property isKindOfClass:[NSAttributeDescription class]]) {
+        if ([self attributeHoldsDynamicProperties:(NSAttributeDescription *)property]) continue;
+        wire = [self propertyForAttribute:(NSAttributeDescription *)property];
+      } else if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+        wire = [self propertyForRelationship:(NSRelationshipDescription *)property];
+      }
+      if (wire && !built[wire]) built[wire] = property;
     }
-    if ([wire isEqualToString:name]) return property;
+    byName = built;
+    [_namesLock lock];
+    [_propertiesByWireName setObject:byName forKey:entity];
+    [_namesLock unlock];
   }
-  return nil;
+  return byName[name];
 }
 
 - (NSString *)declaredTypeForAttribute:(NSAttributeDescription *)attribute

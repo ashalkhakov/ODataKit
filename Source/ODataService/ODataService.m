@@ -4945,6 +4945,9 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
 // those the service serves; nil when none.
 - (NSEntityDescription *)entityForTypeName:(NSString *)name
 {
+  // As prepared (a read asks for each row's casts).
+  NSEntityDescription *prepared = name ? self.service.predicates.entitiesByTypeName[name] : nil;
+  if (prepared) return prepared;
   for (NSEntityDescription *entity in self.service.writer.entities) {
     if ([[self.service.writer typeNameForEntity:entity] isEqualToString:name]) return entity;
   }
@@ -5129,6 +5132,9 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   NSLock *_jobsLock;
   // When history was last pruned (historyRetention).
   NSDate *_historyPruned;
+  // By entity name, the attributes an ETag hashes, in its order: as
+  // prepared (a read writes one for each row).
+  NSMutableDictionary<NSString *, NSArray<NSAttributeDescription *> *> *_etagAttributes;
 }
 
 - (instancetype)initWithPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)coordinator serviceRoot:(NSURL *)serviceRoot
@@ -5180,14 +5186,8 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
   coder.schema = self.mapper.schema;
   coder.declaredTypeForAttribute = self.mapper.values.declaredTypeForAttribute;
   uint64_t hash = 14695981039346656037ULL;
-  NSArray *names = [object.entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)];
-  for (NSString *name in names) {
-    NSAttributeDescription *attribute = object.entity.attributesByName[name];
-    if (attribute.isTransient) continue;
-    // Streams have ETags of their own. The bag of dynamic properties is
-    // served, as they are.
-    BOOL bag = [self.mapper attributeHoldsDynamicProperties:attribute];
-    if ((!bag && ![self.writer typeNameForAttribute:attribute]) || [self.writer isStreamAttribute:attribute]) continue;
+  for (NSAttributeDescription *attribute in [self etagAttributesOfEntity:object.entity]) {
+    NSString *name = attribute.name;
     id json = [coder JSONForCoreDataValue:[object valueForKey:name] attribute:attribute];
     NSString *text = [NSString stringWithFormat:@"%@=%@;", name, json];
     NSData *bytes = [text dataUsingEncoding:NSUTF8StringEncoding];
@@ -5198,6 +5198,35 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     }
   }
   return [NSString stringWithFormat:@"W/\"%016llx\"", (unsigned long long)hash];
+}
+
+// The attributes an entity's ETag hashes, by name: the persistent ones
+// served, not streams (they have ETags of their own); the bag of dynamic
+// properties is, as they are served.
+- (NSArray<NSAttributeDescription *> *)etagAttributesOfEntity:(NSEntityDescription *)entity
+{
+  NSMutableDictionary *cache;
+  @synchronized (self) {
+    if (!_etagAttributes) _etagAttributes = [NSMutableDictionary dictionary];
+    cache = _etagAttributes;
+  }
+  NSString *key = entity.name ?: @"";
+  @synchronized (cache) {
+    NSArray *known = cache[key];
+    if (known) return known;
+  }
+  NSMutableArray *attributes = [NSMutableArray array];
+  for (NSString *name in [entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    NSAttributeDescription *attribute = entity.attributesByName[name];
+    if (attribute.isTransient) continue;
+    BOOL bag = [self.mapper attributeHoldsDynamicProperties:attribute];
+    if ((!bag && ![self.writer typeNameForAttribute:attribute]) || [self.writer isStreamAttribute:attribute]) continue;
+    [attributes addObject:attribute];
+  }
+  @synchronized (cache) {
+    cache[key] = attributes;
+  }
+  return attributes;
 }
 
 // $metadata from the model, read back as the schema the mapper answers
@@ -5231,6 +5260,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
     ODataSchema *schema = [ODataSchema schemaWithData:[xml dataUsingEncoding:NSUTF8StringEncoding] error:NULL];
     if (schema) self.mapper.schema = schema;
     self.writer = writer;
+    _etagAttributes = nil;  // what this writer serves
     self.predicates = [[ODataPredicateBuilder alloc] initWithMapper:self.mapper];
     NSMutableDictionary *types = [NSMutableDictionary dictionary];
     for (NSEntityDescription *entity in writer.entities) types[[writer typeNameForEntity:entity]] = entity;
