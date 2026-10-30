@@ -253,13 +253,71 @@ static HSRequest *OISHostRequest(NSURLRequest *request)
 static NSString *OISStringFromHistoryToken(NSPersistentHistoryToken *token);
 static BOOL OISHistoryTokenFromString(NSString *string, NSPersistentHistoryToken **token, NSDate **issued);
 
+static void OISEntitiesInPredicate(NSPredicate *predicate, NSMutableSet *entities);
+
+static void OISEntitiesInExpression(NSExpression *expression, NSMutableSet *entities)
+{
+  switch (expression.expressionType) {
+    case NSConstantValueExpressionType: {
+      id value = expression.constantValue;
+      if ([value isKindOfClass:[NSEntityDescription class]]) [entities addObject:value];
+      if ([value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSSet class]]) {
+        for (id member in value) {
+          if ([member isKindOfClass:[NSEntityDescription class]]) [entities addObject:member];
+        }
+      }
+      break;
+    }
+    case NSFunctionExpressionType:
+      OISEntitiesInExpression(expression.operand, entities);
+      for (NSExpression *argument in expression.arguments) OISEntitiesInExpression(argument, entities);
+      break;
+    case NSSubqueryExpressionType:
+      if ([expression.collection isKindOfClass:[NSExpression class]]) OISEntitiesInExpression(expression.collection, entities);
+      OISEntitiesInPredicate(expression.predicate, entities);
+      break;
+    case NSAggregateExpressionType:
+      if ([expression.collection isKindOfClass:[NSArray class]]) {
+        for (NSExpression *member in expression.collection) OISEntitiesInExpression(member, entities);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void OISEntitiesInPredicate(NSPredicate *predicate, NSMutableSet *entities)
+{
+  if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
+    for (NSPredicate *sub in ((NSCompoundPredicate *)predicate).subpredicates) OISEntitiesInPredicate(sub, entities);
+  } else if ([predicate isKindOfClass:[NSComparisonPredicate class]]) {
+    OISEntitiesInExpression(((NSComparisonPredicate *)predicate).leftExpression, entities);
+    OISEntitiesInExpression(((NSComparisonPredicate *)predicate).rightExpression, entities);
+  }
+}
+
+// What a store refused, as a 501. The store's reason describes the
+// predicate, and an entity in it (a type guard's entity IN {...}) by its
+// whole description, properties and all: megabytes for a model of many
+// types. Each is named instead.
+static NSError *OISUnevaluable(NSException *exception, NSFetchRequest *fetchRequest)
+{
+  NSMutableString *reason = [exception.reason ?: @"" mutableCopy];
+  NSMutableSet *entities = [NSMutableSet set];
+  OISEntitiesInPredicate(fetchRequest.predicate, entities);
+  for (NSEntityDescription *entity in entities) {
+    [reason replaceOccurrencesOfString:entity.description withString:entity.name ?: @"?" options:0 range:NSMakeRange(0, reason.length)];
+  }
+  return ODataServiceError(501, [NSString stringWithFormat:@"The store cannot evaluate this: %@", reason]);
+}
+
 static NSArray *OISFetch(NSManagedObjectContext *context, NSFetchRequest *fetchRequest, NSError **error)
 {
   @try {
     return [context executeFetchRequest:fetchRequest error:error];
   } @catch (NSException *exception) {
     if (![exception.name isEqualToString:NSInvalidArgumentException]) @throw;
-    if (error) *error = ODataServiceError(501, [NSString stringWithFormat:@"The store cannot evaluate this: %@", exception.reason]);
+    if (error) *error = OISUnevaluable(exception, fetchRequest);
     return nil;
   }
 }
@@ -561,7 +619,7 @@ static NSArray *OISFetch(NSManagedObjectContext *context, NSFetchRequest *fetchR
     count = [request.context countForFetchRequest:fetchRequest error:&error];
   } @catch (NSException *exception) {
     if (![exception.name isEqualToString:NSInvalidArgumentException]) @throw;
-    error = ODataServiceError(501, [NSString stringWithFormat:@"The store cannot evaluate this: %@", exception.reason]);
+    error = OISUnevaluable(exception, fetchRequest);
   }
   if (count == NSNotFound) {
     [reply failWithError:error];
