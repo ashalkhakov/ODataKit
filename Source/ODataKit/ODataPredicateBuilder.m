@@ -1935,7 +1935,11 @@ static NSExpression *OISSimplifiedExpression(NSExpression *e)
 // The predicate without the constants a term can come to (isof of a type
 // the value has, a guard that always holds): x AND TRUEPREDICATE is x,
 // inside a lambda's subquery too, where Apple's SQLite store cannot have
-// one (an unsupported count:(SUBQUERY(...)), 501).
+// one (an unsupported count:(SUBQUERY(...)), 501). An AND within an AND
+// (or an OR within an OR) is made one: that store narrows a subquery's
+// variable to a type only by an entity IN {...} directly under the
+// subquery's AND, and without it cannot find a property of a subentity
+// (the same 501).
 static NSPredicate *OISSimplified(NSPredicate *p)
 {
   if ([p isKindOfClass:[NSCompoundPredicate class]]) {
@@ -1953,6 +1957,12 @@ static NSPredicate *OISSimplified(NSPredicate *p)
         return [NSPredicate predicateWithValue:constant];  // decides it
       } else if (constant >= 0) {
         changed = YES;  // changes nothing
+        continue;
+      }
+      if (type != NSNotPredicateType && [simple isKindOfClass:[NSCompoundPredicate class]]
+          && ((NSCompoundPredicate *)simple).compoundPredicateType == type) {
+        [kept addObjectsFromArray:((NSCompoundPredicate *)simple).subpredicates];
+        changed = YES;  // (a AND b) AND c is a AND b AND c
         continue;
       }
       [kept addObject:simple];

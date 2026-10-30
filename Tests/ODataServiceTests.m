@@ -3629,6 +3629,104 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   }
 }
 
+// LogBook's fuel filter (#69): a lambda member compared with $it through a
+// property declared two types below the collection's (a FillUp's unit, in
+// a vehicle's Records). Apple's SQLite store finds that property only when
+// the subquery's type guards stand directly under its AND; nested in an
+// AND of their own, it answered 501.
+- (void)testItInALambdaThroughAPropertyTwoTypesDown
+{
+  NSAttributeDescription *(^attribute)(NSString *, NSAttributeType, BOOL) = ^(NSString *name, NSAttributeType type, BOOL key) {
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    a.name = name;
+    a.attributeType = type;
+    a.optional = !key;
+    if (key) a.userInfo = @{ @"OData.key": @"YES" };
+    return a;
+  };
+  NSEntityDescription *(^entity)(NSString *) = ^(NSString *name) {
+    NSEntityDescription *e = [[NSEntityDescription alloc] init];
+    e.name = name;
+    e.managedObjectClassName = @"NSManagedObject";
+    return e;
+  };
+  void (^pair)(NSEntityDescription *, NSString *, NSEntityDescription *, NSString *) =
+      ^(NSEntityDescription *from, NSString *toOne, NSEntityDescription *to, NSString *toMany) {
+    NSRelationshipDescription *one = [[NSRelationshipDescription alloc] init], *many = [[NSRelationshipDescription alloc] init];
+    one.name = toOne;
+    one.destinationEntity = to;
+    one.maxCount = 1;
+    one.optional = YES;
+    many.name = toMany;
+    many.destinationEntity = from;
+    many.maxCount = 0;
+    many.optional = YES;
+    one.inverseRelationship = many;
+    many.inverseRelationship = one;
+    from.properties = [from.properties arrayByAddingObject:one];
+    to.properties = [to.properties arrayByAddingObject:many];
+  };
+  NSEntityDescription *vehicle = entity(@"Vehicle"), *unit = entity(@"Unit"), *record = entity(@"Record");
+  NSEntityDescription *event = entity(@"Event"), *fillUp = entity(@"FillUp");
+  vehicle.properties = @[ attribute(@"id", NSInteger32AttributeType, YES) ];
+  unit.properties = @[ attribute(@"code", NSStringAttributeType, YES) ];
+  record.properties = @[ attribute(@"id", NSInteger32AttributeType, YES) ];
+  event.properties = @[ attribute(@"mileage", NSInteger32AttributeType, NO) ];
+  fillUp.properties = @[];
+  pair(record, @"vehicle", vehicle, @"records");
+  pair(fillUp, @"volumeUnit", unit, @"fillUps");
+  event.subentities = @[ fillUp ];
+  record.subentities = @[ event ];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ vehicle, unit, record, event, fillUp ];
+  NSDictionary *expected = @{
+    @"Vehicle/Records/any(x: x/Default.Event/Default.FillUp/VolumeUnit/Code eq $it/VolumeUnit/Code)": @[ @1, @2, @3, @4 ],
+    @"Vehicle/Records/any(x: x/Default.Event/Default.FillUp/VolumeUnit/Code eq $it/VolumeUnit/Code"
+      " and x/Default.Event/Mileage lt $it/Mileage)": @[ @3 ],
+    @"Vehicle/Records/any(x: isof(x, Default.FillUp) and x/Default.Event/Default.FillUp/VolumeUnit/Code eq 'gal')": @[ @1, @2, @3 ],
+    @"Vehicle/Records/all(x: x/Default.Event/Default.FillUp/VolumeUnit/Code eq $it/VolumeUnit/Code)": @[],
+  };
+  for (NSString *storeType in @[ NSInMemoryStoreType, NSSQLiteStoreType, NSXMLStoreType ]) {
+    _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = nil;
+    if (![storeType isEqualToString:NSInMemoryStoreType]) {
+      url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+      [_storeFiles addObject:url];
+    }
+    NSError *error = nil;
+    XCTAssertNotNil([_coordinator addPersistentStoreWithType:storeType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *seed = [[NSManagedObjectContext alloc] init];
+    seed.persistentStoreCoordinator = _coordinator;
+    NSManagedObject *car = [self insert:@"Vehicle" into:seed values:@{ @"id": @1 }];
+    NSManagedObject *van = [self insert:@"Vehicle" into:seed values:@{ @"id": @2 }];
+    NSManagedObject *litre = [self insert:@"Unit" into:seed values:@{ @"code": @"l" }];
+    NSManagedObject *gallon = [self insert:@"Unit" into:seed values:@{ @"code": @"gal" }];
+    [self insert:@"FillUp" into:seed values:@{ @"id": @1, @"vehicle": car, @"mileage": @100, @"volumeUnit": litre }];
+    [self insert:@"FillUp" into:seed values:@{ @"id": @2, @"vehicle": car, @"mileage": @200, @"volumeUnit": gallon }];
+    [self insert:@"FillUp" into:seed values:@{ @"id": @3, @"vehicle": car, @"mileage": @300, @"volumeUnit": litre }];
+    [self insert:@"FillUp" into:seed values:@{ @"id": @4, @"vehicle": van, @"mileage": @400, @"volumeUnit": litre }];
+    [self insert:@"Record" into:seed values:@{ @"id": @5, @"vehicle": van }];
+    XCTAssertTrue([seed save:&error], @"%@", error);
+    _service = [[ODataService alloc] initWithPersistentStoreCoordinator:_coordinator serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+    for (NSString *filter in [expected.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+      NSString *path = [NSString stringWithFormat:@"Records/Default.FillUp?$filter=%@&$select=Id&$orderby=Id", filter];
+      OISServiceResponse *r = [self get:path];
+      XCTAssertEqual(r.status, 200, @"%@, %@: %@", filter, storeType, [r.text substringToIndex:MIN(r.text.length, (NSUInteger)300)]);
+      XCTAssertEqualObjects([r.json[@"value"] valueForKey:@"Id"], expected[filter], @"%@, %@", filter, storeType);
+    }
+    // What a store refuses (Apple's SQLite store: arithmetic on a count
+    // in a subquery) names a type guard's entities, not their descriptions.
+    OISServiceResponse *refused = [self get:@"Records/Default.FillUp?$filter=Vehicle/Records/any(x: isof(x, Default.FillUp) and Vehicle/Records/$count mul 2 gt 1)"];
+    if (refused.status == 501) {
+      NSString *message = refused.json[@"error"][@"message"];
+      XCTAssertTrue([message containsString:@"IN {FillUp}"], @"%@: %@", storeType, message);
+      XCTAssertFalse([message containsString:@"NSEntityDescription"], @"%@: %@", storeType, message);
+    } else {
+      XCTAssertEqual(refused.status, 200, @"%@: %@", storeType, refused.text);
+    }
+  }
+}
+
 - (void)testTypeCastsAndIsOfInFilters
 {
   // Each store asks an object's type its own way: SQL, or the predicate
