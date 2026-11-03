@@ -18,7 +18,7 @@
 # licences: ODataKit's
 # (LGPL 2.1 or later; its source is the repository's tag v<version>,
 # package.json's repository), FreeCoreData's (MIT, on GNUstep) and
-# GCDWebServer's (BSD, on a Mac), from their releases' tags
+# GCDWebServer's (BSD, HTTPServerKit's), from their releases' tags
 # (.github/pins.env). What UDCode has itself (GNUstep, DiagramKit, UDCodeKit)
 # and the system's are left out: the running UDCode's are used.
 set -euo pipefail
@@ -110,9 +110,9 @@ for pin in FREECOREDATA:FreeCoreData GCDWEBSERVER:GCDWebServer; do
   v=$(sed -n "s/^${key}_VERSION=//p" .github/pins.env)
   [ -n "$v" ] || continue
   # FreeCoreData is GNUstep's Core Data (a Mac has Apple's); GCDWebServer is
-  # HTTPServerKit's on a Mac only
+  # HTTPServerKit's everywhere (a library beside it on GNUstep, linked into
+  # it on a Mac)
   [ "$platform" = darwin ] && [ "$repo" = FreeCoreData ] && continue
-  [ "$platform" != darwin ] && [ "$repo" = GCDWebServer ] && continue
   curl -fsSL "https://raw.githubusercontent.com/ashalkhakov/$repo/v$v/LICENSE" -o "$ext/Licenses/$repo.txt" \
     || { echo "udcx: no licence of $repo $v" >&2; exit 1; }
 done

@@ -143,8 +143,8 @@ on:
   system's libraries.
 - **Licences:** ODataKit's own (LGPL 2.1 or later, with its source at the
   release tag that package.json's `repository` points to), FreeCoreData's on
-  GNUstep and GCDWebServer's on a Mac, from the release tags they are pinned
-  to.
+  GNUstep, and GCDWebServer's (HTTPServerKit's), from the release tags they
+  are pinned to.
 - **On a Mac** it is signed with `$CODESIGN_IDENTITY`: UDCode's hardened
   runtime loads only code signed by its own team.
 
