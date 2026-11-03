@@ -89,7 +89,8 @@ double-clicking an entity set, opens one already sent to it.
 
 Instead of writing a request, you can build one. **New Query Builder**
 (a right click on a service, or on one of its entity sets) opens an
-`.odataq` document in the Workbench's query panel, against that service:
+`.odataq` document in the Workbench's query panel, a field or a list a
+row, against that service:
 
 - an entity, a predicate in `NSPredicate` syntax, `$top`, `$skip` and a page
   size, the result type (objects, object IDs, dictionaries, a count);
@@ -155,8 +156,9 @@ The extension's segment of the bottom area has three panes:
   inside a client span (OTelKit's `OTHTTP`).
 - **`ODWRequests`**, the REST Client format.
 - **`ODWBuilderViewController`**, an `.odataq` document's editor: the
-  Workbench's `WBQueryPanel` (the same panel as the Workbench's window) over
-  the service's connection, its query the document's JSON (WBQuery's
+  Workbench's `WBQueryPanel` (the same panel as the Workbench's window,
+  stacked: `WBQueryPanelStacked.xib`, its controls and outlets
+  `WBQueryPanel.xib`'s) over the service's connection, its query the document's JSON (WBQuery's
   `-dictionary` and `-takeDictionary:`).
 - **`ODWNavigatorViewController`**, **`ODWServiceSheet`** and
   **`ODWBottomViewController`**, the navigator, the service sheet and the

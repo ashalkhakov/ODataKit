@@ -201,7 +201,7 @@
   if (!_panel || _panelConnection != connection) {
     reading = YES;
     [self removePanel];
-    _panel = [[WBQueryPanel alloc] init];
+    _panel = [[WBQueryPanel alloc] initStacked:YES];
     NSView *view = _panel.view;
     _panelSize = view.frame.size;
     view.autoresizingMask = NSViewNotSizable;

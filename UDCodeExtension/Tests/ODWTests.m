@@ -292,8 +292,8 @@
   NSRect inTab = [builder.view convertRect:panelView.bounds fromView:panelView];
   XCTAssertEqualWithAccuracy(NSMaxY(inTab), NSMinY(builder.servicePopup.frame) - 4, 12, @"the panel at the top: %@", NSStringFromRect(inTab));
   CGFloat height = NSHeight(builder.view.frame);
-  [builder.view setFrameSize:NSMakeSize(600, height)];
-  XCTAssertEqualWithAccuracy(NSWidth(panelView.frame), 1084, 0.5, @"not squeezed: WBQueryPanel.xib's width");
+  [builder.view setFrameSize:NSMakeSize(400, height)];
+  XCTAssertEqualWithAccuracy(NSWidth(panelView.frame), 560, 0.5, @"not squeezed: WBQueryPanelStacked.xib's width");
   XCTAssertEqualWithAccuracy(NSMaxY([builder.view convertRect:panelView.bounds fromView:panelView]), NSMaxY(inTab), 1, @"still at the top");
   [builder.view setFrameSize:NSMakeSize(1100, height)];
   // Execute is the tab's, whatever is focused.
@@ -326,6 +326,27 @@
 }
 
 #pragma mark The XIBs
+
+- (void)testBothPanelLayoutsLoadConnected
+{
+  NSArray *outlets = @[ @"entityPopup", @"resultTypePopup", @"limitField", @"skipField", @"batchSizeField", @"subentitiesButton",
+                        @"faultsButton", @"predicateView", @"timeField", @"sortTable", @"expandOutline", @"selectTable",
+                        @"searchField", @"computeField", @"groupField", @"aggregateField", @"wireURLField", @"explainButton",
+                        @"executeButton" ];
+  for (NSNumber *stacked in @[ @NO, @YES ]) {
+    WBQueryPanel *panel = [[WBQueryPanel alloc] initStacked:stacked.boolValue];
+    NSView *view = panel.view;
+    XCTAssertNotNil(view, @"stacked %@", stacked);
+    for (NSString *outlet in outlets) XCTAssertNotNil([panel valueForKey:outlet], @"%@, stacked %@", outlet, stacked);
+    XCTAssertEqual(panel.executeButton.action, @selector(runFetch:));
+    XCTAssertEqual(panel.sortTable.dataSource, (id)panel);
+    XCTAssertEqual(panel.expandOutline.dataSource, (id)panel);
+    XCTAssertEqual(panel.selectTable.dataSource, (id)panel);
+    for (NSView *control in view.subviews) {
+      XCTAssertTrue(NSContainsRect(view.bounds, control.frame), @"%@ outside, stacked %@", control, stacked);
+    }
+  }
+}
 
 - (void)testTheNavigatorLoadsWithItsMenus
 {

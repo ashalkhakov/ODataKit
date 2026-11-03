@@ -18,6 +18,7 @@ WORKBENCH_KIT_OBJC_FILES = \
 	WorkbenchSupport.m
 WORKBENCH_KIT_RESOURCE_FILES = \
 	WBQueryPanel.xib \
+	WBQueryPanelStacked.xib \
 	WBSignInPanel.xib \
 	WBTraces.xib \
 	WBTraceWindow.xib

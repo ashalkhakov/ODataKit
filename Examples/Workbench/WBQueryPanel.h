@@ -2,8 +2,9 @@
 // the store (an entity, a predicate, $top and $skip, a page size, sort keys,
 // relationships to prefetch, properties to select, $search, computed values,
 // a grouping, application time, the result type), and the GET the store
-// will send for it. The Workbench's window shows it above the results;
-// UDCode's OData extension, as its builder's editor. Execute and Explain go
+// will send for it. The Workbench's window shows it above the results, in a
+// line (WBQueryPanel.xib); UDCode's OData extension, as its builder's
+// editor, stacked a row a field (WBQueryPanelStacked.xib). Execute and Explain go
 // to the first responder (-runFetch:, -explainQuery:): the host's.
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
@@ -16,7 +17,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WBQueryPanel : NSViewController <NSTableViewDataSource, NSTableViewDelegate, NSOutlineViewDataSource,
                                             NSOutlineViewDelegate, NSTextFieldDelegate>
-- (instancetype)init NS_DESIGNATED_INITIALIZER;
+// In a line (the Workbench's window).
+- (instancetype)init;
+// Stacked, for a host narrower than the Workbench's window.
+- (instancetype)initStacked:(BOOL)stacked NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithNibName:(nullable NSNibName)name bundle:(nullable NSBundle *)bundle NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
 

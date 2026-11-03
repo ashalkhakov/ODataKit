@@ -31,7 +31,13 @@
 
 - (instancetype)init
 {
-  self = [super initWithNibName:@"WBQueryPanel" bundle:[NSBundle bundleForClass:[WBQueryPanel class]]];
+  return [self initStacked:NO];
+}
+
+- (instancetype)initStacked:(BOOL)stacked
+{
+  self = [super initWithNibName:stacked ? @"WBQueryPanelStacked" : @"WBQueryPanel"
+                         bundle:[NSBundle bundleForClass:[WBQueryPanel class]]];
   if (!self) return nil;
   _pathItems = [NSMutableDictionary dictionary];
   return self;

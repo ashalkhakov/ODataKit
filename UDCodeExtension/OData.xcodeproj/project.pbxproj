@@ -31,6 +31,7 @@
 		D7D64F4691E0C51FE000CDCF /* ODWNavigator.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */; };
 		A75F89F81DF7DFFD28A4A880 /* ODWServiceSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */; };
 		35755F5864409B3E3A9D03B6 /* WBQueryPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */; };
+		28943156BC8F72E899B42C2E /* WBQueryPanelStacked.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7F0B7FD410D44F306B62680D /* WBQueryPanelStacked.xib */; };
 		4D3F56A02FCC6060EF6E3138 /* WBSignInPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */; };
 		3F92F87D378B6481CB61C093 /* WBTraces.xib in Resources */ = {isa = PBXBuildFile; fileRef = 18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */; };
 		F862AF817B3733F1676A68C8 /* WBTraceWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */; };
@@ -75,6 +76,7 @@
 		04DE85F4E80035BBCC173B97 /* ODWNavigator.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */; };
 		BA508A9FFEAE99122EC07B7A /* ODWServiceSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */; };
 		2EFB6E498B8A473DC3548EDC /* WBQueryPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */; };
+		D51B30366BF4C5AEFE098411 /* WBQueryPanelStacked.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7F0B7FD410D44F306B62680D /* WBQueryPanelStacked.xib */; };
 		6A0474B084DEE88FCFE8F57E /* WBSignInPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */; };
 		177AC15D7AB136257525FF3E /* WBTraces.xib in Resources */ = {isa = PBXBuildFile; fileRef = 18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */; };
 		4F662B35DA32C486F4FF34CE /* WBTraceWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */; };
@@ -154,6 +156,7 @@
 		B0E62E0A4871482A78494DFD /* WorkbenchSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WorkbenchSupport.h; path = "../Examples/Workbench/WorkbenchSupport.h"; sourceTree = "<group>"; };
 		85DD4195DD92AB9744CF6E29 /* WorkbenchSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WorkbenchSupport.m; path = "../Examples/Workbench/WorkbenchSupport.m"; sourceTree = "<group>"; };
 		4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBQueryPanel.xib; path = "../Examples/Workbench/WBQueryPanel.xib"; sourceTree = "<group>"; };
+		7F0B7FD410D44F306B62680D /* WBQueryPanelStacked.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBQueryPanelStacked.xib; path = "../Examples/Workbench/WBQueryPanelStacked.xib"; sourceTree = "<group>"; };
 		7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBSignInPanel.xib; path = "../Examples/Workbench/WBSignInPanel.xib"; sourceTree = "<group>"; };
 		18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBTraces.xib; path = "../Examples/Workbench/WBTraces.xib"; sourceTree = "<group>"; };
 		01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBTraceWindow.xib; path = "../Examples/Workbench/WBTraceWindow.xib"; sourceTree = "<group>"; };
@@ -297,6 +300,7 @@
 				B0E62E0A4871482A78494DFD /* WorkbenchSupport.h */,
 				85DD4195DD92AB9744CF6E29 /* WorkbenchSupport.m */,
 				4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */,
+				7F0B7FD410D44F306B62680D /* WBQueryPanelStacked.xib */,
 				7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */,
 				18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */,
 				01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */,
@@ -419,6 +423,7 @@
 				D7D64F4691E0C51FE000CDCF /* ODWNavigator.xib in Resources */,
 				A75F89F81DF7DFFD28A4A880 /* ODWServiceSheet.xib in Resources */,
 				35755F5864409B3E3A9D03B6 /* WBQueryPanel.xib in Resources */,
+				28943156BC8F72E899B42C2E /* WBQueryPanelStacked.xib in Resources */,
 				4D3F56A02FCC6060EF6E3138 /* WBSignInPanel.xib in Resources */,
 				3F92F87D378B6481CB61C093 /* WBTraces.xib in Resources */,
 				F862AF817B3733F1676A68C8 /* WBTraceWindow.xib in Resources */,
@@ -434,6 +439,7 @@
 				04DE85F4E80035BBCC173B97 /* ODWNavigator.xib in Resources */,
 				BA508A9FFEAE99122EC07B7A /* ODWServiceSheet.xib in Resources */,
 				2EFB6E498B8A473DC3548EDC /* WBQueryPanel.xib in Resources */,
+				D51B30366BF4C5AEFE098411 /* WBQueryPanelStacked.xib in Resources */,
 				6A0474B084DEE88FCFE8F57E /* WBSignInPanel.xib in Resources */,
 				177AC15D7AB136257525FF3E /* WBTraces.xib in Resources */,
 				4F662B35DA32C486F4FF34CE /* WBTraceWindow.xib in Resources */,
