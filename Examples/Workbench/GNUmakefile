@@ -1,7 +1,8 @@
 # AppKit workbench on GNUstep. Requires FreeCoreData + gnustep-gui.
 # Try out an OData v4 service: the built-in in-memory one, Northwind,
 # TripPin, or any other.
-# UI is WorkbenchWindow.xib, ExchangeWindow.xib and PlanWindow.xib (GSXib5Loader).
+# UI is WorkbenchWindow.xib, ExchangeWindow.xib and PlanWindow.xib (GSXib5Loader);
+# the parts a host shares (files.make) have theirs: the sign-in panel, traces.
 ifeq ($(GNUSTEP_MAKEFILES),)
 $(error Set GNUSTEP_MAKEFILES (source GNUstep.sh).)
 endif
@@ -12,13 +13,14 @@ CC = clang
 OBJC = clang
 
 APP_NAME = Workbench
-Workbench_OBJC_FILES = main.m WorkbenchController.m WorkbenchController+SelfTest.m WBConnection.m WBQuery.m WBResults.m WBTraces.m \
-	WorkbenchSupport.m WorkbenchModel.m WorkbenchEngine.m WorkbenchDevice.m WBSync.m WBSignInPanel.m WBUpdater.m
+include files.make
+Workbench_OBJC_FILES = main.m WorkbenchController.m WorkbenchController+SelfTest.m WorkbenchDevice.m WBSync.m WBUpdater.m \
+	$(WORKBENCH_KIT_OBJC_FILES)
 Workbench_INCLUDE_DIRS = -I../../Source/ODataKit/include -I../../Source/ODataIncrementalStore/include -I../../Source/ODataService/include -I../../Source/ODataKit/include/ODataKit -I../../Source/ODataIncrementalStore/include/ODataIncrementalStore -I../../Source/ODataService/include/ODataService -I../../Source/HTTPServerKit/include -I../../Source/HTTPServerKit/include/HTTPServerKit -I../../Source/OTelKit/include -I../../Source/OTelKit/include/OTelKit -I../../Source/ODataSync/include -I../../Source/ODataSync/include/ODataSync
 Workbench_LIB_DIRS = -L../../obj
 Workbench_OBJC_LIBS += -lODataSync -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch
 Workbench_TOOL_LIBS += -lODataSync -lODataService -lHTTPServerKit -lODataIncrementalStore -lOTelKit -lODataKit -lCoreData -ldispatch
-Workbench_RESOURCE_FILES = WorkbenchWindow.xib ExchangeWindow.xib PlanWindow.xib Workbench.png
+Workbench_RESOURCE_FILES = WorkbenchWindow.xib ExchangeWindow.xib PlanWindow.xib Workbench.png $(WORKBENCH_KIT_RESOURCE_FILES)
 Workbench_APPLICATION_ICON = Workbench.png
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \

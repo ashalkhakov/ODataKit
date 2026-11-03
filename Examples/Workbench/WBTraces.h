@@ -43,14 +43,37 @@ FOUNDATION_EXPORT OTTracerProvider *WBTracerProvider(WBTraceRecorder *recorder);
 FOUNDATION_EXPORT NSString *_Nullable WBTraceIDOfHeaders(NSDictionary<NSString *, NSString *> *_Nullable headers);
 FOUNDATION_EXPORT NSString *_Nullable WBSpanIDOfHeaders(NSDictionary<NSString *, NSString *> *_Nullable headers);
 
-// The window: the traces at the left, newest first; the selected one's
-// spans as a tree, when each began after the trace did and how long it
-// took; under them, the selected span's attributes and events (the plan's
-// tree among them).
-@interface WBTraceWindow : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate>
+// The traces (WBTraces.xib): the traces at the left, newest first; the
+// selected one's spans as a tree, when each began after the trace did and
+// how long it took; under them, the selected span's attributes and events
+// (the plan's tree among them). Kept up while its view is in a window: the
+// Traces window's (WBTraceWindow), or a pane of a host's.
+@interface WBTracesViewController : NSViewController <NSTableViewDataSource, NSTableViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate>
+- (instancetype)initWithRecorder:(WBTraceRecorder *)recorder NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithNibName:(nullable NSNibName)name bundle:(nullable NSBundle *)bundle NS_UNAVAILABLE;
+- (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
+@property (nonatomic, readonly) WBTraceRecorder *recorder;
+@property (nonatomic, readonly) NSTableView *traceTable;
+@property (nonatomic, readonly) NSOutlineView *spanOutline;
+@property (nonatomic, readonly) NSTextView *detailView;
+// The traces as the recorder has them now.
+- (void)reloadTraces;
+// That trace selected, all of it expanded, and the span chosen when given
+// (the one that sent an exchange). NO when the trace is not (or no longer)
+// kept.
+- (BOOL)showTraceWithID:(NSString *)traceID spanID:(nullable NSString *)spanID;
+// Told the trace shown (nil: none), when it changes: what a window titles
+// itself with.
+@property (nonatomic, copy, nullable) void (^shownTraceChanged)(WBTrace *_Nullable trace);
+@end
+
+// Trace > Show Traces (WBTraceWindow.xib): the traces in a window of their
+// own, titled with the trace shown.
+@interface WBTraceWindow : NSObject
 - (instancetype)initWithRecorder:(WBTraceRecorder *)recorder NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 @property (nonatomic, readonly) NSWindow *window;
+@property (nonatomic, readonly) WBTracesViewController *tracesController;
 @property (nonatomic, readonly) NSTableView *traceTable;
 @property (nonatomic, readonly) NSOutlineView *spanOutline;
 @property (nonatomic, readonly) NSTextView *detailView;

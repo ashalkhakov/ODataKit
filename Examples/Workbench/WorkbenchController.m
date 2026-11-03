@@ -70,7 +70,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   clip.postsBoundsChangedNotifications = YES;
   [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(resultsScrolled:)
                                                name:NSViewBoundsDidChangeNotification object:clip];
-  _log = [NSMutableArray array];
+  _exchangeLog = [[WBExchangeLog alloc] init];
   // A double click on an exchange shows it too.
   _logTable.target = self;
   _logTable.doubleAction = @selector(showExchange:);
@@ -222,7 +222,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
     service = [WBConnection serviceOfRoot:typed];
     [self.servicePopup selectItemAtIndex:service];
   }
-  [_log removeAllObjects];
+  [_exchangeLog clear];
   [_logTable reloadData];
   [_results clear];
   [self.tableView reloadData];
@@ -625,14 +625,17 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 
 #pragma mark - The wire log
 
+- (NSArray<WorkbenchLogEntry *> *)log
+{
+  return _exchangeLog.entries;
+}
+
 - (void)appendLog:(WorkbenchLogEntry *)entry
 {
-  NSInteger selected = _logTable.selectedRow;
-  WorkbenchLogEntry *shown = selected >= 0 && (NSUInteger)selected < _log.count ? _log[(NSUInteger)selected] : nil;
-  [_log insertObject:entry atIndex:0];
-  if (_log.count > 1000) [_log removeLastObject];
+  WorkbenchLogEntry *shown = [_exchangeLog entryAtRow:_logTable.selectedRow];
+  [_exchangeLog addEntry:entry];
   [_logTable reloadData];
-  NSUInteger again = shown ? [_log indexOfObjectIdenticalTo:shown] : NSNotFound;
+  NSUInteger again = shown ? [_exchangeLog.entries indexOfObjectIdenticalTo:shown] : NSNotFound;
   if (again != NSNotFound) {
     _keepingLogSelection = YES;
     [_logTable selectRowIndexes:[NSIndexSet indexSetWithIndex:again] byExtendingSelection:NO];
@@ -642,78 +645,8 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 
 - (id)logValueForColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-  if (row < 0 || (NSUInteger)row >= _log.count) return nil;
-  WorkbenchLogEntry *entry = _log[(NSUInteger)row];
-  NSString *identifier = column.identifier;
-  if ([identifier isEqualToString:@"time"]) {
-    static NSDateFormatter *format;
-    if (!format) {
-      format = [[NSDateFormatter alloc] init];
-      format.dateFormat = @"HH:mm:ss.SSS";
-    }
-    return entry.date ? [format stringFromDate:entry.date] : @"";
-  }
-  if ([identifier isEqualToString:@"method"]) return entry.method;
-  if ([identifier isEqualToString:@"status"]) return entry.status ? [NSString stringWithFormat:@"%ld", (long)entry.status] : @"—";
-  // The URL from the service root on, decoded to be read.
-  NSString *url = entry.URL;
-  NSString *root = _connection.serviceRoot.absoluteString;
-  if (root.length && [url hasPrefix:root]) url = [url substringFromIndex:root.length];
-  return [url stringByRemovingPercentEncoding] ?: url;
-}
-
-// A body as it went: its text where it is UTF-8, else a hex dump.
-static NSString *WBRawBody(NSData *data)
-{
-  if (!data.length) return @"";
-  NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-  if (text) return text;
-  NSMutableString *dump = [NSMutableString stringWithFormat:@"(%lu bytes, not UTF-8 text)\n", (unsigned long)data.length];
-  const unsigned char *bytes = data.bytes;
-  for (NSUInteger offset = 0; offset < data.length; offset += 16) {
-    NSMutableString *hex = [NSMutableString string], *ascii = [NSMutableString string];
-    for (NSUInteger i = offset; i < offset + 16; i++) {
-      if (i < data.length) {
-        [hex appendFormat:@"%02x ", bytes[i]];
-        [ascii appendFormat:@"%c", bytes[i] >= 32 && bytes[i] < 127 ? bytes[i] : '.'];
-      } else {
-        [hex appendString:@"   "];
-      }
-    }
-    [dump appendFormat:@"%08lx  %@ |%@|\n", (unsigned long)offset, hex, ascii];
-  }
-  return dump;
-}
-
-static NSString *WBRawHeaders(NSDictionary *headers)
-{
-  NSMutableString *text = [NSMutableString string];
-  for (NSString *name in [headers.allKeys sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)]) {
-    [text appendFormat:@"%@: %@\n", name, headers[name]];
-  }
-  return text;
-}
-
-- (NSString *)rawRequestOf:(WorkbenchLogEntry *)entry
-{
-  return [NSString stringWithFormat:@"%@ %@ HTTP/1.1\n%@\n%@", entry.method, entry.URL, WBRawHeaders(entry.requestHeaders),
-                                    WBRawBody(entry.requestData)];
-}
-
-- (NSString *)rawResponseOf:(WorkbenchLogEntry *)entry
-{
-  if (!entry.status) return [NSString stringWithFormat:@"(no answer: %@)", entry.failure ?: @"the request failed"];
-  // HTTP's own reason phrases: Foundation's localized ones say "no error".
-  static NSDictionary *reasons;
-  if (!reasons) {
-    reasons = @{ @200: @"OK", @201: @"Created", @202: @"Accepted", @204: @"No Content", @302: @"Found", @304: @"Not Modified",
-                 @400: @"Bad Request", @401: @"Unauthorized", @403: @"Forbidden", @404: @"Not Found", @405: @"Method Not Allowed",
-                 @406: @"Not Acceptable", @409: @"Conflict", @412: @"Precondition Failed", @415: @"Unsupported Media Type",
-                 @428: @"Precondition Required", @500: @"Internal Server Error", @501: @"Not Implemented", @503: @"Service Unavailable" };
-  }
-  NSString *reason = reasons[@(entry.status)] ?: [NSHTTPURLResponse localizedStringForStatusCode:entry.status].capitalizedString;
-  return [NSString stringWithFormat:@"HTTP/1.1 %ld %@\n%@\n%@", (long)entry.status, reason ?: @"",
-                                    WBRawHeaders(entry.responseHeaders), WBRawBody(entry.responseData)];
+  _exchangeLog.serviceRoot = _connection.serviceRoot;
+  return [_exchangeLog valueForColumn:column.identifier row:row];
 }
 
 // A window of its own xib, loaded when it is first shown.
@@ -853,11 +786,11 @@ static NSString *WBRawHeaders(NSDictionary *headers)
   (void)sender;
   // A right click acts on the row clicked, which need not be selected.
   NSInteger row = _logTable.clickedRow >= 0 ? _logTable.clickedRow : _logTable.selectedRow;
-  if (row < 0 || (NSUInteger)row >= _log.count) {
+  if (![_exchangeLog entryAtRow:row]) {
     [[self traces] show];
     return;
   }
-  WorkbenchLogEntry *entry = _log[(NSUInteger)row];
+  WorkbenchLogEntry *entry = [_exchangeLog entryAtRow:row];
   NSString *traceID = WBTraceIDOfHeaders(entry.requestHeaders);
   if (!traceID || ![[self traces] showTraceWithID:traceID spanID:WBSpanIDOfHeaders(entry.requestHeaders)]) {
     self.statusField.stringValue = traceID ? @"That exchange's trace is no longer kept." : @"That exchange carries no trace.";
@@ -876,13 +809,13 @@ static NSString *WBRawHeaders(NSDictionary *headers)
 {
   (void)sender;
   NSInteger row = _logTable.selectedRow;
-  if (row < 0 || (NSUInteger)row >= _log.count) return;
-  WorkbenchLogEntry *entry = _log[(NSUInteger)row];
+  WorkbenchLogEntry *entry = [_exchangeLog entryAtRow:row];
+  if (!entry) return;
   if (!_exchangeWindow) [self loadWindowNib:@"ExchangeWindow" textViews:^{ return @[ self.requestView, self.responseView ]; }];
   _exchangeWindow.title = [NSString stringWithFormat:@"%@ %@ — %@ (%.0f ms)", entry.method, [self logValueForColumn:[_logTable tableColumnWithIdentifier:@"URL"] row:row],
                                                      entry.status ? [NSString stringWithFormat:@"%ld", (long)entry.status] : @"no answer", entry.duration * 1000];
-  [self show:[self rawRequestOf:entry] in:_requestView];
-  [self show:[self rawResponseOf:entry] in:_responseView];
+  [self show:[WBExchangeLog rawRequestOf:entry] in:_requestView];
+  [self show:[WBExchangeLog rawResponseOf:entry] in:_responseView];
   [_exchangeWindow makeKeyAndOrderFront:nil];
 }
 
@@ -950,7 +883,7 @@ static NSString *WBRawHeaders(NSDictionary *headers)
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)table
 {
-  if (table == _logTable) return (NSInteger)_log.count;
+  if (table == _logTable) return (NSInteger)_exchangeLog.entries.count;
   if (table == _sortTable) return (NSInteger)_query.sorts.count;
   if (table == _selectTable) return (NSInteger)[_query attributeNames].count;
   return (NSInteger)_results.rows.count;

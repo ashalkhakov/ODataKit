@@ -694,6 +694,23 @@ static void WBCheck(BOOL ok, NSString *what, NSString *detail)
   [self.logTable deselectAll:nil];
 }
 
+// The sign-in panel (WBSignInPanel.xib), loaded and connected, its group
+// the sign-in's (a sign-in not yet learnt: OpenID Connect's). No service is
+// asked.
+- (void)checkSignInPanel
+{
+  ODataSignIn *signIn = [[ODataSignIn alloc] initWithServiceRoot:[NSURL URLWithString:@"https://example.invalid/odata/"]
+                                                         secrets:[[ODataSecretStore alloc] initWithServiceName:@"Workbench self-test"]];
+  WBSignInPanel *sheet = [[WBSignInPanel alloc] initWithSignIn:signIn];
+  NSView *device = [sheet valueForKey:@"deviceGroup"], *password = [sheet valueForKey:@"passwordGroup"];
+  BOOL connected = sheet.panel && sheet.codeField && [sheet valueForKey:@"clientField"] && [sheet valueForKey:@"status"] &&
+                   [sheet valueForKey:@"signInButton"] && [sheet valueForKey:@"openButton"] && [sheet valueForKey:@"pasteboardButton"];
+  WBCheck(connected && !device.isHidden && password.isHidden && [sheet.panel.title hasSuffix:@"example.invalid"],
+          @"the sign-in panel: loaded from its XIB, connected, OpenID Connect's group shown",
+          [NSString stringWithFormat:@"panel %@, connected %d, device hidden %d, password hidden %d", sheet.panel.title,
+                                     connected, device.isHidden, password.isHidden]);
+}
+
 // The built-in service's product, as the service has it.
 - (id)serviceValue:(NSString *)attribute ofProduct:(NSNumber *)productID
 {
@@ -896,6 +913,7 @@ static void WBCheck(BOOL ok, NSString *what, NSString *detail)
             [self.connection.store.metadataProblems componentsJoinedByString:@"; "]);
     [self checkExchangeLog];
     [self checkTracesBuiltIn:service == WBServiceBuiltIn];
+    if (service == WBServiceBuiltIn) [self checkSignInPanel];
     for (NSUInteger i = 0; i < self.presets.count; i++) {
       [self.presetsPopup selectItemAtIndex:(NSInteger)i];
       [self applyPreset:self.presetsPopup];
