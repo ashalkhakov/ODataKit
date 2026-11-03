@@ -71,8 +71,10 @@ else
     binary=$(ls "$bundle"/*.dll | head -1)
     linked=$(PATH="$dirs:$PATH" ldd "$binary")
     # the tree's, and GNUstep's Local libraries (FreeCoreData's); MSYS2's own
-    # (libc++, ICU, sqlite, zlib…) UDCode has, beside gnustep-base
-    carried=$(echo "$linked" | awk '{print $3}' | grep -iE "/GNUstep/Local/|^$root/obj/" || true)
+    # (libc++, ICU, sqlite, zlib…) UDCode has, beside gnustep-base, but for
+    # dlfcn-win32's libdl.dll (ODataService loads its stores' backends with
+    # it), which UDCode does without
+    carried=$(echo "$linked" | awk '{print $3}' | grep -iE "/GNUstep/Local/|^$root/obj/|/libdl\.dll$" || true)
   else
     binary=$bundle/OData
     linked=$(LD_LIBRARY_PATH="$dirs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$binary")
