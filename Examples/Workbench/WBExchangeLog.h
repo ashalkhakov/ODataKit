@@ -31,6 +31,8 @@ NS_ASSUME_NONNULL_BEGIN
 // and body (a body that is not UTF-8 as a hex dump), or why there was no
 // answer.
 + (NSString *)rawRequestOf:(WorkbenchLogEntry *)entry;
+// A status's reason phrase, as HTTP says it (200 OK, 404 Not Found).
++ (NSString *)reasonOfStatus:(NSInteger)status;
 + (NSString *)rawResponseOf:(WorkbenchLogEntry *)entry;
 
 @end

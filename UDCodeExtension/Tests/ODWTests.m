@@ -254,7 +254,10 @@
   XCTAssertEqual(bottom.pane, ODWBottomResults, @"an answer brings Results forward");
   XCTAssertEqual(bottom.rowsTable.numberOfRows, (NSInteger)bottom.answer.rows.count);
   XCTAssertGreaterThan(bottom.rowsTable.numberOfColumns, (NSInteger)0);
-  XCTAssertTrue([bottom.statusLabel.stringValue hasPrefix:@"200"], @"%@", bottom.statusLabel.stringValue);
+  XCTAssertTrue([bottom.statusLabel.stringValue hasPrefix:@"200 OK"], @"HTTP's phrase: %@", bottom.statusLabel.stringValue);
+  for (NSTableColumn *column in bottom.rowsTable.tableColumns) {
+    XCTAssertTrue(column.width >= 60 && column.width <= 320, @"%@ is %.0f wide", column.identifier, column.width);
+  }
   XCTAssertTrue([bottom.jsonView.string containsString:@"value"]);
 }
 

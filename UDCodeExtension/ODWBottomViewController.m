@@ -104,15 +104,24 @@ static NSString *ODWCellText(id value)
 {
   _answer = answer;
   if (!self.isViewLoaded) return;
-  // Its columns, made in the template's look.
+  // Its columns, made in the template's look, each as wide as its name and
+  // its first rows' values (within limits): the table does not stretch them.
+  _rowsTable.columnAutoresizingStyle = NSTableViewNoColumnAutoresizing;
   for (NSTableColumn *column in [_rowsTable.tableColumns copy]) [_rowsTable removeTableColumn:column];
+  NSFont *font = [_templateColumn.dataCell font] ?: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
+  NSFont *headerFont = [_templateColumn.headerCell font] ?: font;
   for (NSString *name in answer.columns) {
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:name];
     [column.headerCell setStringValue:name];
     column.dataCell = [_templateColumn.dataCell copy];
-    column.width = _templateColumn.width;
     column.minWidth = _templateColumn.minWidth;
     column.editable = NO;
+    CGFloat width = [name sizeWithAttributes:@{ NSFontAttributeName: headerFont }].width;
+    NSUInteger shown = MIN(answer.rows.count, (NSUInteger)50);
+    for (NSUInteger row = 0; row < shown; row++) {
+      width = MAX(width, [ODWCellText(answer.rows[row][name]) sizeWithAttributes:@{ NSFontAttributeName: font }].width);
+    }
+    column.width = MIN(MAX(ceil(width) + 16, 60), 320);
     [_rowsTable addTableColumn:column];
   }
   [_rowsTable reloadData];
@@ -128,7 +137,7 @@ static NSString *ODWCellText(id value)
   if (!answer) return @"No request sent yet: Editor > Run (⌘↩) in an .odata document.";
   if (answer.failure) return [NSString stringWithFormat:@"%@: %@", answer.title, answer.failure];
   NSMutableArray *parts = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"%ld %@", (long)answer.status,
-                                                          [NSHTTPURLResponse localizedStringForStatusCode:answer.status].capitalizedString]];
+                                                          [WBExchangeLog reasonOfStatus:answer.status]]];
   if (answer.rows) [parts addObject:[NSString stringWithFormat:@"%lu %@", (unsigned long)answer.rows.count, answer.rows.count == 1 ? @"row" : @"rows"]];
   [parts addObject:[NSString stringWithFormat:@"%.0f ms", answer.duration * 1000]];
   return [NSString stringWithFormat:@"%@ — %@ (%@)", [parts componentsJoinedByString:@" · "], answer.title, answer.service.name ?: @""];
