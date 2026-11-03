@@ -103,9 +103,9 @@ enumeration's first member) for you to change.
 
 The request goes into the front `.odata` document when it is that
 service's (or no service's yet): after the request the caret is in, as a
-request of its own (its `###` line says what it does), the caret on its request
-line, ready for Editor > Run; undone as one. Otherwise it opens in a new
-document.
+request of its own (its `###` line says what it does), the caret on its
+request line, ready for Editor > Run; undone as one. Otherwise it opens in
+a new document.
 
 ## Building a query
 
