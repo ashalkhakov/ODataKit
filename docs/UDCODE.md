@@ -85,6 +85,44 @@ remembered for the file), or to the only service connected. A service not
 connected yet is connected first. **New Request Document** on a service, or
 double-clicking an entity set, opens one already sent to it.
 
+## Building a query
+
+Instead of writing a request, you can build one. **New Query Builder**
+(a right click on a service, or on one of its entity sets) opens an
+`.odataq` document in the Workbench's query panel, against that service:
+
+- an entity, a predicate in `NSPredicate` syntax, `$top`, `$skip` and a page
+  size, the result type (objects, object IDs, dictionaries, a count);
+- sort keys (`$orderby`), relationships to prefetch, opened to nest
+  (`$expand`), the properties of a dictionary result (`$select`);
+- `$search`, values computed from each row (`$compute`), a grouping and its
+  aggregates (`$apply`), and application time for an entity that has it.
+
+The line under the panel is the GET the store will send for it, worked out
+as you build. **Execute**, or **Editor > Run** (⌘↩), sends it, and the
+answer is the bottom area's **Results**, as a request's is. The **Service**
+popup at the top chooses the service it is built against; another service
+starts the query again, over its entities.
+
+The document's text is the query, kept as JSON:
+
+```json
+{
+  "service" : "Northwind",
+  "query" : {
+    "entity" : "Product",
+    "predicate" : "unitPrice > 20",
+    "sort" : [ { "key" : "unitPrice", "descending" : true } ],
+    "expand" : [ "category" ],
+    "limit" : "10"
+  }
+}
+```
+
+Each change in the panel is written into it as one edit, so undo, saving and
+diffs are UDCode's, and **View > Open as Text** shows it with the JSON mode's
+highlighting. A change to the text is read back into the panel.
+
 ## The answers
 
 The extension's segment of the bottom area has three panes:
@@ -116,6 +154,10 @@ The extension's segment of the bottom area has three panes:
   signs its own, asked again once with fresh credentials after a 401),
   inside a client span (OTelKit's `OTHTTP`).
 - **`ODWRequests`**, the REST Client format.
+- **`ODWBuilderViewController`**, an `.odataq` document's editor: the
+  Workbench's `WBQueryPanel` (the same panel as the Workbench's window) over
+  the service's connection, its query the document's JSON (WBQuery's
+  `-dictionary` and `-takeDictionary:`).
 - **`ODWNavigatorViewController`**, **`ODWServiceSheet`** and
   **`ODWBottomViewController`**, the navigator, the service sheet and the
   bottom pane, each a XIB of its own; the bottom pane shows the Workbench's
@@ -163,4 +205,7 @@ The tests in `UDCodeExtension/Tests` (`ODWTests`, run by `make check` and by
   exchange in the wire log and its trace kept;
 - the navigator, the bottom pane and the service sheet load from their
   XIBs, connected, with their menus;
-- UDCode's Run sends an `.odata` document's request at the caret.
+- UDCode's Run sends an `.odata` document's request at the caret;
+- a query is kept whole as JSON and read back, and the builder writes each
+  change into its document, reads the document's changes back, and sends its
+  GET.

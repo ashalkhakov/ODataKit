@@ -123,6 +123,9 @@ typedef NS_ENUM(NSInteger, ODWServiceKind) {
 // A request sent to a service (connected first when it is not); its answer
 // told by ODWAnswerNotification.
 - (void)sendRequest:(ODWRequest *)request toService:(ODWService *)service;
+// A request already made (the builder's GET), titled, to a service that is
+// connected; its answer told the same way.
+- (void)sendURLRequest:(NSURLRequest *)request title:(NSString *)title toService:(ODWService *)service;
 // An .odata document's request at a selection (its caret, or where its
 // selection begins), or all of its requests, one after another: UDCode's
 // Editor > Run and Run All (ODWExtension).

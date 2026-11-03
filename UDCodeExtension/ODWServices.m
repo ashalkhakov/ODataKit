@@ -547,6 +547,16 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   NSURLRequest *urlRequest = [request URLRequestWithServiceRoot:service.connection.serviceRoot ?: [self rootOf:service] error:&why];
   if (!urlRequest) {
     [self tell:[self answerOf:nil service:service title:request.title failure:why]];
+    [self sendNextQueued];
+    return;
+  }
+  [self sendURLRequest:urlRequest title:request.title toService:service];
+}
+
+- (void)sendURLRequest:(NSURLRequest *)urlRequest title:(NSString *)title toService:(ODWService *)service
+{
+  if (!service.connected) {
+    [self tell:[self answerOf:nil service:service title:title failure:[NSString stringWithFormat:@"Not connected to %@.", service.name]]];
     return;
   }
   _sending = YES;
@@ -554,7 +564,7 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   // A client span of its own, as the store's requests have, its trace
   // passed on in the headers: at the built-in service, its own spans under it.
   NSMutableURLRequest *traced = [urlRequest mutableCopy];
-  OTSpan *span = [[OTTracer tracerNamed:@"UDCode OData" version:nil] startClientSpanForRequest:traced name:request.title parent:nil];
+  OTSpan *span = [[OTTracer tracerNamed:@"UDCode OData" version:nil] startClientSpanForRequest:traced name:title parent:nil];
   __weak ODWServices *weak = self;
   [service.connection sendRequest:traced done:^(ODataExchange *exchange) {
     ODWServices *me = weak;
@@ -562,7 +572,7 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     [span endWithResponse:exchange.URLResponse error:exchange.error];
     if (!me) return;
     me->_sending = NO;
-    ODWAnswer *answer = [me answerOf:traced service:service title:request.title failure:response ? nil : (exchange.error.localizedDescription ?: @"No answer.")];
+    ODWAnswer *answer = [me answerOf:traced service:service title:title failure:response ? nil : (exchange.error.localizedDescription ?: @"No answer.")];
     answer.status = response.statusCode;
     answer.data = exchange.data;
     answer.duration = -[began timeIntervalSinceNow];

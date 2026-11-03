@@ -4,6 +4,7 @@
 #import "ODWNavigatorViewController.h"
 #import "ODWServices.h"
 #import "ODWServiceSheet.h"
+#import "ODWBuilderViewController.h"
 #import <objc/runtime.h>
 
 typedef NS_ENUM(NSInteger, ODWNodeKind) {
@@ -372,6 +373,27 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   } else if (node.kind == ODWNodeOperation) {
     [self openRequests:[NSString stringWithFormat:@"GET %@()\n", node.title] ofService:node.service send:NO];
   }
+}
+
+- (IBAction)newQueryBuilder:(id)sender
+{
+  ODWNode *node = [self actedNode];
+  ODWService *service = node.service;
+  if (!service) return;
+  // An entity set's entity: its type's name, as the model built from
+  // $metadata names its entities.
+  NSDictionary *query = @{};
+  if (node.kind == ODWNodeEntitySet) {
+    NSString *type = service.connection.store.schema.entitySets[node.title];
+    NSString *entity = [[type componentsSeparatedByString:@"."] lastObject];
+    if (entity.length && service.connection.model.entitiesByName[entity]) query = @{ @"entity": entity };
+  }
+  ODWServices *services = _services;
+  id<UDWorkbench> workbench = services.workbench;
+  NSString *name = node.kind == ODWNodeEntitySet ? [NSString stringWithFormat:@"%@ Query", node.title]
+                                                 : [service.name stringByAppendingString:@" Query"];
+  [workbench openUntitledDocumentWithText:[ODWBuilderViewController textOfQuery:query service:service.name]
+                             languageMode:@"odataq" name:name];
 }
 
 - (IBAction)copyName:(id)sender

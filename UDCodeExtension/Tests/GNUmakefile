@@ -22,6 +22,7 @@ include $(WORKBENCH)/files.make
 ODataTests_OBJC_FILES = \
 	ODWTests.m \
 	../ODWBottomViewController.m \
+	../ODWBuilderViewController.m \
 	../ODWExtension.m \
 	../ODWNavigatorViewController.m \
 	../ODWRequests.m \
@@ -30,6 +31,7 @@ ODataTests_OBJC_FILES = \
 	$(addprefix $(WORKBENCH)/,$(WORKBENCH_KIT_OBJC_FILES))
 ODataTests_RESOURCE_FILES = \
 	../ODWBottom.xib \
+	../ODWBuilder.xib \
 	../ODWNavigator.xib \
 	../ODWServiceSheet.xib \
 	$(addprefix $(WORKBENCH)/,$(WORKBENCH_KIT_RESOURCE_FILES))

@@ -23,7 +23,6 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 }
 
 @implementation WorkbenchController {
-  NSMutableDictionary *_pathItems;  // key path -> the one string the outline knows it by
   BOOL _loadingPage;
   BOOL _keepingLogSelection;  // the log's row chosen again after a reload: not shown again
   BOOL _awake;  // the window's xib has loaded; the owner hears it again of each window of its own
@@ -56,14 +55,18 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   [self updateStoreMenu];
   self.tableView.dataSource = self;
   self.tableView.delegate = self;
-  self.limitField.delegate = (id)self;
-  self.skipField.delegate = (id)self;
-  self.batchSizeField.delegate = (id)self;
-  _pathItems = [NSMutableDictionary dictionary];
-  [[NSNotificationCenter defaultCenter] addObserver:self
-                                           selector:@selector(predicateChanged:)
-                                               name:NSTextDidChangeNotification
-                                             object:self.predicateView];
+  // The query panel (WBQueryPanel.xib), in its place in the window: a
+  // change to the query empties the results until Execute.
+  _queryPanel = [[WBQueryPanel alloc] init];
+  _queryPanel.connection = _connection;
+  NSView *panel = _queryPanel.view;
+  panel.frame = _queryPanelHost.bounds;
+  panel.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  [_queryPanelHost addSubview:panel];
+  __weak WorkbenchController *weak = self;
+  _queryPanel.queryDidChange = ^{
+    [weak invalidateResults];
+  };
   // Scrolled to the end: the next screenful.
   NSClipView *clip = self.tableView.enclosingScrollView.contentView;
   clip.postsBoundsChangedNotifications = YES;
@@ -80,7 +83,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
     [self.storeMenu addItem:[NSMenuItem separatorItem]];
     [self.storeMenu addItemWithTitle:@"Sign Out of the Service" action:@selector(signOut:) keyEquivalent:@""].target = self;
   }
-  for (NSTextView *view in @[ self.predicateView, self.inspectorView ]) [self prepareTextView:view fixedPitch:NO];
+  [self prepareTextView:self.inspectorView fixedPitch:NO];
   [self rebuildStreams];
   [self.servicePopup selectItemAtIndex:WBServiceBuiltIn];
   [self serviceChanged:nil];
@@ -319,7 +322,7 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 - (void)connectionDidConnect:(WBConnection *)connection
 {
   self.connectButton.enabled = YES;
-  _explainButton.enabled = connection.engine != nil;
+  _queryPanel.explainButton.enabled = connection.engine != nil;
   if (connection.failure) {
     self.statusField.stringValue = [NSString stringWithFormat:@"Could not connect: %@", connection.failure];
     ODataSignIn *signIn = connection.service == WBServiceOther ? self.signIns[connection.serviceRoot.absoluteString] : nil;
@@ -332,10 +335,10 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   }
   _query = [[WBQuery alloc] initWithModel:connection.model builtIn:[self builtIn]];
   _query.configurationName = connection.store.configurationName;
+  _queryPanel.connection = connection;
   _results = [[WBResults alloc] initWithConnection:connection];
   [self updateStoreMenu];
-  [self.entityPopup removeAllItems];
-  [self.entityPopup addItemsWithTitles:[_query entityNames]];
+  _queryPanel.query = _query;
   _presets = [WBQuery presetsForService:connection.service model:connection.model];
   [self.presetsPopup removeAllItems];
   for (NSDictionary *preset in _presets) [self.presetsPopup addItemWithTitle:preset[@"label"]];
@@ -363,55 +366,6 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 
 #pragma mark - The query
 
-// The panel's values, into the query: what it asks is what the panel says.
-- (void)readQueryControls
-{
-  if (!_query) return;
-  _query.entityName = self.entityPopup.titleOfSelectedItem.length ? self.entityPopup.titleOfSelectedItem : nil;
-  NSString *type = self.resultTypePopup.titleOfSelectedItem;
-  _query.resultType = [type isEqualToString:@"count"] ? NSCountResultType
-                    : [type isEqualToString:@"dictionary"] ? NSDictionaryResultType
-                    : [type isEqualToString:@"object IDs"] ? NSManagedObjectIDResultType : NSManagedObjectResultType;
-  _query.predicateText = [self.predicateView.string copy] ?: @"";
-  _query.limitText = self.limitField.stringValue ?: @"";
-  _query.skipText = self.skipField.stringValue ?: @"";
-  _query.pageSizeText = self.batchSizeField.stringValue ?: @"";
-  _query.includesSubentities = self.subentitiesButton.state == NSOnState;
-  _query.returnsObjectsAsFaults = self.faultsButton.state == NSOnState;
-  _query.searchText = _searchField.stringValue ?: @"";
-  _query.computeText = _computeField.stringValue ?: @"";
-  _query.groupText = _groupField.stringValue ?: @"";
-  _query.aggregateText = _aggregateField.stringValue ?: @"";
-  _query.timeText = _timeField.stringValue ?: @"";
-}
-
-// The query's values, into the panel: after a preset, or a new entity.
-- (void)showQueryControls
-{
-  [self.entityPopup selectItemWithTitle:[_query entity].name];
-  NSString *type = _query.resultType == NSCountResultType ? @"count"
-                 : _query.resultType == NSDictionaryResultType ? @"dictionary"
-                 : _query.resultType == NSManagedObjectIDResultType ? @"object IDs" : @"objects";
-  [self.resultTypePopup selectItemWithTitle:type];
-  self.predicateView.string = _query.predicateText;
-  self.limitField.stringValue = _query.limitText;
-  self.skipField.stringValue = _query.skipText;
-  _searchField.stringValue = _query.searchText;
-  _computeField.stringValue = _query.computeText;
-  _groupField.stringValue = _query.groupText;
-  _aggregateField.stringValue = _query.aggregateText;
-  _timeField.stringValue = _query.timeText;
-  _timeField.enabled = [_query hasApplicationTime];
-  [_pathItems removeAllObjects];
-  [self reloadQueryPanel];
-}
-
-- (WBQuery *)currentQuery
-{
-  [self readQueryControls];
-  return _query;
-}
-
 - (void)rebuildColumns
 {
   NSArray *existing = [self.tableView.tableColumns copy];
@@ -433,68 +387,154 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   }
 }
 
-// The GET the store would send, from the same schema and version it uses.
-- (void)refreshTranslation
-{
-  WBQuery *query = [self currentQuery];
-  if (!query) return;
-  NSError *error = nil;
-  if ([query isVerbatim]) {
-    NSURL *url = _connection.context ? [[query verbatimQueryInContext:_connection.context error:&error] URL:&error] : nil;
-    self.wireURLField.stringValue = url.absoluteString ?: (error.localizedDescription ?: @"");
-    return;
-  }
-  NSFetchRequest *request = [query fetchRequestError:&error];
-  if (!request) {
-    self.wireURLField.stringValue = error.localizedDescription ?: @"bad predicate";
-    return;
-  }
-  NSURL *url = [_connection.store URLForFetchRequest:request error:&error];
-  self.wireURLField.stringValue = url.absoluteString ?: (error.localizedDescription ?: @"");
-}
-
-- (void)controlTextDidChange:(NSNotification *)n
-{
-  // The query's fields: the results below are no longer its answer.
-  NSArray *fields = @[ self.limitField, self.skipField, self.batchSizeField, _searchField, _computeField, _groupField, _aggregateField, _timeField ];
-  if ([fields indexOfObjectIdenticalTo:n.object] != NSNotFound) [self invalidateResults];
-  [self refreshTranslation];
-}
-
-- (void)predicateChanged:(NSNotification *)n
-{
-  (void)n;
-  [self invalidateResults];
-  [self refreshTranslation];
-}
-
-// A switch of the query's: result type, sub-entities, faults.
-- (IBAction)queryChanged:(id)sender
-{
-  (void)sender;
-  [self invalidateResults];
-  [self refreshTranslation];
-}
-
-- (IBAction)entityChanged:(id)sender
-{
-  (void)sender;
-  [[self currentQuery] reset];
-  [self showQueryControls];
-  [self invalidateResults];
-  [self refreshTranslation];
-}
-
 - (IBAction)applyPreset:(id)sender
 {
   (void)sender;
   NSInteger idx = self.presetsPopup.indexOfSelectedItem;
   if (!_query || idx < 0 || idx >= (NSInteger)_presets.count) return;
-  [self readQueryControls];
-  [_query applyPreset:_presets[(NSUInteger)idx]];
-  [self showQueryControls];
-  [self invalidateResults];
-  [self refreshTranslation];
+  [_queryPanel applyPreset:_presets[(NSUInteger)idx]];
+}
+
+#pragma mark - The query panel's parts
+
+- (WBQuery *)currentQuery
+{
+  return [_queryPanel currentQuery];
+}
+
+- (void)refreshTranslation
+{
+  [_queryPanel refreshTranslation];
+}
+
+- (IBAction)entityChanged:(id)sender
+{
+  [_queryPanel entityChanged:sender];
+}
+
+- (IBAction)queryChanged:(id)sender
+{
+  [_queryPanel queryChanged:sender];
+}
+
+- (IBAction)addSort:(id)sender
+{
+  [_queryPanel addSort:sender];
+}
+
+- (IBAction)moveSortUp:(id)sender
+{
+  [_queryPanel moveSortUp:sender];
+}
+
+- (NSString *)itemForPath:(NSString *)path
+{
+  return [_queryPanel itemForPath:path];
+}
+
+- (void)setQueryValue:(id)value in:(NSTableView *)table column:(NSTableColumn *)column row:(NSInteger)row
+{
+  [_queryPanel setQueryValue:value in:table column:column row:row];
+}
+
+- (void)outlineView:(NSOutlineView *)outline setObjectValue:(id)value forTableColumn:(NSTableColumn *)column byItem:(id)item
+{
+  [_queryPanel outlineView:outline setObjectValue:value forTableColumn:column byItem:item];
+}
+
+- (void)predicateChanged:(NSNotification *)notification
+{
+  [_queryPanel predicateChanged:notification];
+}
+
+- (NSPopUpButton *)entityPopup
+{
+  return _queryPanel.entityPopup;
+}
+
+- (NSPopUpButton *)resultTypePopup
+{
+  return _queryPanel.resultTypePopup;
+}
+
+- (NSTextField *)limitField
+{
+  return _queryPanel.limitField;
+}
+
+- (NSTextField *)skipField
+{
+  return _queryPanel.skipField;
+}
+
+- (NSTextField *)batchSizeField
+{
+  return _queryPanel.batchSizeField;
+}
+
+- (NSButton *)subentitiesButton
+{
+  return _queryPanel.subentitiesButton;
+}
+
+- (NSButton *)faultsButton
+{
+  return _queryPanel.faultsButton;
+}
+
+- (NSTextView *)predicateView
+{
+  return _queryPanel.predicateView;
+}
+
+- (NSTextField *)wireURLField
+{
+  return _queryPanel.wireURLField;
+}
+
+- (NSTextField *)timeField
+{
+  return _queryPanel.timeField;
+}
+
+- (NSTableView *)sortTable
+{
+  return _queryPanel.sortTable;
+}
+
+- (NSOutlineView *)expandOutline
+{
+  return _queryPanel.expandOutline;
+}
+
+- (NSTableView *)selectTable
+{
+  return _queryPanel.selectTable;
+}
+
+- (NSTextField *)searchField
+{
+  return _queryPanel.searchField;
+}
+
+- (NSTextField *)computeField
+{
+  return _queryPanel.computeField;
+}
+
+- (NSTextField *)groupField
+{
+  return _queryPanel.groupField;
+}
+
+- (NSTextField *)aggregateField
+{
+  return _queryPanel.aggregateField;
+}
+
+- (NSButton *)explainButton
+{
+  return _queryPanel.explainButton;
 }
 
 #pragma mark - The results
@@ -883,15 +923,12 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)table
 {
   if (table == _logTable) return (NSInteger)_exchangeLog.entries.count;
-  if (table == _sortTable) return (NSInteger)_query.sorts.count;
-  if (table == _selectTable) return (NSInteger)[_query attributeNames].count;
   return (NSInteger)_results.rows.count;
 }
 
 - (id)tableView:(NSTableView *)table objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
   if (table == _logTable) return [self logValueForColumn:column row:row];
-  if (table == _sortTable || table == _selectTable) return [self queryValueIn:table column:column row:row];
   NSArray *rows = _results.rows;
   if (row < 0 || (NSUInteger)row >= rows.count) return nil;
   id obj = rows[(NSUInteger)row];
@@ -926,10 +963,6 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
 // An edit waits for Save, as a change to a managed object does.
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-  if (table == _sortTable || table == _selectTable) {
-    [self setQueryValue:value in:table column:column row:row];
-    return;
-  }
   NSString *why = [_results setValue:value forKey:column.identifier ofRow:row];
   if (why) {
     self.statusField.stringValue = why;
@@ -1011,158 +1044,9 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   [self show:text in:self.inspectorView];
 }
 
-#pragma mark - The query panel
-
-- (void)reloadQueryPanel
-{
-  [_sortTable reloadData];
-  [_expandOutline reloadData];
-  [_selectTable reloadData];
-}
-
-// A change in the lists: the panel shows it, the results wait for Execute.
-- (void)queryListsChanged
-{
-  [self reloadQueryPanel];
-  [self invalidateResults];
-  [self refreshTranslation];
-}
-
-- (IBAction)addSort:(id)sender
-{
-  (void)sender;
-  [[self currentQuery] addSort];
-  [self queryListsChanged];
-  [_sortTable selectRowIndexes:[NSIndexSet indexSetWithIndex:_query.sorts.count - 1] byExtendingSelection:NO];
-}
-
-- (IBAction)removeSort:(id)sender
-{
-  (void)sender;
-  [[self currentQuery] removeSortAtRow:_sortTable.selectedRow];
-  [self queryListsChanged];
-}
-
-- (void)moveSortBy:(NSInteger)step
-{
-  NSInteger to = [[self currentQuery] moveSortAtRow:_sortTable.selectedRow by:step];
-  if (to < 0) return;
-  [self queryListsChanged];
-  [_sortTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)to] byExtendingSelection:NO];
-}
-
-- (IBAction)moveSortUp:(id)sender
-{
-  (void)sender;
-  [self moveSortBy:-1];
-}
-
-- (IBAction)moveSortDown:(id)sender
-{
-  (void)sender;
-  [self moveSortBy:1];
-}
-
-- (id)queryValueIn:(NSTableView *)table column:(NSTableColumn *)column row:(NSInteger)row
-{
-  if (table == _sortTable) {
-    if (row < 0 || (NSUInteger)row >= _query.sorts.count) return nil;
-    return _query.sorts[(NSUInteger)row][column.identifier];
-  }
-  NSArray *names = [_query attributeNames];
-  if (row < 0 || (NSUInteger)row >= names.count) return nil;
-  if ([column.identifier isEqualToString:@"include"]) return @([_query.select containsObject:names[(NSUInteger)row]]);
-  return names[(NSUInteger)row];
-}
-
-- (void)setQueryValue:(id)value in:(NSTableView *)table column:(NSTableColumn *)column row:(NSInteger)row
-{
-  WBQuery *query = [self currentQuery];
-  if (table == _sortTable) {
-    if (row < 0 || (NSUInteger)row >= query.sorts.count) return;
-    query.sorts[(NSUInteger)row][column.identifier] = [column.identifier isEqualToString:@"descending"] ? @([value boolValue]) : [value description];
-  } else if ([column.identifier isEqualToString:@"include"]) {
-    NSArray *names = [query attributeNames];
-    if (row < 0 || (NSUInteger)row >= names.count) return;
-    if ([value boolValue]) [query.select addObject:names[(NSUInteger)row]];
-    else [query.select removeObject:names[(NSUInteger)row]];
-  }
-  [self queryListsChanged];
-}
-
-// The outline's items are key paths from the current entity, one string
-// per path, so the outline can tell them apart.
-- (NSString *)itemForPath:(NSString *)path
-{
-  NSString *item = _pathItems[path];
-  if (!item) _pathItems[path] = item = [path copy];
-  return item;
-}
-
-- (NSEntityDescription *)entityAtPath:(NSString *)path
-{
-  NSEntityDescription *entity = [_query entity];
-  for (NSString *part in path.length ? [path componentsSeparatedByString:@"."] : @[]) {
-    NSRelationshipDescription *rel = entity.relationshipsByName[part];  // gnustep-base: no generics to type the subscript
-    entity = rel.destinationEntity;
-  }
-  return entity;
-}
-
-- (NSArray *)childPathsOf:(NSString *)path
-{
-  if ([path componentsSeparatedByString:@"."].count >= 4) return @[];  // deep enough to see the point
-  NSEntityDescription *entity = [self entityAtPath:path];
-  NSMutableArray *children = [NSMutableArray array];
-  for (NSString *name in [entity.relationshipsByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
-    [children addObject:[self itemForPath:path.length ? [NSString stringWithFormat:@"%@.%@", path, name] : name]];
-  }
-  return children;
-}
-
-- (NSInteger)outlineView:(NSOutlineView *)outline numberOfChildrenOfItem:(id)item
-{
-  return _query ? (NSInteger)[self childPathsOf:item ?: @""].count : 0;
-}
-
-- (id)outlineView:(NSOutlineView *)outline child:(NSInteger)index ofItem:(id)item
-{
-  return [self childPathsOf:item ?: @""][(NSUInteger)index];
-}
-
-- (BOOL)outlineView:(NSOutlineView *)outline isItemExpandable:(id)item
-{
-  return [self childPathsOf:item].count > 0;
-}
-
-- (id)outlineView:(NSOutlineView *)outline objectValueForTableColumn:(NSTableColumn *)column byItem:(id)item
-{
-  if ([column.identifier isEqualToString:@"include"]) return @([_query.prefetch containsObject:item]);
-  NSString *name = [[item componentsSeparatedByString:@"."] lastObject];
-  NSRange dot = [item rangeOfString:@"." options:NSBackwardsSearch];
-  NSEntityDescription *owner = [self entityAtPath:dot.location == NSNotFound ? @"" : [item substringToIndex:dot.location]];
-  NSRelationshipDescription *rel = owner.relationshipsByName[name];
-  return [NSString stringWithFormat:@"%@ → %@%@", name, rel.destinationEntity.name, rel.isToMany ? @" (many)" : @""];
-}
-
-- (void)outlineView:(NSOutlineView *)outline setObjectValue:(id)value forTableColumn:(NSTableColumn *)column byItem:(id)item
-{
-  if (![column.identifier isEqualToString:@"include"]) return;
-  // The prefetched relationships are columns: fetch again to see them.
-  [[self currentQuery] setPrefetch:item included:[value boolValue]];
-  [self queryListsChanged];
-}
-
-- (BOOL)outlineView:(NSOutlineView *)outline shouldEditTableColumn:(NSTableColumn *)column item:(id)item
-{
-  return [column.identifier isEqualToString:@"include"];
-}
-
 - (BOOL)tableView:(NSTableView *)table shouldEditTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-  if (table == _logTable) return NO;
-  if (table == _selectTable) return [column.identifier isEqualToString:@"include"];
-  return YES;
+  return table != _logTable;
 }
 
 #pragma mark - Writing

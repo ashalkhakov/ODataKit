@@ -12,6 +12,9 @@
 #import "ODWBottomViewController.h"
 #import "ODWServiceSheet.h"
 #import "ODWExtension.h"
+#import "ODWBuilderViewController.h"
+#import "WBQueryPanel.h"
+#import <UDPieceTable/UDTextModel.h>
 
 // The window's side, as much of it as the services ask of: its project (a
 // folder of the test's own, or none) and its window.
@@ -212,6 +215,97 @@
   [_services sendRequestsOfDocument:document selection:NSMakeRange(0, 0) all:YES];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count == 2); }]);
   XCTAssertEqualObjects([_answers valueForKey:@"title"], (@[ @"GET Categories", @"GET Products?$top=2" ]));
+}
+
+#pragma mark The builder
+
+// The built-in service, connected (its model the builder's).
+- (ODWService *)connectedBuiltIn
+{
+  ODWService *builtIn = [_services serviceNamed:@"Built-in Sample"];
+  [_services connect:builtIn];
+  [self waitFor:^{ return builtIn.connected; }];
+  return builtIn;
+}
+
+- (NSDictionary *)queryOfText:(NSString *)text
+{
+  NSDictionary *file = [NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+  return file[@"query"];
+}
+
+// A query as a file keeps it, and back: all of it, not a preset's part.
+- (void)testAQueryIsKeptWhole
+{
+  ODWService *builtIn = [self connectedBuiltIn];
+  XCTAssertTrue(builtIn.connected, @"%@", builtIn.failure);
+  WBQuery *query = [[WBQuery alloc] initWithModel:builtIn.connection.model builtIn:YES];
+  query.entityName = @"Product";
+  query.resultType = NSDictionaryResultType;
+  query.predicateText = @"unitPrice > 10";
+  query.limitText = @"5";
+  query.skipText = @"2";
+  query.pageSizeText = @"50";
+  query.includesSubentities = NO;
+  [query.sorts addObject:[@{ @"key": @"productName", @"descending": @YES } mutableCopy]];
+  [query.select addObject:@"productName"];
+  [query.prefetch addObject:@"category"];
+  NSDictionary *kept = [query dictionary];
+  WBQuery *again = [[WBQuery alloc] initWithModel:builtIn.connection.model builtIn:YES];
+  [again takeDictionary:kept];
+  XCTAssertEqualObjects([again dictionary], kept);
+  XCTAssertEqualObjects(kept[@"type"], @"dictionary");
+  XCTAssertEqualObjects(kept[@"skip"], @"2");
+  XCTAssertEqualObjects(kept[@"subentities"], @NO);
+  XCTAssertNil([[[WBQuery alloc] initWithModel:builtIn.connection.model builtIn:YES] dictionary][@"subentities"], @"a new query's left out");
+}
+
+// An .odataq document: the panel over its service, its query the text's;
+// a change in the panel written into the text, the text changed read back;
+// Execute's GET answered.
+- (void)testTheBuilderIsItsDocumentsText
+{
+  NSString *text = [ODWBuilderViewController textOfQuery:@{ @"entity": @"Product", @"limit": @"3" } service:@"Built-in Sample"];
+  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:nil languageMode:nil];
+  ODWBuilderViewController *builder = [[ODWBuilderViewController alloc] initWithServices:_services document:document];
+  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1100, 360) styleMask:NSWindowStyleMaskTitled
+                                                   backing:NSBackingStoreBuffered defer:YES];
+  [window setReleasedWhenClosed:NO];
+  [window.contentView addSubview:builder.view];
+  XCTAssertNotNil(builder.servicePopup);
+  XCTAssertNotNil(builder.connectButton);
+  XCTAssertNotNil(builder.statusLabel);
+  XCTAssertTrue([self waitFor:^{ return (BOOL)(builder.panel != nil); }], @"%@", builder.statusLabel.stringValue);
+  XCTAssertEqualObjects(builder.service.name, @"Built-in Sample");
+  XCTAssertEqualObjects(builder.servicePopup.titleOfSelectedItem, @"Built-in Sample");
+  XCTAssertEqualObjects(builder.panel.entityPopup.titleOfSelectedItem, @"Product");
+  XCTAssertEqualObjects(builder.panel.limitField.stringValue, @"3");
+  XCTAssertTrue([builder.panel.translation containsString:@"Products?"], @"%@", builder.panel.translation);
+
+  // The panel changed: the text written, as one edit.
+  builder.panel.limitField.stringValue = @"2";
+  [builder.panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:builder.panel.limitField]];
+  XCTAssertTrue([self waitFor:^{ return [[self queryOfText:[document.textModel getValue]][@"limit"] isEqual:@"2"]; }],
+                @"%@", [document.textModel getValue]);
+  XCTAssertTrue(document.textModel.undoManager.canUndo);
+
+  // The text changed otherwise: the panel reads it.
+  UDTextModel *model = document.textModel;
+  UDRange all = [model validateRange:(UDRange){1, 1, NSIntegerMax, NSIntegerMax}];
+  [model applyEdits:@[ [[UDTextModelEdit alloc] initWithRange:all
+                                                         text:[ODWBuilderViewController textOfQuery:@{ @"entity": @"Category", @"limit": @"4" }
+                                                                                            service:@"Built-in Sample"]] ]];
+  XCTAssertEqualObjects(builder.panel.entityPopup.titleOfSelectedItem, @"Category");
+  XCTAssertEqualObjects(builder.panel.limitField.stringValue, @"4");
+
+  // Execute: its GET, answered.
+  [builder runFetch:nil];
+  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
+  ODWAnswer *answer = _answers.lastObject;
+  XCTAssertNil(answer.failure);
+  XCTAssertTrue([answer.title hasPrefix:@"GET Categories"], @"%@", answer.title);
+  XCTAssertEqual(answer.rows.count, (NSUInteger)4, @"%@", answer.text);
+  [window orderOut:nil];
 }
 
 #pragma mark The XIBs

@@ -32,6 +32,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction)newRequestDocument:(nullable id)sender;
 - (IBAction)sendToService:(nullable id)sender;
 - (IBAction)newRequestOfItem:(nullable id)sender;
+// A new query document (.odataq), built against the service: of the entity
+// set's entity, when it is one's.
+- (IBAction)newQueryBuilder:(nullable id)sender;
 - (IBAction)copyName:(nullable id)sender;
 - (IBAction)openItem:(nullable id)sender;
 @end

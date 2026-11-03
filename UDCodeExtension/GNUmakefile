@@ -24,6 +24,7 @@ WORKBENCH = ../Examples/Workbench
 include $(WORKBENCH)/files.make
 ODW_OBJC_FILES = \
 	ODWBottomViewController.m \
+	ODWBuilderViewController.m \
 	ODWExtension.m \
 	ODWNavigatorViewController.m \
 	ODWRequests.m \
@@ -32,6 +33,7 @@ ODW_OBJC_FILES = \
 ODW_RESOURCE_FILES = \
 	Resources/LanguageInfo.plist \
 	ODWBottom.xib \
+	ODWBuilder.xib \
 	ODWNavigator.xib \
 	ODWServiceSheet.xib
 OData_OBJC_FILES = $(ODW_OBJC_FILES) $(addprefix $(WORKBENCH)/,$(WORKBENCH_KIT_OBJC_FILES))

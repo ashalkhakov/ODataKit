@@ -6,6 +6,7 @@
 #import "WorkbenchController.h"
 #import "WBConnection.h"
 #import "WBQuery.h"
+#import "WBQueryPanel.h"
 #import "WBResults.h"
 #import "WBTraces.h"
 #import "WBExchangeLog.h"
@@ -25,15 +26,18 @@
 // The service's canned queries, as the presets menu lists them.
 @property (nonatomic, copy) NSArray<NSDictionary *> *presets;
 
-// The query panel's lists and fields (WorkbenchWindow.xib).
-@property (nonatomic, strong) IBOutlet NSTableView *sortTable;
-@property (nonatomic, strong) IBOutlet NSOutlineView *expandOutline;
-@property (nonatomic, strong) IBOutlet NSTableView *selectTable;
-@property (nonatomic, strong) IBOutlet NSTextField *searchField;
-@property (nonatomic, strong) IBOutlet NSTextField *computeField;
-@property (nonatomic, strong) IBOutlet NSTextField *groupField;
-@property (nonatomic, strong) IBOutlet NSTextField *aggregateField;
-@property (nonatomic, strong) IBOutlet NSTextField *timeField;
+// The query panel (WBQueryPanel.xib), in its host in the window; its lists
+// and fields, as the window's.
+@property (nonatomic, strong) WBQueryPanel *queryPanel;
+@property (nonatomic, strong) IBOutlet NSView *queryPanelHost;
+@property (nonatomic, readonly) NSTableView *sortTable;
+@property (nonatomic, readonly) NSOutlineView *expandOutline;
+@property (nonatomic, readonly) NSTableView *selectTable;
+@property (nonatomic, readonly) NSTextField *searchField;
+@property (nonatomic, readonly) NSTextField *computeField;
+@property (nonatomic, readonly) NSTextField *groupField;
+@property (nonatomic, readonly) NSTextField *aggregateField;
+@property (nonatomic, readonly) NSTextField *timeField;
 
 // What acts on the selected result.
 @property (nonatomic, strong) IBOutlet NSButton *deleteButton;
@@ -55,7 +59,7 @@
 
 // Explain: the built-in service's plan for the query, physical and logical
 // (PlanWindow.xib, loaded when first shown).
-@property (nonatomic, strong) IBOutlet NSButton *explainButton;
+@property (nonatomic, readonly) NSButton *explainButton;
 @property (nonatomic, strong) IBOutlet NSWindow *planWindow;
 @property (nonatomic, strong) IBOutlet NSTextView *explainedView;
 @property (nonatomic, strong) IBOutlet NSTextView *physicalPlanView;

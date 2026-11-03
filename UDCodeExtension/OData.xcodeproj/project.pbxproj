@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		23853ADDDCA6BA34BE3032E2 /* ODWBottomViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C263E46747554B27E6DA09F1 /* ODWBottomViewController.m */; };
+		F80644393AAE588339A6BA07 /* ODWBuilderViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DF698C892A4DCAA33CA8B719 /* ODWBuilderViewController.m */; };
 		19DCBE9A2F0F075791EB9C80 /* ODWExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = 0A5E569A7C378B5BC36130B2 /* ODWExtension.m */; };
 		B8E10D3438ACD092C0A8C411 /* ODWNavigatorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C642DC62602D22FB4F10624C /* ODWNavigatorViewController.m */; };
 		0169A4F9A2B44087DD81E4ED /* ODWRequests.m in Sources */ = {isa = PBXBuildFile; fileRef = B4BE1AA6CB0CBE94648DB277 /* ODWRequests.m */; };
@@ -16,6 +17,7 @@
 		3F8B80C7C7D6D2007F3854E8 /* WBConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = FF35649B8AEFACDD7D8E2E34 /* WBConnection.m */; };
 		055BA84D386FD82DA7E5E6C4 /* WBExchangeLog.m in Sources */ = {isa = PBXBuildFile; fileRef = 9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */; };
 		E5635A62738F392F85A562F5 /* WBQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = 82810F99273AC75A3D929FD0 /* WBQuery.m */; };
+		68EB19FE7F075A881BB7EE56 /* WBQueryPanel.m in Sources */ = {isa = PBXBuildFile; fileRef = 5541E3EAB91F4E5EF54D4791 /* WBQueryPanel.m */; };
 		9EC914169142C8BB5A3289F4 /* WBResults.m in Sources */ = {isa = PBXBuildFile; fileRef = 7249671C901DEBB6C38769EB /* WBResults.m */; };
 		3621B76C1FD9067DCD612DE6 /* WBSignInPanel.m in Sources */ = {isa = PBXBuildFile; fileRef = 893563DF27FDCD651037008B /* WBSignInPanel.m */; };
 		4E51F6169F4A39824E819501 /* WBTraces.m in Sources */ = {isa = PBXBuildFile; fileRef = 9310B19B8B297250B48CF8DF /* WBTraces.m */; };
@@ -25,8 +27,10 @@
 		D60A3739DFC4DC54D27F1D6D /* Catalog.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 148A6850BA389C4BCEED8689 /* Catalog.xcdatamodeld */; };
 		290D80CA10BC047ECA1BF66D /* LanguageInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = D0DD085E327114F988626E90 /* LanguageInfo.plist */; };
 		0899D60818D13F40D3FBF4F8 /* ODWBottom.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2E6410E8C314F77333184B96 /* ODWBottom.xib */; };
+		B6D064ADB6987045E29A680F /* ODWBuilder.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8F800D7BDA3F211409573FBE /* ODWBuilder.xib */; };
 		D7D64F4691E0C51FE000CDCF /* ODWNavigator.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */; };
 		A75F89F81DF7DFFD28A4A880 /* ODWServiceSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */; };
+		35755F5864409B3E3A9D03B6 /* WBQueryPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */; };
 		4D3F56A02FCC6060EF6E3138 /* WBSignInPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */; };
 		3F92F87D378B6481CB61C093 /* WBTraces.xib in Resources */ = {isa = PBXBuildFile; fileRef = 18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */; };
 		F862AF817B3733F1676A68C8 /* WBTraceWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */; };
@@ -49,6 +53,7 @@
 		AEABA73107D43964656DA15F /* ODataSync.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C5BA7312398ED1D42F74DFA0 /* ODataSync.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C6F2B16AA38BF8B50FA0D459 /* ODWTests.m in Sources */ = {isa = PBXBuildFile; fileRef = D1063DA982E674238116831B /* ODWTests.m */; };
 		435015BBAC4B6867995E2FAE /* ODWBottomViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C263E46747554B27E6DA09F1 /* ODWBottomViewController.m */; };
+		9C33290603BC6FE221167EAA /* ODWBuilderViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DF698C892A4DCAA33CA8B719 /* ODWBuilderViewController.m */; };
 		A37CAA97D7665BA18498F629 /* ODWExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = 0A5E569A7C378B5BC36130B2 /* ODWExtension.m */; };
 		AAA6999EDF9E39468186B08A /* ODWNavigatorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C642DC62602D22FB4F10624C /* ODWNavigatorViewController.m */; };
 		2240A079C355E563EC4ACAC8 /* ODWRequests.m in Sources */ = {isa = PBXBuildFile; fileRef = B4BE1AA6CB0CBE94648DB277 /* ODWRequests.m */; };
@@ -57,6 +62,7 @@
 		19A19DD398F48EC11D6785B1 /* WBConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = FF35649B8AEFACDD7D8E2E34 /* WBConnection.m */; };
 		5C1F6561F5A16E0B4DC297DD /* WBExchangeLog.m in Sources */ = {isa = PBXBuildFile; fileRef = 9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */; };
 		BD7F8A9A4889991A8C859CDE /* WBQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = 82810F99273AC75A3D929FD0 /* WBQuery.m */; };
+		06AB1D3DE352547A73292C7B /* WBQueryPanel.m in Sources */ = {isa = PBXBuildFile; fileRef = 5541E3EAB91F4E5EF54D4791 /* WBQueryPanel.m */; };
 		258D554959A5ACEF512A3532 /* WBResults.m in Sources */ = {isa = PBXBuildFile; fileRef = 7249671C901DEBB6C38769EB /* WBResults.m */; };
 		9C71C1AE450BC8DB49EEB278 /* WBSignInPanel.m in Sources */ = {isa = PBXBuildFile; fileRef = 893563DF27FDCD651037008B /* WBSignInPanel.m */; };
 		7E861EAE81F65964584CEA2B /* WBTraces.m in Sources */ = {isa = PBXBuildFile; fileRef = 9310B19B8B297250B48CF8DF /* WBTraces.m */; };
@@ -65,8 +71,10 @@
 		A629CA0E014E73EFD4A5D45D /* WorkbenchSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = 85DD4195DD92AB9744CF6E29 /* WorkbenchSupport.m */; };
 		857A961F4759881B480F2E27 /* Catalog.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 148A6850BA389C4BCEED8689 /* Catalog.xcdatamodeld */; };
 		40B9367EB841CEB131EB6344 /* ODWBottom.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2E6410E8C314F77333184B96 /* ODWBottom.xib */; };
+		D6733226755842F01B229FBF /* ODWBuilder.xib in Resources */ = {isa = PBXBuildFile; fileRef = 8F800D7BDA3F211409573FBE /* ODWBuilder.xib */; };
 		04DE85F4E80035BBCC173B97 /* ODWNavigator.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */; };
 		BA508A9FFEAE99122EC07B7A /* ODWServiceSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */; };
+		2EFB6E498B8A473DC3548EDC /* WBQueryPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */; };
 		6A0474B084DEE88FCFE8F57E /* WBSignInPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */; };
 		177AC15D7AB136257525FF3E /* WBTraces.xib in Resources */ = {isa = PBXBuildFile; fileRef = 18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */; };
 		4F662B35DA32C486F4FF34CE /* WBTraceWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */; };
@@ -105,6 +113,8 @@
 /* Begin PBXFileReference section */
 		3876722189682759B5F71355 /* ODWBottomViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWBottomViewController.h; sourceTree = "<group>"; };
 		C263E46747554B27E6DA09F1 /* ODWBottomViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWBottomViewController.m; sourceTree = "<group>"; };
+		76583F224A15D1BCFF44AB6A /* ODWBuilderViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWBuilderViewController.h; sourceTree = "<group>"; };
+		DF698C892A4DCAA33CA8B719 /* ODWBuilderViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWBuilderViewController.m; sourceTree = "<group>"; };
 		AE33929936F90CC748545E1E /* ODWExtension.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWExtension.h; sourceTree = "<group>"; };
 		0A5E569A7C378B5BC36130B2 /* ODWExtension.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWExtension.m; sourceTree = "<group>"; };
 		95CA2F39D583E5B795DB45B3 /* ODWNavigatorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWNavigatorViewController.h; sourceTree = "<group>"; };
@@ -116,6 +126,7 @@
 		961372165BDC746AEA994FA7 /* ODWServices.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWServices.h; sourceTree = "<group>"; };
 		68E6AC49B88D5B4240311D5B /* ODWServices.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWServices.m; sourceTree = "<group>"; };
 		2E6410E8C314F77333184B96 /* ODWBottom.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWBottom.xib; sourceTree = "<group>"; };
+		8F800D7BDA3F211409573FBE /* ODWBuilder.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWBuilder.xib; sourceTree = "<group>"; };
 		3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWNavigator.xib; sourceTree = "<group>"; };
 		DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWServiceSheet.xib; sourceTree = "<group>"; };
 		1058FCA1AC3FB76D429D3EB9 /* package.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = package.json; sourceTree = "<group>"; };
@@ -128,6 +139,8 @@
 		9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WBExchangeLog.m; path = "../Examples/Workbench/WBExchangeLog.m"; sourceTree = "<group>"; };
 		BF6B24A84B67CCA77AC69041 /* WBQuery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WBQuery.h; path = "../Examples/Workbench/WBQuery.h"; sourceTree = "<group>"; };
 		82810F99273AC75A3D929FD0 /* WBQuery.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WBQuery.m; path = "../Examples/Workbench/WBQuery.m"; sourceTree = "<group>"; };
+		F43CE5FC388C17168AF0C92B /* WBQueryPanel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WBQueryPanel.h; path = "../Examples/Workbench/WBQueryPanel.h"; sourceTree = "<group>"; };
+		5541E3EAB91F4E5EF54D4791 /* WBQueryPanel.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WBQueryPanel.m; path = "../Examples/Workbench/WBQueryPanel.m"; sourceTree = "<group>"; };
 		111D21CA1A714D63D821BD89 /* WBResults.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WBResults.h; path = "../Examples/Workbench/WBResults.h"; sourceTree = "<group>"; };
 		7249671C901DEBB6C38769EB /* WBResults.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WBResults.m; path = "../Examples/Workbench/WBResults.m"; sourceTree = "<group>"; };
 		F925A6B7225BFF972213E0F2 /* WBSignInPanel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WBSignInPanel.h; path = "../Examples/Workbench/WBSignInPanel.h"; sourceTree = "<group>"; };
@@ -140,6 +153,7 @@
 		FC03A58A3A7FD2E15FEDBB43 /* WorkbenchModel.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WorkbenchModel.m; path = "../Examples/Workbench/WorkbenchModel.m"; sourceTree = "<group>"; };
 		B0E62E0A4871482A78494DFD /* WorkbenchSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = WorkbenchSupport.h; path = "../Examples/Workbench/WorkbenchSupport.h"; sourceTree = "<group>"; };
 		85DD4195DD92AB9744CF6E29 /* WorkbenchSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = WorkbenchSupport.m; path = "../Examples/Workbench/WorkbenchSupport.m"; sourceTree = "<group>"; };
+		4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBQueryPanel.xib; path = "../Examples/Workbench/WBQueryPanel.xib"; sourceTree = "<group>"; };
 		7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBSignInPanel.xib; path = "../Examples/Workbench/WBSignInPanel.xib"; sourceTree = "<group>"; };
 		18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBTraces.xib; path = "../Examples/Workbench/WBTraces.xib"; sourceTree = "<group>"; };
 		01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = WBTraceWindow.xib; path = "../Examples/Workbench/WBTraceWindow.xib"; sourceTree = "<group>"; };
@@ -220,6 +234,8 @@
 			children = (
 				3876722189682759B5F71355 /* ODWBottomViewController.h */,
 				C263E46747554B27E6DA09F1 /* ODWBottomViewController.m */,
+				76583F224A15D1BCFF44AB6A /* ODWBuilderViewController.h */,
+				DF698C892A4DCAA33CA8B719 /* ODWBuilderViewController.m */,
 				AE33929936F90CC748545E1E /* ODWExtension.h */,
 				0A5E569A7C378B5BC36130B2 /* ODWExtension.m */,
 				95CA2F39D583E5B795DB45B3 /* ODWNavigatorViewController.h */,
@@ -231,6 +247,7 @@
 				961372165BDC746AEA994FA7 /* ODWServices.h */,
 				68E6AC49B88D5B4240311D5B /* ODWServices.m */,
 				2E6410E8C314F77333184B96 /* ODWBottom.xib */,
+				8F800D7BDA3F211409573FBE /* ODWBuilder.xib */,
 				3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */,
 				DE6154EE9C5ED8D9D758C604 /* ODWServiceSheet.xib */,
 				1058FCA1AC3FB76D429D3EB9 /* package.json */,
@@ -265,6 +282,8 @@
 				9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */,
 				BF6B24A84B67CCA77AC69041 /* WBQuery.h */,
 				82810F99273AC75A3D929FD0 /* WBQuery.m */,
+				F43CE5FC388C17168AF0C92B /* WBQueryPanel.h */,
+				5541E3EAB91F4E5EF54D4791 /* WBQueryPanel.m */,
 				111D21CA1A714D63D821BD89 /* WBResults.h */,
 				7249671C901DEBB6C38769EB /* WBResults.m */,
 				F925A6B7225BFF972213E0F2 /* WBSignInPanel.h */,
@@ -277,6 +296,7 @@
 				FC03A58A3A7FD2E15FEDBB43 /* WorkbenchModel.m */,
 				B0E62E0A4871482A78494DFD /* WorkbenchSupport.h */,
 				85DD4195DD92AB9744CF6E29 /* WorkbenchSupport.m */,
+				4C263ED672D85C67896EBB03 /* WBQueryPanel.xib */,
 				7BDA79738FBA33D081D937C9 /* WBSignInPanel.xib */,
 				18E8FCD3D12D0C67BE5EC8FD /* WBTraces.xib */,
 				01B43D05C50905C0D9E93396 /* WBTraceWindow.xib */,
@@ -395,8 +415,10 @@
 			files = (
 				290D80CA10BC047ECA1BF66D /* LanguageInfo.plist in Resources */,
 				0899D60818D13F40D3FBF4F8 /* ODWBottom.xib in Resources */,
+				B6D064ADB6987045E29A680F /* ODWBuilder.xib in Resources */,
 				D7D64F4691E0C51FE000CDCF /* ODWNavigator.xib in Resources */,
 				A75F89F81DF7DFFD28A4A880 /* ODWServiceSheet.xib in Resources */,
+				35755F5864409B3E3A9D03B6 /* WBQueryPanel.xib in Resources */,
 				4D3F56A02FCC6060EF6E3138 /* WBSignInPanel.xib in Resources */,
 				3F92F87D378B6481CB61C093 /* WBTraces.xib in Resources */,
 				F862AF817B3733F1676A68C8 /* WBTraceWindow.xib in Resources */,
@@ -408,8 +430,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				40B9367EB841CEB131EB6344 /* ODWBottom.xib in Resources */,
+				D6733226755842F01B229FBF /* ODWBuilder.xib in Resources */,
 				04DE85F4E80035BBCC173B97 /* ODWNavigator.xib in Resources */,
 				BA508A9FFEAE99122EC07B7A /* ODWServiceSheet.xib in Resources */,
+				2EFB6E498B8A473DC3548EDC /* WBQueryPanel.xib in Resources */,
 				6A0474B084DEE88FCFE8F57E /* WBSignInPanel.xib in Resources */,
 				177AC15D7AB136257525FF3E /* WBTraces.xib in Resources */,
 				4F662B35DA32C486F4FF34CE /* WBTraceWindow.xib in Resources */,
@@ -424,6 +448,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				23853ADDDCA6BA34BE3032E2 /* ODWBottomViewController.m in Sources */,
+				F80644393AAE588339A6BA07 /* ODWBuilderViewController.m in Sources */,
 				19DCBE9A2F0F075791EB9C80 /* ODWExtension.m in Sources */,
 				B8E10D3438ACD092C0A8C411 /* ODWNavigatorViewController.m in Sources */,
 				0169A4F9A2B44087DD81E4ED /* ODWRequests.m in Sources */,
@@ -432,6 +457,7 @@
 				3F8B80C7C7D6D2007F3854E8 /* WBConnection.m in Sources */,
 				055BA84D386FD82DA7E5E6C4 /* WBExchangeLog.m in Sources */,
 				E5635A62738F392F85A562F5 /* WBQuery.m in Sources */,
+				68EB19FE7F075A881BB7EE56 /* WBQueryPanel.m in Sources */,
 				9EC914169142C8BB5A3289F4 /* WBResults.m in Sources */,
 				3621B76C1FD9067DCD612DE6 /* WBSignInPanel.m in Sources */,
 				4E51F6169F4A39824E819501 /* WBTraces.m in Sources */,
@@ -448,6 +474,7 @@
 			files = (
 				C6F2B16AA38BF8B50FA0D459 /* ODWTests.m in Sources */,
 				435015BBAC4B6867995E2FAE /* ODWBottomViewController.m in Sources */,
+				9C33290603BC6FE221167EAA /* ODWBuilderViewController.m in Sources */,
 				A37CAA97D7665BA18498F629 /* ODWExtension.m in Sources */,
 				AAA6999EDF9E39468186B08A /* ODWNavigatorViewController.m in Sources */,
 				2240A079C355E563EC4ACAC8 /* ODWRequests.m in Sources */,
@@ -456,6 +483,7 @@
 				19A19DD398F48EC11D6785B1 /* WBConnection.m in Sources */,
 				5C1F6561F5A16E0B4DC297DD /* WBExchangeLog.m in Sources */,
 				BD7F8A9A4889991A8C859CDE /* WBQuery.m in Sources */,
+				06AB1D3DE352547A73292C7B /* WBQueryPanel.m in Sources */,
 				258D554959A5ACEF512A3532 /* WBResults.m in Sources */,
 				9C71C1AE450BC8DB49EEB278 /* WBSignInPanel.m in Sources */,
 				7E861EAE81F65964584CEA2B /* WBTraces.m in Sources */,

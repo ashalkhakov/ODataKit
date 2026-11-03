@@ -604,6 +604,73 @@ static NSArray *WBItems(NSString *text)
   if (first) [_sorts addObject:[@{ @"key": first, @"descending": @NO } mutableCopy]];
 }
 
+#pragma mark As a property list
+
+static NSString *WBTypeName(NSFetchRequestResultType type)
+{
+  return type == NSCountResultType ? @"count" : type == NSDictionaryResultType ? @"dictionary"
+       : type == NSManagedObjectIDResultType ? @"object IDs" : @"objects";
+}
+
+- (NSDictionary *)dictionary
+{
+  NSMutableDictionary *d = [NSMutableDictionary dictionary];
+  if (_entityName.length) d[@"entity"] = _entityName;
+  if (_resultType != NSManagedObjectResultType) d[@"type"] = WBTypeName(_resultType);
+  NSDictionary *texts = @{ @"predicate": _predicateText ?: @"", @"limit": _limitText ?: @"", @"skip": _skipText ?: @"",
+                           @"pageSize": _pageSizeText ?: @"", @"search": _searchText ?: @"", @"compute": _computeText ?: @"",
+                           @"group": _groupText ?: @"", @"aggregate": _aggregateText ?: @"", @"time": _timeText ?: @"" };
+  [texts enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *text, BOOL *stop) {
+    if (text.length) d[key] = text;
+  }];
+  NSMutableArray *sorts = [NSMutableArray array];
+  for (NSDictionary *sort in _sorts) {
+    if ([sort[@"key"] length]) [sorts addObject:@{ @"key": sort[@"key"], @"descending": @([sort[@"descending"] boolValue]) }];
+  }
+  if (sorts.count) d[@"sort"] = sorts;
+  if (_prefetch.count) d[@"expand"] = [_prefetch.allObjects sortedArrayUsingSelector:@selector(compare:)];
+  if (_select.count) d[@"select"] = [_select.allObjects sortedArrayUsingSelector:@selector(compare:)];
+  if (!_includesSubentities) d[@"subentities"] = @NO;
+  if (_returnsObjectsAsFaults) d[@"faults"] = @YES;
+  return d;
+}
+
+- (void)takeDictionary:(NSDictionary *)d
+{
+  id (^text)(NSString *) = ^id(NSString *key) {
+    return [d[key] isKindOfClass:[NSString class]] ? [d[key] copy] : @"";
+  };
+  _entityName = [d[@"entity"] isKindOfClass:[NSString class]] ? [d[@"entity"] copy] : nil;
+  NSString *type = text(@"type");
+  _resultType = [type isEqualToString:@"count"] ? NSCountResultType
+              : [type isEqualToString:@"dictionary"] ? NSDictionaryResultType
+              : [type isEqualToString:@"object IDs"] ? NSManagedObjectIDResultType : NSManagedObjectResultType;
+  _predicateText = text(@"predicate");
+  _limitText = text(@"limit");
+  _skipText = text(@"skip");
+  _pageSizeText = text(@"pageSize");
+  _searchText = text(@"search");
+  _computeText = text(@"compute");
+  _groupText = text(@"group");
+  _aggregateText = text(@"aggregate");
+  _timeText = text(@"time");
+  [_sorts removeAllObjects];
+  for (NSDictionary *sort in [d[@"sort"] isKindOfClass:[NSArray class]] ? d[@"sort"] : @[]) {
+    if (![sort isKindOfClass:[NSDictionary class]] || ![sort[@"key"] isKindOfClass:[NSString class]]) continue;
+    [_sorts addObject:[@{ @"key": sort[@"key"], @"descending": @([sort[@"descending"] boolValue]) } mutableCopy]];
+  }
+  [_prefetch removeAllObjects];
+  for (id path in [d[@"expand"] isKindOfClass:[NSArray class]] ? d[@"expand"] : @[]) {
+    if ([path isKindOfClass:[NSString class]]) [_prefetch addObject:path];
+  }
+  [_select removeAllObjects];
+  for (id name in [d[@"select"] isKindOfClass:[NSArray class]] ? d[@"select"] : @[]) {
+    if ([name isKindOfClass:[NSString class]]) [_select addObject:name];
+  }
+  _includesSubentities = d[@"subentities"] ? [d[@"subentities"] boolValue] : YES;
+  _returnsObjectsAsFaults = [d[@"faults"] boolValue];
+}
+
 - (void)applyPreset:(NSDictionary *)p
 {
   _entityName = [p[@"entity"] copy];

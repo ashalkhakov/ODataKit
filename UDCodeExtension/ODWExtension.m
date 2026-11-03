@@ -5,11 +5,16 @@
 #import "ODWServices.h"
 #import "ODWNavigatorViewController.h"
 #import "ODWBottomViewController.h"
+#import "ODWBuilderViewController.h"
+#import <UDCodeKit/UDCodeDocument.h>
+#import <UDCodeKit/UDLanguageMode.h>
 
 @implementation ODWExtension {
   // Each window's services, and their navigators.
   NSMapTable<id, ODWServices *> *_windows;
   NSMapTable<ODWServices *, ODWNavigatorViewController *> *_navigators;
+  // Each query document's builder (its tab's).
+  NSMapTable<UDCodeDocument *, ODWBuilderViewController *> *_builders;
 }
 
 - (void)extensionDidLoad:(NSBundle *)bundle
@@ -108,16 +113,30 @@
   return image;
 }
 
+// An .odataq document's own editor: the query builder (its text the
+// query's JSON, still shown as text by View > Open as Text).
+- (NSViewController *)workbench:(id<UDWorkbench>)workbench editorForDocument:(UDCodeDocument *)document
+{
+  if (![document.languageMode.identifier isEqualToString:@"odataq"]) return nil;
+  ODWBuilderViewController *builder = [[ODWBuilderViewController alloc] initWithServices:[self servicesOf:workbench] document:document];
+  if (!_builders) _builders = [NSMapTable weakToWeakObjectsMapTable];
+  [_builders setObject:builder forKey:document];
+  return builder;
+}
+
 // UDCode's Editor > Run (⌘↩) and Run All (⇧⌘↩): an .odata document's
-// request at the caret, or all of them, sent to its service.
+// request at the caret, or all of them, sent to its service; a query
+// document's GET, its builder's.
 - (BOOL)workbench:(id<UDWorkbench>)workbench canRunDocument:(UDCodeDocument *)document
 {
-  return [ODWServices isRequestDocument:document];
+  return [ODWServices isRequestDocument:document] || [_builders objectForKey:document] != nil;
 }
 
 - (void)workbench:(id<UDWorkbench>)workbench runDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all
 {
-  [[self servicesOf:workbench] sendRequestsOfDocument:document selection:selection all:all];
+  ODWBuilderViewController *builder = [_builders objectForKey:document];
+  if (builder) [builder runFetch:nil];
+  else [[self servicesOf:workbench] sendRequestsOfDocument:document selection:selection all:all];
 }
 
 @end

@@ -31,6 +31,11 @@
                         <action selector="newRequestDocument:" target="-2" id="OD-m-new-a"/>
                     </connections>
                 </menuItem>
+                <menuItem title="New Query Builder" id="OD-m-builder">
+                    <connections>
+                        <action selector="newQueryBuilder:" target="-2" id="OD-m-builder-a"/>
+                    </connections>
+                </menuItem>
                 <menuItem title="Send Requests To This Service" id="OD-m-send-to">
                     <connections>
                         <action selector="sendToService:" target="-2" id="OD-m-send-to-a"/>
@@ -69,6 +74,11 @@
                 <menuItem title="New Request" id="OD-s-new">
                     <connections>
                         <action selector="newRequestOfItem:" target="-2" id="OD-s-new-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="New Query Builder" id="OD-s-builder">
+                    <connections>
+                        <action selector="newQueryBuilder:" target="-2" id="OD-s-builder-a"/>
                     </connections>
                 </menuItem>
                 <menuItem title="Copy Name" id="OD-s-copy">
