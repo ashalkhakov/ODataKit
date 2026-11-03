@@ -72,6 +72,15 @@ typedef NS_ENUM(NSInteger, WBService) {
 @property (nonatomic) BOOL respondAsync;
 @property (nonatomic) BOOL JSONBatch;
 
+// A request of the host's own, as written (a text request's: UDCode's OData
+// extension): signed as the store signs its (the sign-in's credentials, the
+// ways $metadata declares), sent through the transport in use (the built-in
+// service, or the network: the wire log hears of it), asked again once with
+// fresh credentials when the service refuses it (401). done on the main
+// thread, with the exchange: its URLResponse and data, or its error. Once
+// connected.
+- (void)sendRequest:(NSURLRequest *)request done:(void (^)(ODataExchange *exchange))done;
+
 @end
 
 NS_ASSUME_NONNULL_END

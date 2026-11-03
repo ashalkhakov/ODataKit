@@ -42,7 +42,6 @@ static BOOL WorkbenchLoadNib(NSString *name, id owner)
   // built-in service's.
   _traceRecorder = [[WBTraceRecorder alloc] init];
   OTTracerProvider.sharedProvider = WBTracerProvider(_traceRecorder);
-  [ODataIncrementalStore registerStore];
   if (!WorkbenchLoadNib(@"WorkbenchWindow", self)) {
     NSLog(@"Workbench: failed to load WorkbenchWindow.xib");
   }

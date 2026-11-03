@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- .odata documents: OData requests written as VS Code's REST Client
+	     writes them (ODWRequests), sent from the Editor menu. Text, with no
+	     grammar of their own. -->
+	<key>languageModes</key>
+	<array>
+		<dict>
+			<key>identifier</key>
+			<string>odata</string>
+			<key>displayName</key>
+			<string>OData Requests</string>
+			<key>fileExtensions</key>
+			<array>
+				<string>odata</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

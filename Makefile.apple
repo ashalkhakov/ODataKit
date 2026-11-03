@@ -3,7 +3,10 @@
 #
 #   make -f Makefile.apple                        the libraries as XCFrameworks
 #                                                 (macOS, iOS, the iOS Simulator),
-#                                                 and the Workbench, universal
+#                                                 and the Workbench, universal; and
+#                                                 UDCode's OData extension (OData.bundle,
+#                                                 which Scripts/udcx.sh packages) where
+#                                                 UDCode's SDK is in .deps
 #   make -f Makefile.apple check                  the tests
 #   make -f Makefile.apple install DESTDIR=<dir>  the XCFrameworks, Workbench.app, and
 #                                                 bin/odatakit-permissions (the permissions
@@ -28,8 +31,11 @@ FRAMEWORKS = ODataKit ODataIncrementalStore OTelKit HTTPServerKit ODataService O
 PRODUCTS = $(DERIVED)/Build/Products
 RELEASE_DIRS = Release Release-iphoneos Release-iphonesimulator
 DEBUG = $(PRODUCTS)/Debug
+# UDCode's OData extension, where UDCode's SDK is in .deps (.github/pins.env's
+# UDCODEKIT_VERSION): its bundle, and its tests.
+ODATA = $(if $(wildcard .deps/UDCodeKit.xcframework),OData)
 
-all: xcframeworks workbench
+all: xcframeworks workbench $(ODATA:%=udcode-extension)
 
 xcframeworks:
 	@for platform in macOS iOS "iOS Simulator"; do \
@@ -48,7 +54,11 @@ workbench:
 	    || { echo "Workbench.app does not embed $$fw.framework"; exit 1; }; \
 	done
 
-# The unit tests against Apple's Core Data; the server over loopback; the
+udcode-extension:
+	$(XCODEBUILD) -scheme OData -configuration Release -destination 'generic/platform=macOS' build
+
+# The unit tests against Apple's Core Data; UDCode's OData extension's, where
+# it is built; the server over loopback; the
 # example apps built (the Device app for iOS); the live service checks and
 # the Workbench's online self-test, against services.odata.org: out of our
 # hands, so they warn rather than fail; and the Device app syncing with the
@@ -62,6 +72,11 @@ check:
 	  $(XCODEBUILD) -scheme $$scheme -configuration Debug -destination 'platform=macOS' build || exit 1; \
 	done
 	$(XCODEBUILD) -scheme Device -configuration Debug -destination 'generic/platform=iOS Simulator' build
+	@if [ -n "$(ODATA)" ]; then \
+	  rm -rf $(RESULTS)/ODataTests.xcresult; \
+	  $(XCODEBUILD) -scheme ODataTests -configuration Debug -destination 'platform=macOS' \
+	    -resultBundlePath $(RESULTS)/ODataTests.xcresult test || exit 1; \
+	fi
 	$(MAKE) -C Tests/Live -f Makefile.apple live || echo "::warning::the live service checks failed (services.odata.org)"
 	$(DEBUG)/Workbench.app/Contents/MacOS/Workbench --self-test || echo "::warning::the Workbench's online self-test failed"
 	Scripts/peer-sync-check.sh $(DEBUG)/Workbench.app/Contents/MacOS/Workbench \
@@ -86,4 +101,4 @@ clean:
 	$(MAKE) -C Server -f Makefile.apple clean
 	$(MAKE) -C Tests/Live -f Makefile.apple clean
 
-.PHONY: all xcframeworks workbench check install installcheck clean
+.PHONY: all xcframeworks workbench udcode-extension check install installcheck clean
