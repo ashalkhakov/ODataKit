@@ -1,10 +1,11 @@
 // The OData navigator (ODWNavigator.xib): a window's services
 // (ODWServices), each with what it serves once connected (its entity sets,
 // its functions and actions). Double-clicking a service connects to it;
-// an entity set, a new request of it, sent. A right click's menu is the
-// row's: a service's (a new request document, send to it, connect, sign
-// out, edit, remove), an entity set's (a new request, a request of it
-// inserted: ODWTemplates; copy its name), a function's (its call inserted).
+// an entity set, a query of its rows, sent; an operation, its call, set
+// up. A right click's menu is the row's: a service's (a new query builder,
+// connect, sign out, edit, remove), an entity set's (a new query builder, a
+// builder set up for a request of it: ODWTemplates; copy its name), a
+// function's (a builder set up for its call).
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 #pragma once
@@ -30,18 +31,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction)refreshService:(nullable id)sender;
 - (IBAction)disconnectService:(nullable id)sender;
 - (IBAction)signOutOfService:(nullable id)sender;
-- (IBAction)newRequestDocument:(nullable id)sender;
-- (IBAction)sendToService:(nullable id)sender;
-- (IBAction)newRequestOfItem:(nullable id)sender;
 // A new query document (.odataq), built against the service: of the entity
 // set's entity, when it is one's.
 - (IBAction)newQueryBuilder:(nullable id)sender;
-// A request of the item's (an entity set's: its sender's tag an
-// ODWTemplate; an operation's call) in the front request document at its
-// caret, when that is the item's service's (or no service's yet); else in a
-// new one.
+// A new builder set up for a request of the item's: an entity set's (its
+// sender's tag an ODWTemplate), an operation's call.
 - (IBAction)insertRequestOfItem:(nullable id)sender;
-- (void)insertRequest:(NSString *)request ofService:(ODWService *)service;
 - (IBAction)copyName:(nullable id)sender;
 - (IBAction)openItem:(nullable id)sender;
 @end

@@ -3,8 +3,9 @@
 ODataKit ships a [UDCode](https://github.com/ashalkhakov/UDCodeKit)
 extension, OData Workbench, which lets you try OData v4 services inside
 UDCode the way the Workbench app does: keep the services you work with,
-write requests as text files in your project, send them from the editor,
-and read the answers, the wire log and the traces in the bottom area. It is
+build requests (queries, creates, updates, deletes, calls) as files in your
+project, send them from the editor or take them away as curl, and read the
+answers, the wire log and the traces in the bottom area. It is
 built on the Workbench's own parts (`Examples/Workbench/files.make`); the
 Workbench remains its own app.
 
@@ -54,84 +55,63 @@ forgets them. Nothing secret is ever written to a project's settings.
 
 ## Requests
 
-An `.odata` file is a list of requests, written as VS Code's REST Client
-writes them:
+A request is built, not written: an `.odataq` document opens in the
+request builder, against a service of yours. **New Query Builder** (a right
+click on a service, or on one of its entity sets) opens one; so does
+double-clicking an entity set, which also sends it.
 
-```
-# Requests to Northwind
-GET Products?$filter=UnitPrice gt 20
-  &$expand=Category&$top=10
+The **Request** popup says what kind it is:
 
-### Raise a price
-PATCH Products(1)
-Content-Type: application/json
+- **Query (GET)**: the Workbench's query panel, a field or a list a row: an
+  entity, a predicate in `NSPredicate` syntax, `$top`, `$skip` and a page
+  size, the result type (objects, object IDs, dictionaries, a count); sort
+  keys (`$orderby`), relationships to prefetch, opened to nest (`$expand`),
+  the properties of a dictionary result (`$select`); `$search`, values
+  computed from each row (`$compute`), a grouping and its aggregates
+  (`$apply`), and application time for an entity that has it. Give the
+  **Key** above it and it is a GET of that one entity (`Products(1)`, its
+  `$select` and `$expand` kept).
+- **Create (POST)**, **Update (PATCH)**, **Delete (DELETE)**: an entity set,
+  the key of the one to change (an update's and a deletion's), and the body
+  as JSON (a create's and an update's), begun with the entity's properties.
+  An update and a deletion are sent `If-Match: *`: whatever version the
+  entity is at.
+- **Call a Function or Action**: the operation and its parameters, a field
+  each; a function's go in its URL, an action's are its body.
 
-{ "UnitPrice": 19.5 }
-```
+Values are typed as they are: a string as it is (`O'Neil`; the builder
+quotes it), anything else as a URL has it (`1`, `true`, `2024-01-01`), an
+action's parameters as JSON.
 
-- A request line is `METHOD URL` (`GET` when the method is left out); a
-  relative URL goes on from the service root. Lines after it that begin
-  with `?` or `&` add to its query.
-- Headers follow, one `Name: value` to a line; then a blank line and the
-  body.
-- `###` begins the next request (and names it, when text follows it).
-  Lines beginning with `#` or `//` are comments.
+The line at the bottom is the request as it is sent (or why it cannot be
+yet). **Execute**, or **Editor > Run** (⌘↩; UDCode's, from 0.19), sends it,
+and the answer is the bottom area's **Results**. **Show curl** opens it as a
+curl command in a new shell document, **Copy curl** puts that on the
+clipboard: its method, URL, headers and body, quoted for a shell. (The
+built-in service answers only in UDCode; curl cannot reach it.)
 
-**Editor > Run** (⌘↩) sends the request at the caret; **Run All** (⇧⌘↩)
-sends them all, one after another. (They are UDCode's, from 0.19, and run
-the SQL mode's statements in a `.sql` document.) A document sends to the
-service chosen for it (a service's **Send Requests To This Service**,
-remembered for the file), or to the only service connected. A service not
-connected yet is connected first. **New Request Document** on a service, or
-double-clicking an entity set, opens one already sent to it.
+### Requests set up for you
 
-### Requests written for you
+A right click on an entity set offers **Insert Request**, a builder set up
+from the service's `$metadata`:
 
-A right click on an entity set offers **Insert Request**: a request of
-it, written from the service's `$metadata`:
-
-- **GET All** (`$top=20`), **GET by Key** (`Products(1)`, a composite
-  key's parts by name), **GET $count**;
+- **GET All** (`$top=20`), **GET by Key** (`Products(1)`), **GET $count**;
 - **POST a New One**, its body a JSON object of the entity's properties
   (its base types' first, computed ones and streams left out);
 - **PATCH One** (the same body, its key left out) and **DELETE One**.
 
-On a function or an action, **Insert Call** writes its call: a function's
-`GET`, its parameters in the URL; an action's `POST`, its parameters the
-body. Values are samples of their types (`1`, `'text'`, `2024-01-01`, an
-enumeration's first member) for you to change.
+On a function or an action, **Insert Call** sets up its call. Values are
+samples of their types (`1`, `text`, `2024-01-01`, an enumeration's first
+member) for you to change.
 
-The request goes into the front `.odata` document when it is that
-service's (or no service's yet): after the request the caret is in, as a
-request of its own (its `###` line says what it does), the caret on its
-request line, ready for Editor > Run; undone as one. Otherwise it opens in
-a new document.
+### The file
 
-## Building a query
-
-Instead of writing a request, you can build one. **New Query Builder**
-(a right click on a service, or on one of its entity sets) opens an
-`.odataq` document in the Workbench's query panel, a field or a list a
-row, against that service:
-
-- an entity, a predicate in `NSPredicate` syntax, `$top`, `$skip` and a page
-  size, the result type (objects, object IDs, dictionaries, a count);
-- sort keys (`$orderby`), relationships to prefetch, opened to nest
-  (`$expand`), the properties of a dictionary result (`$select`);
-- `$search`, values computed from each row (`$compute`), a grouping and its
-  aggregates (`$apply`), and application time for an entity that has it.
-
-The line under the panel is the GET the store will send for it, worked out
-as you build. **Execute**, or **Editor > Run** (⌘↩), sends it, and the
-answer is the bottom area's **Results**, as a request's is. The **Service**
-popup at the top chooses the service it is built against; another service
-starts the query again, over its entities.
-
-The document's text is the query, kept as JSON:
+The document's text is the request, kept as JSON:
 
 ```json
 {
   "service" : "Northwind",
+  "request" : "query",
   "query" : {
     "entity" : "Product",
     "predicate" : "unitPrice > 20",
@@ -142,9 +122,14 @@ The document's text is the query, kept as JSON:
 }
 ```
 
-Each change in the panel is written into it as one edit, so undo, saving and
-diffs are UDCode's, and **View > Open as Text** shows it with the JSON mode's
-highlighting. A change to the text is read back into the panel.
+`request` is `query`, `create`, `update`, `delete` or `call`; with it come
+`entitySet`, `key`, `body`, `operation` and `parameters`, as the kind asks.
+Each change in the builder is written into it as one edit, so undo, saving
+and diffs are UDCode's; save it where you like (`.odataq`), and opening it
+again brings up the builder. **View > Open as Text** shows it with the JSON
+mode's highlighting. A change to the text is read back into the builder.
+The **Service** popup chooses the service it is sent to; another service
+starts it again, over its entities.
 
 ## The answers
 
@@ -165,24 +150,26 @@ The extension's segment of the bottom area has three panes:
 
 `UDCodeExtension/` holds the extension:
 
-- **`ODWExtension`**, its principal class: the `odata` mode
-  (`LanguageInfo.plist`), the navigator and the bottom area's segment, for
-  each window; it answers UDCode's Editor > Run for `.odata` documents
-  (`-workbench:canRunDocument:`, `-workbench:runDocument:selection:all:`).
+- **`ODWExtension`**, its principal class: the `odataq` mode
+  (`LanguageInfo.plist`) and its editor, the navigator and the bottom
+  area's segment, for each window; it answers UDCode's Editor > Run for
+  `.odataq` documents (`-workbench:canRunDocument:`,
+  `-workbench:runDocument:selection:all:`).
 - **`ODWServices`**, a window's services: kept where they say, connected
   through the Workbench's `WBConnection` (the built-in service's
   `WorkbenchEngine`, or the network), signed in with `ODataSignIn` and
   `WBSignInPanel`, its secrets in UDCode's `UDCredentialStore`. A request is
-  sent as written (`-[WBConnection sendRequest:done:]`: signed as the store
+  sent as built (`-[WBConnection sendRequest:done:]`: signed as the store
   signs its own, asked again once with fresh credentials after a 401),
   inside a client span (OTelKit's `OTHTTP`).
-- **`ODWRequests`**, the REST Client format; **`ODWTemplates`**, the
-  requests Insert Request and Insert Call write.
-- **`ODWBuilderViewController`**, an `.odataq` document's editor: the
-  Workbench's `WBQueryPanel` (the same panel as the Workbench's window,
-  stacked: `WBQueryPanelStacked.xib`, its controls and outlets
-  `WBQueryPanel.xib`'s) over the service's connection, its query the document's JSON (WBQuery's
-  `-dictionary` and `-takeDictionary:`).
+- **`ODWBuilderViewController`**, an `.odataq` document's editor: the kind
+  of request, its fields, and for a query the Workbench's `WBQueryPanel`
+  (the same panel as the Workbench's window, stacked:
+  `WBQueryPanelStacked.xib`, its controls and outlets `WBQueryPanel.xib`'s)
+  over the service's connection; its request the document's JSON (a
+  query's WBQuery's `-dictionary` and `-takeDictionary:`).
+- **`ODWTemplates`**, the requests Insert Request and Insert Call set up,
+  and what the builder makes of them: a key's path, a call's, a body, curl.
 - **`ODWNavigatorViewController`**, **`ODWServiceSheet`** and
   **`ODWBottomViewController`**, the navigator, the service sheet and the
   bottom pane, each a XIB of its own; the bottom pane shows the Workbench's
@@ -222,15 +209,18 @@ package to the release.
 The tests in `UDCodeExtension/Tests` (`ODWTests`, run by `make check` and by
 `make -f Makefile.apple check`) need no network. They check that:
 
-- requests are read as REST Client writes them, and their URLs made from the
-  service root;
 - the presets are there, a user's service is kept in the defaults and a
   project's in its settings (never a secret);
 - a request to the built-in service is answered, its rows read, its
   exchange in the wire log and its trace kept;
 - the navigator, the bottom pane and the service sheet load from their
   XIBs, connected, with their menus;
-- UDCode's Run sends an `.odata` document's request at the caret;
+- each request set up for an entity set or an operation is the builder's
+  request it means (its method, its URL, its body), the GETs answered by the
+  built-in service, and curl gives it quoted for a shell;
+- Insert Request and Insert Call open a builder set up for the request, from
+  the row's context menu;
 - a query is kept whole as JSON and read back, and the builder writes each
-  change into its document, reads the document's changes back, and sends its
-  GET.
+  change into its document (another kind of request too), reads the
+  document's changes back, and sends its request; given a key, a query is
+  of that one entity.

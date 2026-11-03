@@ -9,9 +9,9 @@
 //
 // Each is connected when first wanted (its $metadata read, a sign-in asked
 // for when it wants one: WBSignInPanel), its tokens or password kept in
-// the system's store (UDCredentialStore). An .odata document sends its
-// requests (ODWRequests) to the service chosen for it; the answers go to
-// the bottom area's Results, every exchange to the Wire Log, every request's
+// the system's store (UDCredentialStore). An .odataq document's builder
+// sends its request to the service chosen for it; the answers go to the
+// bottom area's Results, every exchange to the Wire Log, every request's
 // spans to Traces.
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
@@ -24,7 +24,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class ODWServices, ODWRequest;
+@class ODWServices;
 
 // Posted when a service is added, removed, changed, connected or not;
 // object: the ODWServices.
@@ -115,28 +115,17 @@ typedef NS_ENUM(NSInteger, ODWServiceKind) {
 // Its tokens or password forgotten, and disconnected.
 - (void)signOut:(ODWService *)service;
 
-// The service a document sends its requests to: the one chosen for it, else
+// The service a document sends its request to: the one chosen for it, else
 // the only one connected, else none.
 - (nullable ODWService *)serviceOfDocument:(UDCodeDocument *)document;
 - (void)setService:(nullable ODWService *)service ofDocument:(UDCodeDocument *)document;
 
-// A request sent to a service (connected first when it is not); its answer
-// told by ODWAnswerNotification.
-- (void)sendRequest:(ODWRequest *)request toService:(ODWService *)service;
-// A request already made (the builder's GET), titled, to a service that is
-// connected; its answer told the same way.
+// A request (the builder's), titled, to a service that is connected; its
+// answer told by ODWAnswerNotification.
 - (void)sendURLRequest:(NSURLRequest *)request title:(NSString *)title toService:(ODWService *)service;
-// An .odata document's request at a selection (its caret, or where its
-// selection begins), or all of its requests, one after another: UDCode's
-// Editor > Run and Run All (ODWExtension).
-- (void)sendRequestsOfDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all;
-// The selected .odata document's request at its caret; all of its requests.
-- (IBAction)sendRequest:(nullable id)sender;
-- (IBAction)sendAllRequests:(nullable id)sender;
-// Whether a document is an .odata document, to send; whether the selected
-// tab is one's text.
-+ (BOOL)isRequestDocument:(UDCodeDocument *)document;
-- (BOOL)canSend;
+// The next builder made (a document being opened) sends its request as
+// soon as it is shown (a double click on an entity set); it sets it back.
+@property (nonatomic) BOOL executesNextBuilder;
 // The last answer, for the Results pane opened later.
 @property (nonatomic, readonly, nullable) ODWAnswer *lastAnswer;
 

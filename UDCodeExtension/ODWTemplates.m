@@ -2,11 +2,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODWTemplates.h"
-#import "ODWRequests.h"
 #import <ODataKit/ODataSchema.h>
 
-// A sample value of an Edm type, as JSON (in a body) or as a URL literal
-// (a key, a function's parameter).
+// A sample value of an Edm type, as JSON (in a body).
 static id ODWSample(ODataSchema *schema, NSString *type, NSUInteger depth)
 {
   if ([type hasPrefix:@"Collection("]) return @[];
@@ -33,6 +31,7 @@ static id ODWSample(ODataSchema *schema, NSString *type, NSUInteger depth)
   return [NSNull null];
 }
 
+// The same, as a URL's literal (a key's value, a function's parameter).
 static NSString *ODWLiteral(ODataSchema *schema, NSString *type)
 {
   id sample = ODWSample(schema, type, 0);
@@ -46,6 +45,21 @@ static NSString *ODWLiteral(ODataSchema *schema, NSString *type)
   return @"null";
 }
 
+// A value as typed, as a literal of its type: a string's quoted (its quotes
+// doubled) unless it is already.
+static NSString *ODWTyped(NSString *value, NSString *type)
+{
+  value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  if (![type isEqualToString:@"Edm.String"] || [value hasPrefix:@"'"]) return value;
+  return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+}
+
+static ODataSchemaEntityType *ODWTypeOfEntitySet(ODataSchema *schema, NSString *set)
+{
+  NSString *typeName = set ? schema.entitySets[set] : nil;
+  return typeName ? [schema entityTypeNamed:typeName] : nil;
+}
+
 // The type and its base types, the base first.
 static NSArray<ODataSchemaEntityType *> *ODWLineage(ODataSchema *schema, ODataSchemaEntityType *type)
 {
@@ -54,18 +68,6 @@ static NSArray<ODataSchemaEntityType *> *ODWLineage(ODataSchema *schema, ODataSc
     [lineage insertObject:at atIndex:0];
   }
   return lineage;
-}
-
-// Set(1), Set(Order=1,Line=2): the key's sample.
-static NSString *ODWKeyed(ODataSchema *schema, NSString *set, ODataSchemaEntityType *type)
-{
-  NSArray<NSString *> *key = [schema keyOfEntityType:type];
-  NSMutableArray *parts = [NSMutableArray array];
-  for (NSString *name in key) {
-    NSString *literal = ODWLiteral(schema, [schema property:name ofEntityType:type].type ?: @"Edm.String");
-    [parts addObject:key.count == 1 ? literal : [NSString stringWithFormat:@"%@=%@", name, literal]];
-  }
-  return [NSString stringWithFormat:@"%@(%@)", set, [parts componentsJoinedByString:@","]];
 }
 
 // A value as JSON, on one line: [v] written, its brackets taken off.
@@ -88,11 +90,55 @@ static NSString *ODWJSONObject(NSArray<NSString *> *names, NSArray *values)
   return [NSString stringWithFormat:@"{\n%@\n}", [lines componentsJoinedByString:@",\n"]];
 }
 
-// The entity's properties as a body: in the order their types declare
-// them (a base's first), names sorted within a type; computed ones, and
-// streams, left out; the key too, when asked.
-static NSString *ODWBody(ODataSchema *schema, ODataSchemaEntityType *type, BOOL withKey)
+// The unbound overload an operation import names.
+static ODataSchemaOperation *ODWOperationOfImport(ODataSchema *schema, NSString *name)
 {
+  ODataSchemaOperationImport *import = name ? schema.operationImports[name] : nil;
+  for (ODataSchemaOperation *overload in import ? schema.operations[[schema qualifiedName:import.operation]] : @[]) {
+    if (!overload.isBound) return overload;
+  }
+  return nil;
+}
+
+#pragma mark Entity sets
+
+NSString *ODWEntityOfEntitySet(ODataSchema *schema, NSString *set)
+{
+  return ODWTypeOfEntitySet(schema, set).name;
+}
+
+NSString *ODWEntitySetOfEntity(ODataSchema *schema, NSString *entity)
+{
+  ODataSchemaEntityType *type = entity.length ? [schema entityTypeWithSimpleName:entity] : nil;
+  return type ? [schema entitySetForEntityType:type] : nil;
+}
+
+NSArray<NSString *> *ODWKeyOfEntitySet(ODataSchema *schema, NSString *set)
+{
+  ODataSchemaEntityType *type = ODWTypeOfEntitySet(schema, set);
+  return type ? [schema keyOfEntityType:type] : @[];
+}
+
+NSDictionary<NSString *, NSString *> *ODWSampleKeyOfEntitySet(ODataSchema *schema, NSString *set)
+{
+  ODataSchemaEntityType *type = ODWTypeOfEntitySet(schema, set);
+  NSMutableDictionary *key = [NSMutableDictionary dictionary];
+  for (NSString *name in ODWKeyOfEntitySet(schema, set)) {
+    NSString *literal = ODWLiteral(schema, [schema property:name ofEntityType:type].type ?: @"Edm.String");
+    // A string's as typed: without its quotes (put back as it is sent).
+    if ([literal hasPrefix:@"'"] && [literal hasSuffix:@"'"] && literal.length >= 2) literal = [literal substringWithRange:NSMakeRange(1, literal.length - 2)];
+    key[name] = literal;
+  }
+  return key;
+}
+
+// In the order their types declare them (a base's first), names sorted
+// within a type; computed ones, and streams, left out; the key too, unless
+// asked for.
+NSString *ODWSampleBodyOfEntitySet(ODataSchema *schema, NSString *set, BOOL withKey)
+{
+  ODataSchemaEntityType *type = ODWTypeOfEntitySet(schema, set);
+  if (!type) return @"{}";
   NSArray<NSString *> *key = [schema keyOfEntityType:type];
   NSMutableArray *names = [NSMutableArray array], *values = [NSMutableArray array];
   for (ODataSchemaEntityType *at in ODWLineage(schema, type)) {
@@ -108,82 +154,123 @@ static NSString *ODWBody(ODataSchema *schema, ODataSchemaEntityType *type, BOOL 
   return ODWJSONObject(names, values);
 }
 
-NSString *ODWTemplateOfEntitySet(ODataSchema *schema, NSString *set, ODWTemplate kind)
+NSString *ODWKeyPath(ODataSchema *schema, NSString *set, NSDictionary<NSString *, NSString *> *values)
 {
-  NSString *typeName = schema.entitySets[set];
-  ODataSchemaEntityType *type = typeName ? [schema entityTypeNamed:typeName] : nil;
-  if (!type) return nil;
-  NSString *json = @"Content-Type: application/json\n\n";
+  ODataSchemaEntityType *type = ODWTypeOfEntitySet(schema, set);
+  NSArray<NSString *> *key = type ? [schema keyOfEntityType:type] : @[];
+  if (!key.count) return nil;
+  NSMutableArray *parts = [NSMutableArray array];
+  for (NSString *name in key) {
+    NSString *value = [values[name] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    if (!value.length) return nil;
+    NSString *literal = ODWTyped(value, [schema property:name ofEntityType:type].type ?: @"Edm.String");
+    [parts addObject:key.count == 1 ? literal : [NSString stringWithFormat:@"%@=%@", name, literal]];
+  }
+  return [NSString stringWithFormat:@"%@(%@)", set, [parts componentsJoinedByString:@","]];
+}
+
+#pragma mark Operations
+
+NSArray<NSString *> *ODWParametersOfOperation(ODataSchema *schema, NSString *name)
+{
+  return [ODWOperationOfImport(schema, name).callerParameters valueForKey:@"name"] ?: @[];
+}
+
+NSDictionary<NSString *, NSString *> *ODWSampleParametersOfOperation(ODataSchema *schema, NSString *name)
+{
+  BOOL action = ODWOperationIsAction(schema, name);
+  NSMutableDictionary *parameters = [NSMutableDictionary dictionary];
+  for (ODataSchemaParameter *parameter in ODWOperationOfImport(schema, name).callerParameters) {
+    NSString *literal = action ? ODWJSONValue(ODWSample(schema, parameter.type, 0)) : ODWLiteral(schema, parameter.type);
+    // A string's as typed: without its quotes.
+    if (([literal hasPrefix:@"'"] || [literal hasPrefix:@"\""]) && literal.length >= 2) literal = [literal substringWithRange:NSMakeRange(1, literal.length - 2)];
+    parameters[parameter.name] = literal;
+  }
+  return parameters;
+}
+
+BOOL ODWOperationIsAction(ODataSchema *schema, NSString *name)
+{
+  return schema.operationImports[name].isAction;
+}
+
+NSString *ODWFunctionPath(ODataSchema *schema, NSString *name, NSDictionary<NSString *, NSString *> *values)
+{
+  NSMutableArray *arguments = [NSMutableArray array];
+  for (ODataSchemaParameter *parameter in ODWOperationOfImport(schema, name).callerParameters) {
+    NSString *value = values[parameter.name] ?: @"";
+    [arguments addObject:[NSString stringWithFormat:@"%@=%@", parameter.name, value.length ? ODWTyped(value, parameter.type) : @"null"]];
+  }
+  return [NSString stringWithFormat:@"%@(%@)", name, [arguments componentsJoinedByString:@","]];
+}
+
+NSString *ODWActionBody(ODataSchema *schema, NSString *name, NSDictionary<NSString *, NSString *> *values)
+{
+  NSMutableArray *names = [NSMutableArray array], *parsed = [NSMutableArray array];
+  for (ODataSchemaParameter *parameter in ODWOperationOfImport(schema, name).callerParameters) {
+    NSString *text = values[parameter.name] ?: @"";
+    id value = nil;
+    if (![parameter.type isEqualToString:@"Edm.String"] && text.length) {
+      NSData *data = [[NSString stringWithFormat:@"[%@]", text] dataUsingEncoding:NSUTF8StringEncoding];
+      value = [[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] firstObject];
+    }
+    [names addObject:parameter.name];
+    [parsed addObject:value ?: (text.length ? text : [NSNull null])];
+  }
+  return ODWJSONObject(names, parsed);
+}
+
+#pragma mark Templates
+
+NSDictionary *ODWTemplateOfEntitySet(ODataSchema *schema, NSString *set, ODWTemplate kind)
+{
+  NSString *entity = ODWEntityOfEntitySet(schema, set);
+  if (!entity) return nil;
   switch (kind) {
   case ODWTemplateGetAll:
-    return [NSString stringWithFormat:@"### %@\nGET %@?$top=20\n", set, set];
+    return @{ @"request": @"query", @"query": @{ @"entity": entity, @"limit": @"20" } };
   case ODWTemplateGetByKey:
-    return [NSString stringWithFormat:@"### One of %@, by its key\nGET %@\n", set, ODWKeyed(schema, set, type)];
+    return @{ @"request": @"query", @"query": @{ @"entity": entity }, @"key": ODWSampleKeyOfEntitySet(schema, set) };
   case ODWTemplateCount:
-    return [NSString stringWithFormat:@"### How many %@\nGET %@/$count\n", set, set];
+    return @{ @"request": @"query", @"query": @{ @"entity": entity, @"type": @"count" } };
   case ODWTemplatePost:
-    return [NSString stringWithFormat:@"### A new one of %@\nPOST %@\n%@%@\n", set, set, json, ODWBody(schema, type, YES)];
+    return @{ @"request": @"create", @"entitySet": set, @"body": ODWSampleBodyOfEntitySet(schema, set, YES) };
   case ODWTemplatePatch:
-    return [NSString stringWithFormat:@"### One of %@ changed\nPATCH %@\n%@%@\n", set, ODWKeyed(schema, set, type), json,
-                                      ODWBody(schema, type, NO)];
+    return @{ @"request": @"update", @"entitySet": set, @"key": ODWSampleKeyOfEntitySet(schema, set),
+              @"body": ODWSampleBodyOfEntitySet(schema, set, NO) };
   case ODWTemplateDelete:
-    return [NSString stringWithFormat:@"### One of %@ deleted\nDELETE %@\n", set, ODWKeyed(schema, set, type)];
+    return @{ @"request": @"delete", @"entitySet": set, @"key": ODWSampleKeyOfEntitySet(schema, set) };
   }
   return nil;
 }
 
-NSString *ODWTemplateOfOperation(ODataSchema *schema, NSString *name)
+NSDictionary *ODWTemplateOfOperation(ODataSchema *schema, NSString *name)
 {
-  ODataSchemaOperationImport *import = schema.operationImports[name];
-  if (!import) return nil;
-  // The unbound overload: the import's.
-  ODataSchemaOperation *operation = nil;
-  for (ODataSchemaOperation *overload in schema.operations[[schema qualifiedName:import.operation]]) {
-    if (!overload.isBound) {
-      operation = overload;
-      break;
-    }
-  }
-  NSArray<ODataSchemaParameter *> *parameters = operation.callerParameters ?: @[];
-  if (import.isAction) {
-    NSMutableArray *names = [NSMutableArray array], *values = [NSMutableArray array];
-    for (ODataSchemaParameter *parameter in parameters) {
-      [names addObject:parameter.name];
-      [values addObject:ODWSample(schema, parameter.type, 0)];
-    }
-    return [NSString stringWithFormat:@"### %@ (an action)\nPOST %@\nContent-Type: application/json\n\n%@\n", name, name,
-                                      ODWJSONObject(names, values)];
-  }
-  NSMutableArray *arguments = [NSMutableArray array];
-  for (ODataSchemaParameter *parameter in parameters) {
-    [arguments addObject:[NSString stringWithFormat:@"%@=%@", parameter.name, ODWLiteral(schema, parameter.type)]];
-  }
-  return [NSString stringWithFormat:@"### %@ (a function)\nGET %@(%@)\n", name, name, [arguments componentsJoinedByString:@","]];
+  if (!schema.operationImports[name]) return nil;
+  return @{ @"request": @"call", @"operation": name, @"parameters": ODWSampleParametersOfOperation(schema, name) };
 }
 
-NSString *ODWTextWithTemplate(NSString *text, NSUInteger caret, NSString *request, NSRange *requestRange)
+#pragma mark curl
+
+// 'text', its own quotes ended, escaped and begun again: a shell's word.
+static NSString *ODWShellQuoted(NSString *text)
 {
-  caret = MIN(caret, text.length);
-  // Inside a request: after it; at its start, before it; elsewhere (a
-  // comment, a blank line), at the start of the caret's line.
-  ODWRequest *around = ODWRequestAt(text, caret);
-  NSUInteger at = caret;
-  if (around && caret > around.range.location && caret <= NSMaxRange(around.range)) at = NSMaxRange(around.range);
-  NSRange line = [text lineRangeForRange:NSMakeRange(at, 0)];
-  if (at > line.location) at = NSMaxRange(line);
-  else if (!around || caret != around.range.location) at = line.location;
-  NSString *before = [text substringToIndex:at], *after = [text substringFromIndex:at];
-  if (before.length && ![before hasSuffix:@"\n"]) before = [before stringByAppendingString:@"\n"];
-  NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-  // A blank line between it and what is before; what is after it kept
-  // apart by a separator (its own, or one put in).
-  NSString *lead = [before stringByTrimmingCharactersInSet:space].length && ![before hasSuffix:@"\n\n"] ? @"\n" : @"";
-  NSString *trimmedAfter = [after stringByTrimmingCharactersInSet:space];
-  NSString *tail = !trimmedAfter.length ? @"" : [trimmedAfter hasPrefix:@"###"] ? @"\n" : @"\n###\n";
-  if (requestRange) {
-    NSRange separator = [request rangeOfString:@"\n"];
-    NSUInteger start = before.length + lead.length + ([request hasPrefix:@"###"] && separator.location != NSNotFound ? NSMaxRange(separator) : 0);
-    *requestRange = NSMakeRange(start, before.length + lead.length + request.length - start);
+  return [NSString stringWithFormat:@"'%@'", [text stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"]];
+}
+
+NSString *ODWCurlOfRequest(NSURLRequest *request)
+{
+  NSMutableArray *lines = [NSMutableArray array];
+  NSString *method = request.HTTPMethod ?: @"GET";
+  [lines addObject:[NSString stringWithFormat:@"curl%@ %@", [method isEqualToString:@"GET"] ? @"" : [@" -X " stringByAppendingString:method],
+                                              ODWShellQuoted(request.URL.absoluteString ?: @"")]];
+  for (NSString *name in [request.allHTTPHeaderFields.allKeys sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)]) {
+    NSString *header = [NSString stringWithFormat:@"%@: %@", name, request.allHTTPHeaderFields[name]];
+    [lines addObject:[@"  -H " stringByAppendingString:ODWShellQuoted(header)]];
   }
-  return [NSString stringWithFormat:@"%@%@%@%@%@", before, lead, request, tail, after];
+  if (request.HTTPBody.length) {
+    NSString *body = [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] ?: @"";
+    [lines addObject:[@"  --data-raw " stringByAppendingString:ODWShellQuoted(body)]];
+  }
+  return [[lines componentsJoinedByString:@" \\\n"] stringByAppendingString:@"\n"];
 }

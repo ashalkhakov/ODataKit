@@ -26,19 +26,9 @@
         </menu>
         <menu title="Service" autoenablesItems="YES" id="OD-menu-service" userLabel="A Service's">
             <items>
-                <menuItem title="New Request Document" id="OD-m-new">
-                    <connections>
-                        <action selector="newRequestDocument:" target="-2" id="OD-m-new-a"/>
-                    </connections>
-                </menuItem>
                 <menuItem title="New Query Builder" id="OD-m-builder">
                     <connections>
                         <action selector="newQueryBuilder:" target="-2" id="OD-m-builder-a"/>
-                    </connections>
-                </menuItem>
-                <menuItem title="Send Requests To This Service" id="OD-m-send-to">
-                    <connections>
-                        <action selector="sendToService:" target="-2" id="OD-m-send-to-a"/>
                     </connections>
                 </menuItem>
                 <menuItem title="Connect" id="OD-m-connect">
@@ -71,11 +61,6 @@
         </menu>
         <menu title="Entity Set" autoenablesItems="YES" id="OD-menu-item" userLabel="An Entity Set's or a Function's">
             <items>
-                <menuItem title="New Request" id="OD-s-new">
-                    <connections>
-                        <action selector="newRequestOfItem:" target="-2" id="OD-s-new-a"/>
-                    </connections>
-                </menuItem>
                 <menuItem title="New Query Builder" id="OD-s-builder">
                     <connections>
                         <action selector="newQueryBuilder:" target="-2" id="OD-s-builder-a"/>

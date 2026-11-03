@@ -19,7 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
                                             NSOutlineViewDelegate, NSTextFieldDelegate>
 // In a line (the Workbench's window).
 - (instancetype)init;
-// Stacked, for a host narrower than the Workbench's window.
+// Stacked, for a host narrower than the Workbench's window (UDCode's OData
+// builder): the GET, Explain and Execute are left to the host (nil).
 - (instancetype)initStacked:(BOOL)stacked NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithNibName:(nullable NSNibName)name bundle:(nullable NSBundle *)bundle NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
@@ -58,7 +59,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSTextField *groupField;
 @property (nonatomic, readonly) NSTextField *aggregateField;
 @property (nonatomic, readonly) NSTextField *wireURLField;
-// Execute: runFetch: to the first responder, unless its host aims it.
+// Execute: runFetch: to the first responder.
 @property (nonatomic, readonly) NSButton *executeButton;
 @property (nonatomic, readonly) NSButton *explainButton;
 

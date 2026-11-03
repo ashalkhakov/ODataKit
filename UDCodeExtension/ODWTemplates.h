@@ -1,11 +1,11 @@
-// Requests written for the user (the navigator's Insert Request and Insert
-// Call), in the REST Client format ODWRequests reads: an entity set's
-// GET of its rows, of one by its key, its $count, a POST of a new one (a
-// JSON body of its properties), a PATCH and a DELETE of one; an operation
-// import's call (a function's GET, its parameters in the URL; an action's
-// POST, its parameters the body). Values are the types' samples (1, 'text',
-// a date) for the user to change; a computed property is left out of a
-// body, the key out of a PATCH's.
+// Requests set up for the user (the navigator's Insert Request and Insert
+// Call), as the builder's files keep them (ODWBuilderViewController): an
+// entity set's query of its rows, of one by its key, of their $count; a
+// new one created (a JSON body of its properties), one updated and one
+// deleted; an operation import's call. Values are the types' samples (1,
+// 'text', a date) for the user to change; a computed property is left out
+// of a body, the key out of an update's. And what the builder makes of a
+// file: a key's or a call's path in a URL, a body, the request as curl.
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 #pragma once
@@ -24,18 +24,37 @@ typedef NS_ENUM(NSInteger, ODWTemplate) {
   ODWTemplateDelete,
 };
 
-// The request, its separator line first (### and what it does), ending in
-// a newline; nil when the schema has no such entity set.
-FOUNDATION_EXPORT NSString *_Nullable ODWTemplateOfEntitySet(ODataSchema *schema, NSString *entitySet, ODWTemplate kind);
-// The operation import's call, as above; nil when there is none.
-FOUNDATION_EXPORT NSString *_Nullable ODWTemplateOfOperation(ODataSchema *schema, NSString *operationImport);
+// The builder's file of the request (its "request", "query", "entitySet",
+// "key", "body", "operation", "parameters"; ODWBuilderViewController); nil
+// when the schema has no such entity set, or operation import.
+FOUNDATION_EXPORT NSDictionary *_Nullable ODWTemplateOfEntitySet(ODataSchema *schema, NSString *entitySet, ODWTemplate kind);
+FOUNDATION_EXPORT NSDictionary *_Nullable ODWTemplateOfOperation(ODataSchema *schema, NSString *operationImport);
 
-// The text with the request put in at a caret: after the request the caret
-// is inside, before the one it is at the start of, else at the start of
-// its line; a blank line before it, the requests after it kept apart by a
-// separator. The range is where the request is in the new text (from its
-// request line), for the caret.
-FOUNDATION_EXPORT NSString *ODWTextWithTemplate(NSString *text, NSUInteger caret, NSString *request,
-                                                NSRange *_Nullable requestRange);
+// An entity set's entity, as the model built from $metadata names it (its
+// type's simple name); the entity set of an entity of the model.
+FOUNDATION_EXPORT NSString *_Nullable ODWEntityOfEntitySet(ODataSchema *schema, NSString *entitySet);
+FOUNDATION_EXPORT NSString *_Nullable ODWEntitySetOfEntity(ODataSchema *schema, NSString *entity);
+// Its key's properties, in their order; samples of them, as a key's values.
+FOUNDATION_EXPORT NSArray<NSString *> *ODWKeyOfEntitySet(ODataSchema *schema, NSString *entitySet);
+FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *ODWSampleKeyOfEntitySet(ODataSchema *schema, NSString *entitySet);
+// A body of its properties' samples (its key's too, when asked).
+FOUNDATION_EXPORT NSString *ODWSampleBodyOfEntitySet(ODataSchema *schema, NSString *entitySet, BOOL withKey);
+// An operation import's parameters (a caller's), in their order; samples.
+FOUNDATION_EXPORT NSArray<NSString *> *ODWParametersOfOperation(ODataSchema *schema, NSString *operationImport);
+FOUNDATION_EXPORT NSDictionary<NSString *, NSString *> *ODWSampleParametersOfOperation(ODataSchema *schema, NSString *operationImport);
+FOUNDATION_EXPORT BOOL ODWOperationIsAction(ODataSchema *schema, NSString *operationImport);
+
+// Products(1), Lines(Order=1,Line=2): the key's values as typed (a string's
+// quoted when it is not), nil when one is missing.
+FOUNDATION_EXPORT NSString *_Nullable ODWKeyPath(ODataSchema *schema, NSString *entitySet, NSDictionary<NSString *, NSString *> *values);
+// A function's call, Name(P=1,Q='a'), its values as typed (a string's
+// quoted); an action's body, a JSON object of its values (each read as JSON,
+// else a string).
+FOUNDATION_EXPORT NSString *ODWFunctionPath(ODataSchema *schema, NSString *operationImport, NSDictionary<NSString *, NSString *> *values);
+FOUNDATION_EXPORT NSString *ODWActionBody(ODataSchema *schema, NSString *operationImport, NSDictionary<NSString *, NSString *> *values);
+
+// The request as a curl command, for a shell: its method, URL, headers and
+// body, each quoted.
+FOUNDATION_EXPORT NSString *ODWCurlOfRequest(NSURLRequest *request);
 
 NS_ASSUME_NONNULL_END

@@ -31,8 +31,8 @@
   _navigators = nil;
 }
 
-// .odata documents are text (no grammar of their own): their mode is
-// LanguageInfo.plist's.
+// .odataq documents' mode is LanguageInfo.plist's (its grammar the JSON
+// mode's).
 - (const void *)languageFuncForIdentifier:(NSString *)identifier
 {
   (void)identifier;
@@ -113,8 +113,8 @@
   return image;
 }
 
-// An .odataq document's own editor: the query builder (its text the
-// query's JSON, still shown as text by View > Open as Text).
+// An .odataq document's own editor: the request builder (its text the
+// request's JSON, still shown as text by View > Open as Text).
 - (NSViewController *)workbench:(id<UDWorkbench>)workbench editorForDocument:(UDCodeDocument *)document
 {
   if (![document.languageMode.identifier isEqualToString:@"odataq"]) return nil;
@@ -124,19 +124,16 @@
   return builder;
 }
 
-// UDCode's Editor > Run (⌘↩) and Run All (⇧⌘↩): an .odata document's
-// request at the caret, or all of them, sent to its service; a query
-// document's GET, its builder's.
+// UDCode's Editor > Run (⌘↩) and Run All (⇧⌘↩): an .odataq document's
+// request, its builder's, sent to its service.
 - (BOOL)workbench:(id<UDWorkbench>)workbench canRunDocument:(UDCodeDocument *)document
 {
-  return [ODWServices isRequestDocument:document] || [_builders objectForKey:document] != nil;
+  return [_builders objectForKey:document] != nil;
 }
 
 - (void)workbench:(id<UDWorkbench>)workbench runDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all
 {
-  ODWBuilderViewController *builder = [_builders objectForKey:document];
-  if (builder) [builder runFetch:nil];
-  else [[self servicesOf:workbench] sendRequestsOfDocument:document selection:selection all:all];
+  [[_builders objectForKey:document] runFetch:nil];
 }
 
 @end

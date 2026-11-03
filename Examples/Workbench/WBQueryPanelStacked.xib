@@ -14,8 +14,6 @@
                 <outlet property="computeField" destination="COMP" id="oCOMP"/>
                 <outlet property="entityPopup" destination="ENT" id="c3"/>
                 <outlet property="expandOutline" destination="EXPO" id="oEXPO"/>
-                <outlet property="explainButton" destination="EXPL" id="oEXPL"/>
-                <outlet property="executeButton" destination="GO" id="oGO"/>
                 <outlet property="faultsButton" destination="FLT" id="c10"/>
                 <outlet property="groupField" destination="GRP" id="oGRP"/>
                 <outlet property="limitField" destination="LIM" id="c8"/>
@@ -27,7 +25,6 @@
                 <outlet property="sortTable" destination="SORT" id="oSORT"/>
                 <outlet property="subentitiesButton" destination="SUB" id="c27"/>
                 <outlet property="timeField" destination="TIME" id="oTIME"/>
-                <outlet property="wireURLField" destination="WIRE" id="c11"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
@@ -35,17 +32,18 @@
         <!-- WBQueryPanel.xib's controls stacked, a field or a list a row
              (WBQueryPanel -initStacked): for a host narrower than the
              Workbench's window, UDCode's OData builder. Its controls,
-             outlets and actions are WBQueryPanel.xib's; keep them alike. -->
+             outlets and actions are WBQueryPanel.xib's, keep them alike;
+             but the GET, Explain and Execute, which the host shows. -->
         <!-- The query panel (WBQueryPanel): everything a fetch request can
              ask of the store, and the GET it sends. Execute and Explain go
              to the first responder: the Workbench's window controller, or a
              host's editor (UDCode's OData builder). -->
         <customView translatesAutoresizingMaskIntoConstraints="NO" id="QP-root" userLabel="Query Panel">
-            <rect key="frame" x="0.0" y="0.0" width="560" height="850"/>
+            <rect key="frame" x="0.0" y="0.0" width="560" height="760"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
             <subviews>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LENT">
-                        <rect key="frame" x="12" y="820" width="112" height="16"/>
+                        <rect key="frame" x="12" y="730" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Entity" id="LENTC">
                             <font key="font" metaFont="system"/>
@@ -53,7 +51,7 @@
                         </textFieldCell>
                     </textField>
                     <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ENT">
-                        <rect key="frame" x="128" y="816" width="180" height="24"/>
+                        <rect key="frame" x="128" y="726" width="180" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" inset="2" id="ENTC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -64,7 +62,7 @@
                         </connections>
                     </popUpButton>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LRES">
-                        <rect key="frame" x="320" y="820" width="52" height="16"/>
+                        <rect key="frame" x="320" y="730" width="52" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Result" id="LRESC">
                             <font key="font" metaFont="system"/>
@@ -72,7 +70,7 @@
                         </textFieldCell>
                     </textField>
                     <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RES">
-                        <rect key="frame" x="376" y="816" width="172" height="24"/>
+                        <rect key="frame" x="376" y="726" width="172" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" title="objects" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" inset="2" selectedItem="R0" id="RESC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -90,7 +88,7 @@
                         </connections>
                     </popUpButton>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LLIM">
-                        <rect key="frame" x="12" y="789" width="112" height="16"/>
+                        <rect key="frame" x="12" y="699" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="$top" id="LLIMC">
                             <font key="font" metaFont="system"/>
@@ -98,7 +96,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LIM">
-                        <rect key="frame" x="128" y="786" width="60" height="22"/>
+                        <rect key="frame" x="128" y="696" width="60" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="∞" drawsBackground="YES" id="LIMC">
                             <font key="font" metaFont="system"/>
@@ -107,7 +105,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSKP">
-                        <rect key="frame" x="200" y="789" width="44" height="16"/>
+                        <rect key="frame" x="200" y="699" width="44" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="$skip" id="LSKPC">
                             <font key="font" metaFont="system"/>
@@ -115,7 +113,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SKP">
-                        <rect key="frame" x="246" y="786" width="60" height="22"/>
+                        <rect key="frame" x="246" y="696" width="60" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="0" drawsBackground="YES" id="SKPC">
                             <font key="font" metaFont="system"/>
@@ -124,7 +122,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LBAT">
-                        <rect key="frame" x="318" y="789" width="70" height="16"/>
+                        <rect key="frame" x="318" y="699" width="70" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="page size" id="LBATC">
                             <font key="font" metaFont="system"/>
@@ -132,7 +130,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="BAT">
-                        <rect key="frame" x="392" y="786" width="70" height="22"/>
+                        <rect key="frame" x="392" y="696" width="70" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="service's" drawsBackground="YES" id="BATC">
                             <font key="font" metaFont="system"/>
@@ -141,7 +139,7 @@
                         </textFieldCell>
                     </textField>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SUB">
-                        <rect key="frame" x="126" y="754" width="130" height="24"/>
+                        <rect key="frame" x="126" y="664" width="130" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="sub-entities" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="SUBC">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -152,7 +150,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FLT">
-                        <rect key="frame" x="264" y="754" width="150" height="24"/>
+                        <rect key="frame" x="264" y="664" width="150" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="return as faults" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="FLTC">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -162,18 +160,8 @@
                             <action selector="queryChanged:" target="-2" id="AFLT"/>
                         </connections>
                     </button>
-                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GO">
-                        <rect key="frame" x="448" y="10" width="100" height="32"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="push" title="Execute" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="GOC">
-                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="runFetch:" target="-1" id="AGO"/>
-                        </connections>
-                    </button>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LPRED">
-                        <rect key="frame" x="12" y="698" width="300" height="16"/>
+                        <rect key="frame" x="12" y="608" width="300" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="NSPredicate" id="LPREDC">
                             <font key="font" metaFont="system"/>
@@ -181,7 +169,7 @@
                         </textFieldCell>
                     </textField>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PSCR">
-                        <rect key="frame" x="12" y="640" width="536" height="54"/>
+                        <rect key="frame" x="12" y="550" width="536" height="54"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <clipView key="contentView" id="PCLIP">
                             <rect key="frame" x="1" y="1" width="534" height="52"/>
@@ -200,7 +188,7 @@
                         </scroller>
                     </scrollView>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LTIME">
-                        <rect key="frame" x="12" y="729" width="112" height="16"/>
+                        <rect key="frame" x="12" y="639" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="application time" id="LTIMEC">
                             <font key="font" metaFont="system"/>
@@ -208,7 +196,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TIME">
-                        <rect key="frame" x="128" y="726" width="180" height="22"/>
+                        <rect key="frame" x="128" y="636" width="180" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="2024-10-01, a..b" drawsBackground="YES" id="TIMEC">
                             <font key="font" metaFont="system"/>
@@ -220,7 +208,7 @@
                         </connections>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSORT">
-                        <rect key="frame" x="12" y="614" width="400" height="16"/>
+                        <rect key="frame" x="12" y="524" width="400" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Sort ($orderby): key paths, first first" id="LSORTC">
                             <font key="font" metaFont="system"/>
@@ -228,7 +216,7 @@
                         </textFieldCell>
                     </textField>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="SORTS">
-                        <rect key="frame" x="12" y="510" width="496" height="100"/>
+                        <rect key="frame" x="12" y="420" width="496" height="100"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <clipView key="contentView" id="SORTCL">
                             <rect key="frame" x="1" y="1" width="494" height="98"/>
@@ -270,7 +258,7 @@
                         </tableHeaderView>
                     </scrollView>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SADD">
-                        <rect key="frame" x="516" y="588" width="32" height="22"/>
+                        <rect key="frame" x="516" y="498" width="32" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="push" title="+" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SADDC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -280,7 +268,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SREM">
-                        <rect key="frame" x="516" y="564" width="32" height="22"/>
+                        <rect key="frame" x="516" y="474" width="32" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="push" title="-" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SREMC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -290,7 +278,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SUP">
-                        <rect key="frame" x="516" y="540" width="32" height="22"/>
+                        <rect key="frame" x="516" y="450" width="32" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="push" title="↑" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SUPC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -300,7 +288,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SDN">
-                        <rect key="frame" x="516" y="516" width="32" height="22"/>
+                        <rect key="frame" x="516" y="426" width="32" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="push" title="↓" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SDNC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -310,7 +298,7 @@
                         </connections>
                     </button>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LEXP">
-                        <rect key="frame" x="12" y="484" width="400" height="16"/>
+                        <rect key="frame" x="12" y="394" width="400" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Prefetch ($expand): open to nest" id="LEXPC">
                             <font key="font" metaFont="system"/>
@@ -318,7 +306,7 @@
                         </textFieldCell>
                     </textField>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="EXPOS">
-                        <rect key="frame" x="12" y="370" width="536" height="110"/>
+                        <rect key="frame" x="12" y="280" width="536" height="110"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <clipView key="contentView" id="EXPOCL">
                             <rect key="frame" x="1" y="1" width="534" height="108"/>
@@ -360,7 +348,7 @@
                         </tableHeaderView>
                     </scrollView>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSEL">
-                        <rect key="frame" x="12" y="344" width="400" height="16"/>
+                        <rect key="frame" x="12" y="254" width="400" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Properties ($select, dictionary results)" id="LSELC">
                             <font key="font" metaFont="system"/>
@@ -368,7 +356,7 @@
                         </textFieldCell>
                     </textField>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="SELTS">
-                        <rect key="frame" x="12" y="220" width="536" height="120"/>
+                        <rect key="frame" x="12" y="130" width="536" height="120"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <clipView key="contentView" id="SELTCL">
                             <rect key="frame" x="1" y="1" width="534" height="118"/>
@@ -410,7 +398,7 @@
                         </tableHeaderView>
                     </scrollView>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSRCH">
-                        <rect key="frame" x="12" y="191" width="112" height="16"/>
+                        <rect key="frame" x="12" y="101" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="$search" id="LSRCHC">
                             <font key="font" metaFont="system"/>
@@ -418,7 +406,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SRCH">
-                        <rect key="frame" x="128" y="188" width="420" height="22"/>
+                        <rect key="frame" x="128" y="98" width="420" height="22"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="tea OR &quot;green tea&quot;" drawsBackground="YES" id="SRCHC">
                             <font key="font" metaFont="system"/>
@@ -430,7 +418,7 @@
                         </connections>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LCOMP">
-                        <rect key="frame" x="12" y="161" width="112" height="16"/>
+                        <rect key="frame" x="12" y="71" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="compute" id="LCOMPC">
                             <font key="font" metaFont="system"/>
@@ -438,7 +426,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="COMP">
-                        <rect key="frame" x="128" y="158" width="420" height="22"/>
+                        <rect key="frame" x="128" y="68" width="420" height="22"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="unitPrice * 2 as twice" drawsBackground="YES" id="COMPC">
                             <font key="font" metaFont="system"/>
@@ -450,7 +438,7 @@
                         </connections>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LGRP">
-                        <rect key="frame" x="12" y="131" width="112" height="16"/>
+                        <rect key="frame" x="12" y="41" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="group by" id="LGRPC">
                             <font key="font" metaFont="system"/>
@@ -458,7 +446,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GRP">
-                        <rect key="frame" x="128" y="128" width="420" height="22"/>
+                        <rect key="frame" x="128" y="38" width="420" height="22"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="category.name" drawsBackground="YES" id="GRPC">
                             <font key="font" metaFont="system"/>
@@ -470,7 +458,7 @@
                         </connections>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LAGG">
-                        <rect key="frame" x="12" y="101" width="112" height="16"/>
+                        <rect key="frame" x="12" y="11" width="112" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="aggregate" id="LAGGC">
                             <font key="font" metaFont="system"/>
@@ -478,7 +466,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="AGG">
-                        <rect key="frame" x="128" y="98" width="420" height="22"/>
+                        <rect key="frame" x="128" y="8" width="420" height="22"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="sum:(unitPrice) as total" drawsBackground="YES" id="AGGC">
                             <font key="font" metaFont="system"/>
@@ -489,24 +477,6 @@
                             <outlet property="delegate" destination="-2" id="AGGD"/>
                         </connections>
                     </textField>
-                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="WIRE">
-                        <rect key="frame" x="12" y="52" width="536" height="34"/>
-                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" lineBreakMode="charWrapping" selectable="YES" id="WIREC">
-                            <font key="font" metaFont="system"/>
-                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
-                        </textFieldCell>
-                    </textField>
-                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="EXPL">
-                        <rect key="frame" x="340" y="10" width="100" height="32"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
-                        <buttonCell key="cell" type="push" title="Explain" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="EXPLC">
-                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                        </buttonCell>
-                        <connections>
-                            <action selector="explainQuery:" target="-1" id="EXPLA"/>
-                        </connections>
-                    </button>
             </subviews>
         </customView>
     </objects>

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 #import "ODWServices.h"
-#import "ODWRequests.h"
 #import "WBSignInPanel.h"
 #import <ODataSync/ODataSignIn.h>
 #import <OTelKit/OTelKit.h>
@@ -55,17 +54,9 @@ static NSString *const ODWCredentialService = @"UDCode OData";
 @property (nonatomic, readwrite, nullable) WBConnection *connection;
 @property (nonatomic, readwrite, copy, nullable) NSString *failure;
 @property (nonatomic, strong, nullable) ODataSignIn *signIn;
-// Requests waiting for it to connect.
-@property (nonatomic, strong) NSMutableArray<ODWRequest *> *waiting;
 @end
 
 @implementation ODWService
-
-- (instancetype)init
-{
-  if ((self = [super init])) _waiting = [NSMutableArray array];
-  return self;
-}
 
 - (BOOL)isConnected
 {
@@ -167,9 +158,6 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   NSMutableArray<ODWService *> *_kept;  // the project's, then the user's
   NSMapTable<UDCodeDocument *, NSString *> *_documentServices;
   WBSignInPanel *_signInPanel;
-  // Requests sent one after another (Run All): the rest of them.
-  NSMutableArray *_queue;
-  BOOL _sending;
 }
 
 + (WBTraceRecorder *)traceRecorder
@@ -199,7 +187,6 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   _workbench = workbench;
   _exchangeLog = [[WBExchangeLog alloc] init];
   _documentServices = [NSMapTable weakToStrongObjectsMapTable];
-  _queue = [NSMutableArray array];
   [ODWServices traceRecorder];
   _presets = [NSMutableArray array];
   NSArray *presets = @[ @[ @"Built-in Sample", @(ODWServiceBuiltIn) ], @[ @"Northwind", @(ODWServiceNorthwind) ],
@@ -349,7 +336,6 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     service.connection = nil;
     service.signIn = nil;
     service.failure = why;
-    [self failWaitingOf:service];
   }
   [self changed];
 }
@@ -379,16 +365,12 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     }
     service.connection = nil;
     service.signIn = nil;
-    [self failWaitingOf:service];
-  } else {
-    [self sendWaitingOf:service];
   }
   [self changed];
 }
 
 - (void)disconnect:(ODWService *)service
 {
-  [service.waiting removeAllObjects];
   service.connection = nil;
   service.signIn = nil;
   service.failure = nil;
@@ -438,7 +420,6 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     } else {
       service.signIn = nil;
       service.failure = @"Not signed in.";
-      [me failWaitingOf:service];
       [me changed];
     }
   }];
@@ -476,90 +457,12 @@ static NSString *const ODWCredentialService = @"UDCode OData";
 
 #pragma mark Sending
 
-+ (BOOL)isRequestDocument:(UDCodeDocument *)document
-{
-  return [document.languageMode.identifier isEqualToString:@"odata"];
-}
-
-- (BOOL)canSend
-{
-  UDCodeDocument *document = _workbench.selectedDocument;
-  return document && _workbench.selectedEditor && [ODWServices isRequestDocument:document];
-}
-
-- (IBAction)sendRequest:(id)sender
-{
-  [self sendFromSelectedDocument:NO];
-}
-
-- (IBAction)sendAllRequests:(id)sender
-{
-  [self sendFromSelectedDocument:YES];
-}
-
-- (void)sendFromSelectedDocument:(BOOL)all
-{
-  if (![self canSend]) {
-    NSBeep();
-    return;
-  }
-  [self sendRequestsOfDocument:_workbench.selectedDocument selection:_workbench.selectedEditor.textView.selectedRange all:all];
-}
-
-- (void)sendRequestsOfDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all
-{
-  ODWService *service = [self serviceOfDocument:document];
-  if (!service) {
-    [self tell:[self answerOf:nil service:nil title:@"No service" failure:@"Choose a service for this document first: in the OData navigator, Send To."]];
-    return;
-  }
-  NSString *text = [document.textModel getValue];
-  NSArray *requests = all ? ODWRequestsOfText(text) : nil;
-  if (!all) {
-    ODWRequest *one = ODWRequestAt(text, selection.location);
-    requests = one ? @[ one ] : @[];
-  }
-  if (!requests.count) {
-    [self tell:[self answerOf:nil service:service title:@"No request" failure:@"There is no request here: write one (GET Products) first."]];
-    return;
-  }
-  [_queue removeAllObjects];
-  for (ODWRequest *request in requests) [_queue addObject:@[ request, service ]];
-  [self sendNextQueued];
-}
-
-- (void)sendNextQueued
-{
-  if (_sending || !_queue.count) return;
-  NSArray *next = _queue.firstObject;
-  [_queue removeObjectAtIndex:0];
-  [self sendRequest:next[0] toService:next[1]];
-}
-
-- (void)sendRequest:(ODWRequest *)request toService:(ODWService *)service
-{
-  if (!service.connected) {
-    [service.waiting addObject:request];
-    if (!service.connecting) [self connect:service];
-    return;
-  }
-  NSString *why = nil;
-  NSURLRequest *urlRequest = [request URLRequestWithServiceRoot:service.connection.serviceRoot ?: [self rootOf:service] error:&why];
-  if (!urlRequest) {
-    [self tell:[self answerOf:nil service:service title:request.title failure:why]];
-    [self sendNextQueued];
-    return;
-  }
-  [self sendURLRequest:urlRequest title:request.title toService:service];
-}
-
 - (void)sendURLRequest:(NSURLRequest *)urlRequest title:(NSString *)title toService:(ODWService *)service
 {
   if (!service.connected) {
     [self tell:[self answerOf:nil service:service title:title failure:[NSString stringWithFormat:@"Not connected to %@.", service.name]]];
     return;
   }
-  _sending = YES;
   NSDate *began = [NSDate date];
   // A client span of its own, as the store's requests have, its trace
   // passed on in the headers: at the built-in service, its own spans under it.
@@ -571,33 +474,13 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     NSHTTPURLResponse *response = [exchange.URLResponse isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse *)exchange.URLResponse : nil;
     [span endWithResponse:exchange.URLResponse error:exchange.error];
     if (!me) return;
-    me->_sending = NO;
     ODWAnswer *answer = [me answerOf:traced service:service title:title failure:response ? nil : (exchange.error.localizedDescription ?: @"No answer.")];
     answer.status = response.statusCode;
     answer.data = exchange.data;
     answer.duration = -[began timeIntervalSinceNow];
     [answer read];
     [me tell:answer];
-    [me sendNextQueued];
   }];
-}
-
-- (void)sendWaitingOf:(ODWService *)service
-{
-  NSArray *waiting = [service.waiting copy];
-  [service.waiting removeAllObjects];
-  for (ODWRequest *request in waiting) [_queue insertObject:@[ request, service ] atIndex:0];
-  [self sendNextQueued];
-}
-
-- (void)failWaitingOf:(ODWService *)service
-{
-  NSArray *waiting = [service.waiting copy];
-  [service.waiting removeAllObjects];
-  for (ODWRequest *request in waiting) {
-    [self tell:[self answerOf:nil service:service title:request.title
-                      failure:[NSString stringWithFormat:@"Not connected to %@: %@", service.name, service.failure ?: @"it failed"]]];
-  }
 }
 
 - (ODWAnswer *)answerOf:(NSURLRequest *)request service:(ODWService *)service title:(NSString *)title failure:(NSString *)failure

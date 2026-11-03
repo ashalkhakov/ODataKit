@@ -25,7 +25,6 @@ ODataTests_OBJC_FILES = \
 	../ODWBuilderViewController.m \
 	../ODWExtension.m \
 	../ODWNavigatorViewController.m \
-	../ODWRequests.m \
 	../ODWServiceSheet.m \
 	../ODWServices.m \
 	../ODWTemplates.m \

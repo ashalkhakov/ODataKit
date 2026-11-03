@@ -6,7 +6,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 #import <XCTest/XCTest.h>
 #import <UDCodeKit/UDCodeKit.h>
-#import "ODWRequests.h"
 #import "ODWServices.h"
 #import "ODWNavigatorViewController.h"
 #import "ODWBottomViewController.h"
@@ -31,13 +30,6 @@
 @property (nonatomic, strong) NSMutableArray<UDCodeDocument *> *opened;
 @end
 
-// An editor: its text view, the document's text.
-@interface ODWTestEditor : NSObject
-@property (nonatomic, strong) NSTextView *textView;
-@end
-
-@implementation ODWTestEditor
-@end
 
 @implementation ODWTestWorkbench
 - (instancetype)init
@@ -69,6 +61,7 @@
   ODWServices *_services;
   NSMutableArray<ODWAnswer *> *_answers;
   NSArray *_userServicesBefore;
+  NSMutableArray<NSWindow *> *_windows;
 }
 
 - (void)setUp
@@ -80,11 +73,13 @@
   _workbench = [[ODWTestWorkbench alloc] init];
   _services = [[ODWServices alloc] initWithWorkbench:(id<UDWorkbench>)_workbench];
   _answers = [NSMutableArray array];
+  _windows = [NSMutableArray array];
   [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(answerCame:) name:ODWAnswerNotification object:_services];
 }
 
 - (void)tearDown
 {
+  for (NSWindow *window in _windows) [window orderOut:nil];
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   if (_userServicesBefore) [[NSUserDefaults standardUserDefaults] setObject:_userServicesBefore forKey:@"ODWServices"];
   else [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"ODWServices"];
@@ -103,54 +98,6 @@
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
   return condition();
-}
-
-#pragma mark Requests as text
-
-- (void)testRequestsAreReadAsRESTClientWritesThem
-{
-  NSString *text = @"# Northwind\n"
-                   @"GET Products?$filter=UnitPrice gt 20\n"
-                   @"  &$expand=Category&$top=10\n"
-                   @"\n"
-                   @"### Patch one\n"
-                   @"PATCH Products(1) HTTP/1.1\n"
-                   @"Content-Type: application/json\n"
-                   @"If-Match: *\n"
-                   @"\n"
-                   @"{ \"UnitPrice\": 19.5 }\n"
-                   @"\n"
-                   @"###\n"
-                   @"Customers('ALFKI')/Orders\n";
-  NSArray<ODWRequest *> *requests = ODWRequestsOfText(text);
-  XCTAssertEqual(requests.count, (NSUInteger)3);
-  ODWRequest *get = requests[0], *patch = requests[1], *bare = requests[2];
-  XCTAssertEqualObjects(get.method, @"GET");
-  XCTAssertEqualObjects(get.target, @"Products?$filter=UnitPrice gt 20&$expand=Category&$top=10", @"its query line joined");
-  XCTAssertEqual(get.line, (NSUInteger)2);
-  XCTAssertNil(get.body);
-  XCTAssertEqualObjects(patch.method, @"PATCH");
-  XCTAssertEqualObjects(patch.target, @"Products(1)", @"HTTP/1.1 left out");
-  XCTAssertEqualObjects(patch.title, @"Patch one", @"its separator's name");
-  XCTAssertEqual(patch.headers.count, (NSUInteger)2);
-  XCTAssertEqualObjects(patch.body, @"{ \"UnitPrice\": 19.5 }");
-  XCTAssertEqualObjects(bare.method, @"GET", @"no method: GET");
-  XCTAssertEqualObjects(bare.title, @"GET Customers('ALFKI')/Orders");
-
-  // The caret's request, and the last one before a caret between them.
-  XCTAssertEqual(ODWRequestAt(text, [text rangeOfString:@"Content-Type"].location).line, patch.line);
-  XCTAssertEqual(ODWRequestAt(text, text.length).line, bare.line);
-  XCTAssertNil(ODWRequestAt(@"# only a comment\n", 3));
-
-  // Its URL: from the service root, the filter's spaces encoded.
-  NSString *why = nil;
-  NSURLRequest *request = [get URLRequestWithServiceRoot:[NSURL URLWithString:@"https://example.org/odata"] error:&why];
-  XCTAssertEqualObjects(request.URL.absoluteString,
-                        @"https://example.org/odata/Products?$filter=UnitPrice%20gt%2020&$expand=Category&$top=10", @"%@", why);
-  NSURLRequest *patched = [patch URLRequestWithServiceRoot:[NSURL URLWithString:@"https://example.org/odata/"] error:NULL];
-  XCTAssertEqualObjects(patched.HTTPMethod, @"PATCH");
-  XCTAssertEqualObjects([patched valueForHTTPHeaderField:@"If-Match"], @"*");
-  XCTAssertEqualObjects([[NSString alloc] initWithData:patched.HTTPBody encoding:NSUTF8StringEncoding], @"{ \"UnitPrice\": 19.5 }");
 }
 
 #pragma mark Services
@@ -189,17 +136,28 @@
   [[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }
 
-// The built-in service, in this process: connected, a request sent as
-// written, its rows read; the exchange in the wire log, its spans in Traces.
+// A GET (a path from the service root) sent to a service, connected first;
+// its answer.
+- (ODWAnswer *)send:(NSString *)path to:(ODWService *)service
+{
+  [_services connect:service];
+  [self waitFor:^{ return service.connected; }];
+  NSString *root = service.connection.serviceRoot.absoluteString ?: @"";
+  if (![root hasSuffix:@"/"]) root = [root stringByAppendingString:@"/"];
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[root stringByAppendingString:path]]];
+  [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+  NSUInteger before = _answers.count;
+  [_services sendURLRequest:request title:[@"GET " stringByAppendingString:path] toService:service];
+  [self waitFor:^{ return (BOOL)(self->_answers.count > before); }];
+  return _answers.count > before ? _answers.lastObject : nil;
+}
+
 - (void)testARequestToTheBuiltInServiceIsAnswered
 {
   ODWService *builtIn = [_services serviceNamed:@"Built-in Sample"];
-  NSString *text = @"GET Products?$top=3&$select=ProductName,UnitPrice\n";
-  ODWRequest *request = ODWRequestsOfText(text).firstObject;
-  [_services sendRequest:request toService:builtIn];
-  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }], @"no answer");
+  ODWAnswer *answer = [self send:@"Products?$top=3&$select=ProductName,UnitPrice" to:builtIn];
+  XCTAssertNotNil(answer, @"no answer");
   XCTAssertTrue(builtIn.connected, @"connected for the request: %@", builtIn.failure);
-  ODWAnswer *answer = _answers.lastObject;
   XCTAssertNil(answer.failure);
   XCTAssertEqual(answer.status, (NSInteger)200, @"%@", answer.text);
   XCTAssertEqual(answer.rows.count, (NSUInteger)3, @"%@", answer.text);
@@ -212,128 +170,105 @@
   XCTAssertNotNil(WBTraceIDOfHeaders(sent.requestHeaders), @"its trace passed on");
   XCTAssertNotNil([[ODWServices traceRecorder] traceWithID:WBTraceIDOfHeaders(sent.requestHeaders)], @"its trace kept");
 
-  // A request that is no URL is answered why, not sent.
+  // To a service not connected: answered why, not sent.
   NSUInteger exchanges = _services.exchangeLog.entries.count;
-  [_services sendRequest:ODWRequestsOfText(@"GET http://\n").firstObject toService:builtIn];
+  ODWService *northwind = [_services serviceNamed:@"Northwind"];
+  [_services sendURLRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://example.invalid/x"]] title:@"GET x" toService:northwind];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 1); }]);
   XCTAssertNotNil(_answers.lastObject.failure);
   XCTAssertEqual(_services.exchangeLog.entries.count, exchanges);
 }
 
-// UDCode's Run: the request at the selection, sent to the document's
-// service.
-- (void)testRunSendsTheRequestAtTheCaret
-{
-  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:@"GET Categories\n\n###\nGET Products?$top=2\n" fileURL:nil languageMode:nil];
-  ODWService *builtIn = [_services serviceNamed:@"Built-in Sample"];
-  [_services setService:builtIn ofDocument:document];
-  XCTAssertEqual([_services serviceOfDocument:document], builtIn);
-  NSString *text = [document.textModel getValue];
-  [_services sendRequestsOfDocument:document selection:NSMakeRange([text rangeOfString:@"Products"].location, 0) all:NO];
-  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
-  XCTAssertEqualObjects(_answers.lastObject.title, @"GET Products?$top=2", @"the request the caret is in");
-  XCTAssertEqual(_answers.lastObject.rows.count, (NSUInteger)2, @"%@", _answers.lastObject.text);
-  // Run All: each, in order.
-  [_answers removeAllObjects];
-  [_services sendRequestsOfDocument:document selection:NSMakeRange(0, 0) all:YES];
-  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count == 2); }]);
-  XCTAssertEqualObjects([_answers valueForKey:@"title"], (@[ @"GET Categories", @"GET Products?$top=2" ]));
-}
-
 #pragma mark Templates
 
-// Each of an entity set's, and a function's call: a request as the
-// documents write them; the GETs answered.
-- (void)testTemplatesAreRequestsTheServiceAnswers
+// A builder of a file, in a window, its request shown (its service
+// connected, its panel there for a query).
+- (ODWBuilderViewController *)builderOfFile:(NSDictionary *)file
+{
+  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:[ODWBuilderViewController textOfFile:file service:@"Built-in Sample"]
+                                                          fileURL:nil languageMode:nil];
+  ODWBuilderViewController *builder = [[ODWBuilderViewController alloc] initWithServices:_services document:document];
+  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1100, 420) styleMask:NSWindowStyleMaskTitled
+                                                   backing:NSBackingStoreBuffered defer:YES];
+  [window setReleasedWhenClosed:NO];
+  [window.contentView addSubview:builder.view];
+  [_windows addObject:window];
+  [self waitFor:^{ return (BOOL)(builder.service.connected && (builder.kind != ODWBuilderQuery || builder.panel)); }];
+  return builder;
+}
+
+// Each of an entity set's, and an operation's call: the builder's request
+// as the template means it; the GETs answered.
+- (void)testTemplatesAreTheBuildersRequests
 {
   ODWService *builtIn = [self connectedBuiltIn];
   ODataSchema *schema = builtIn.connection.store.schema;
   XCTAssertNotNil(schema);
-  NSDictionary *methods = @{ @(ODWTemplateGetAll): @"GET", @(ODWTemplateGetByKey): @"GET", @(ODWTemplateCount): @"GET",
-                             @(ODWTemplatePost): @"POST", @(ODWTemplatePatch): @"PATCH", @(ODWTemplateDelete): @"DELETE" };
-  for (NSNumber *kind in methods) {
-    NSString *text = ODWTemplateOfEntitySet(schema, @"Products", kind.integerValue);
-    NSArray<ODWRequest *> *requests = ODWRequestsOfText(text ?: @"");
-    XCTAssertEqual(requests.count, (NSUInteger)1, @"%@", text);
-    XCTAssertEqualObjects(requests.firstObject.method, methods[kind], @"%@", text);
-    XCTAssertTrue([text hasPrefix:@"###"], @"its separator names it: %@", text);
-    if (requests.firstObject.body.length) {
-      id body = [NSJSONSerialization JSONObjectWithData:[requests.firstObject.body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
-      XCTAssertTrue([body isKindOfClass:[NSDictionary class]], @"a JSON object: %@", requests.firstObject.body);
-      if (kind.integerValue == ODWTemplatePatch) XCTAssertNil(body[@"ProductID"], @"no key in a PATCH: %@", body);
+  NSDictionary *lines = @{ @(ODWTemplateGetAll): @"GET Products?", @(ODWTemplateGetByKey): @"GET Products(1)",
+                           @(ODWTemplateCount): @"GET Products/$count", @(ODWTemplatePost): @"POST Products",
+                           @(ODWTemplatePatch): @"PATCH Products(1)", @(ODWTemplateDelete): @"DELETE Products(1)" };
+  for (NSNumber *kind in lines) {
+    NSDictionary *file = ODWTemplateOfEntitySet(schema, @"Products", kind.integerValue);
+    XCTAssertNotNil(file, @"%@", kind);
+    ODWBuilderViewController *builder = [self builderOfFile:file];
+    NSString *failure = nil;
+    NSURLRequest *request = [builder URLRequestWithFailure:&failure];
+    XCTAssertNotNil(request, @"%@: %@", file, failure);
+    XCTAssertTrue([builder.requestLine.stringValue hasPrefix:lines[kind]], @"%@ for %@", builder.requestLine.stringValue, lines[kind]);
+    XCTAssertEqualObjects([[lines[kind] componentsSeparatedByString:@" "] firstObject], request.HTTPMethod);
+    if (request.HTTPBody) {
+      id body = [NSJSONSerialization JSONObjectWithData:request.HTTPBody options:0 error:NULL];
+      XCTAssertTrue([body isKindOfClass:[NSDictionary class]], @"a JSON object: %@", file[@"body"]);
+      if (kind.integerValue == ODWTemplatePatch) XCTAssertNil(body[@"ProductID"], @"no key in an update: %@", body);
       if (kind.integerValue == ODWTemplatePost) XCTAssertNotNil(body[@"ProductName"], @"%@", body);
+      XCTAssertFalse(builder.bodySection.isHidden);
+    }
+    XCTAssertEqual(builder.panelScroll.isHidden, builder.kind != ODWBuilderQuery);
+    XCTAssertEqual(builder.fieldsSection.isHidden, kind.integerValue == ODWTemplatePost, @"the key's fields: %@", lines[kind]);
+    if ([request.HTTPMethod isEqualToString:@"GET"]) {
+      [_answers removeAllObjects];
+      [builder runFetch:nil];
+      XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
+      XCTAssertNil(_answers.lastObject.failure, @"%@", _answers.lastObject.text);
+      XCTAssertEqual(_answers.lastObject.status, (NSInteger)200, @"%@: %@", _answers.lastObject.title, _answers.lastObject.text);
     }
   }
-  XCTAssertTrue([ODWTemplateOfEntitySet(schema, @"Products", ODWTemplateGetByKey) containsString:@"GET Products(1)\n"]);
-  XCTAssertNil(ODWTemplateOfEntitySet(schema, @"Nothing", ODWTemplateGetAll));
-  for (NSNumber *kind in @[ @(ODWTemplateGetAll), @(ODWTemplateGetByKey), @(ODWTemplateCount) ]) {
-    [_answers removeAllObjects];
-    [_services sendRequest:ODWRequestsOfText(ODWTemplateOfEntitySet(schema, @"Products", kind.integerValue)).firstObject toService:builtIn];
-    XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
-    XCTAssertNil(_answers.lastObject.failure, @"%@", _answers.lastObject.text);
-    XCTAssertEqual(_answers.lastObject.status, (NSInteger)200, @"%@: %@", _answers.lastObject.title, _answers.lastObject.text);
-  }
-  // An operation's call: a function's GET, an action's POST.
+  // An operation's call: a function's GET, its parameters in the URL; an
+  // action's POST, its parameters the body.
   for (NSString *name in [builtIn operationNames]) {
-    NSString *text = ODWTemplateOfOperation(schema, name);
-    ODWRequest *request = ODWRequestsOfText(text ?: @"").firstObject;
-    XCTAssertNotNil(request, @"%@", name);
-    NSString *method = schema.operationImports[name].isAction ? @"POST" : @"GET";
-    XCTAssertEqualObjects(request.method, method, @"%@", text);
-    XCTAssertTrue([request.target hasPrefix:name], @"%@", text);
+    ODWBuilderViewController *builder = [self builderOfFile:ODWTemplateOfOperation(schema, name)];
+    NSURLRequest *request = [builder URLRequestWithFailure:NULL];
+    BOOL action = schema.operationImports[name].isAction;
+    XCTAssertEqualObjects(request.HTTPMethod, action ? @"POST" : @"GET", @"%@", name);
+    XCTAssertTrue([builder.requestLine.stringValue containsString:name], @"%@", builder.requestLine.stringValue);
+    XCTAssertTrue(builder.bodySection.isHidden, @"its parameters are fields");
   }
+  // As curl: its method, URL, headers and body, quoted for a shell.
+  NSURLRequest *patch = [[self builderOfFile:ODWTemplateOfEntitySet(schema, @"Products", ODWTemplatePatch)] URLRequestWithFailure:NULL];
+  NSString *curl = ODWCurlOfRequest(patch);
+  XCTAssertTrue([curl hasPrefix:@"curl -X PATCH 'http"], @"%@", curl);
+  XCTAssertTrue([curl containsString:@"-H 'Content-Type: application/json'"], @"%@", curl);
+  XCTAssertTrue([curl containsString:@"-H 'If-Match: *'"], @"%@", curl);
+  XCTAssertTrue([curl containsString:@"--data-raw '{"], @"%@", curl);
+  NSURLRequest *quoted = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://h/P('a')"]];
+  XCTAssertEqualObjects(ODWCurlOfRequest(quoted), @"curl 'http://h/P('\\''a'\\'')'\n", @"a quote in a word");
+  // A key as typed.
+  XCTAssertEqualObjects(ODWKeyPath(schema, @"Products", @{ @"ProductID": @"7" }), @"Products(7)");
 }
 
-// A template put in a text: apart from the requests around it.
-- (void)testATemplateIsPutInApart
-{
-  NSString *request = @"### Mine\nGET Mine\n";
-  NSRange at;
-  XCTAssertEqualObjects(ODWTextWithTemplate(@"", 0, request, &at), request);
-  XCTAssertEqual(at.location, (NSUInteger)9, @"the caret on its request line");
-  // At the end, after a request: a blank line before it.
-  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A\n", 6, request, NULL), @"GET A\n\n### Mine\nGET Mine\n");
-  // Inside a request: after all of it (its headers not parted from it).
-  NSString *text = @"GET A\nAccept: x\n";
-  NSString *changed = ODWTextWithTemplate(text, 2, request, &at);
-  XCTAssertEqualObjects(changed, @"GET A\nAccept: x\n\n### Mine\nGET Mine\n");
-  XCTAssertEqualObjects([changed substringWithRange:NSMakeRange(at.location, 8)], @"GET Mine");
-  // At its start: before it, set apart.
-  XCTAssertEqualObjects(ODWTextWithTemplate(text, 0, request, NULL), @"### Mine\nGET Mine\n\n###\nGET A\nAccept: x\n");
-  // Before a separator: the separator kept.
-  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A\n\n###\nGET B\n", 7, request, NULL),
-                        @"GET A\n\n### Mine\nGET Mine\n\n###\nGET B\n");
-  // No end of line at the end: one added.
-  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A", 5, request, NULL), @"GET A\n\n### Mine\nGET Mine\n");
-  for (NSString *t in @[ @"GET A\n", @"GET A\nAccept: x\n", @"GET A\n\n###\nGET B\n" ]) {
-    for (NSUInteger caret = 0; caret <= t.length; caret++) {
-      NSArray *requests = ODWRequestsOfText(ODWTextWithTemplate(t, caret, request, NULL));
-      XCTAssertTrue([[requests valueForKey:@"target"] containsObject:@"Mine"], @"%@ at %lu", t, (unsigned long)caret);
-      XCTAssertEqual(requests.count, ODWRequestsOfText(t).count + 1, @"%@ at %lu", t, (unsigned long)caret);
-      XCTAssertEqualObjects([[requests valueForKey:@"target"] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF != 'Mine'"]],
-                            [ODWRequestsOfText(t) valueForKey:@"target"], @"the others as they were: %@ at %lu", t, (unsigned long)caret);
-    }
-  }
-}
-
-// The navigator's Insert Request: at the caret of the service's front
-// request document, as one edit; else in a new document.
-- (void)testInsertRequestWritesAtTheCaret
+// The navigator's Insert Request, Insert Call: a new builder set up for
+// the request.
+- (void)testInsertRequestOpensABuilder
 {
   ODWService *builtIn = [self connectedBuiltIn];
   ODWNavigatorViewController *navigator = [[ODWNavigatorViewController alloc] initWithServices:_services];
   XCTAssertNotNil(navigator.view);
   NSMenu *itemMenu = [navigator valueForKey:@"itemMenu"];
-  NSMenuItem *insert = [itemMenu itemWithTitle:@"Insert Request"];
-  XCTAssertEqual(insert.submenu.numberOfItems, (NSInteger)7, @"six requests and a separator");
+  XCTAssertEqual([itemMenu itemWithTitle:@"Insert Request"].submenu.numberOfItems, (NSInteger)7, @"six requests and a separator");
   XCTAssertNotNil([itemMenu itemWithTitle:@"Insert Call"]);
+  XCTAssertNil([itemMenu itemWithTitle:@"New Request"], @"no text requests");
+  XCTAssertNil([[navigator valueForKey:@"serviceMenu"] itemWithTitle:@"New Request Document"]);
 
-  // An .odata document: the mode LanguageInfo.plist gives UDCode.
-  UDLanguageMode *odata = [[UDLanguageMode alloc] initWithIdentifier:@"odata" displayName:@"OData" fileExtensions:@[ @"odata" ]
-                                                         languageFunc:NULL highlightsQuery:nil indentsQuery:nil lspLanguageID:nil
-                                                languageServerCommand:nil defaultNewDocumentText:@""
-                                                languageConfiguration:[UDLanguageConfiguration emptyConfiguration]
-                                                           keyHandler:nil extension:nil];
   // The context menu of an entity set's row: Insert Request's submenu
   // whole, Insert Call not there; of an operation's, the other way about.
   NSOutlineView *outline = navigator.outlineView;
@@ -348,53 +283,32 @@
   XCTAssertGreaterThanOrEqual(operationRow, 0);
   [outline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)setRow] byExtendingSelection:NO];
   [navigator menuNeedsUpdate:outline.menu];
-  NSMenuItem *shown = [outline.menu itemWithTitle:@"Insert Request"];
-  XCTAssertEqual(shown.submenu.numberOfItems, (NSInteger)7);
   XCTAssertNil([outline.menu itemWithTitle:@"Insert Call"]);
   [navigator menuNeedsUpdate:outline.menu];
   XCTAssertEqual([outline.menu itemWithTitle:@"Insert Request"].submenu.numberOfItems, (NSInteger)7, @"the menu made again");
-  NSMenuItem *count = [[outline.menu itemWithTitle:@"Insert Request"].submenu itemWithTitle:@"GET $count"];
-  XCTAssertEqual(count.target, navigator);
+  NSMenuItem *byKey = [[outline.menu itemWithTitle:@"Insert Request"].submenu itemWithTitle:@"GET by Key"];
+  XCTAssertEqual(byKey.target, navigator);
+  [navigator insertRequestOfItem:byKey];
+  XCTAssertEqual(_workbench.opened.count, (NSUInteger)1);
+  NSDictionary *file = [self fileOfText:[_workbench.opened.lastObject.textModel getValue]];
+  XCTAssertEqualObjects(file[@"request"], @"query");
+  XCTAssertEqualObjects(file[@"service"], @"Built-in Sample");
+  XCTAssertEqualObjects(file[@"query"][@"entity"], @"Product");
+  XCTAssertEqualObjects(file[@"key"][@"ProductID"], @"1");
   [navigator menuDidClose:outline.menu];
+  [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+
   [outline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)operationRow] byExtendingSelection:NO];
   [navigator menuNeedsUpdate:outline.menu];
   XCTAssertNil([outline.menu itemWithTitle:@"Insert Request"]);
-  XCTAssertNotNil([outline.menu itemWithTitle:@"Insert Call"]);
+  NSMenuItem *call = [outline.menu itemWithTitle:@"Insert Call"];
+  XCTAssertNotNil(call);
+  [navigator insertRequestOfItem:call];
+  XCTAssertEqual(_workbench.opened.count, (NSUInteger)2);
+  file = [self fileOfText:[_workbench.opened.lastObject.textModel getValue]];
+  XCTAssertEqualObjects(file[@"request"], @"call");
+  XCTAssertEqualObjects(file[@"operation"], [[outline itemAtRow:operationRow] valueForKey:@"title"]);
   [navigator menuDidClose:outline.menu];
-
-  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:@"GET Categories\n" fileURL:nil languageMode:odata];
-  [_services setService:builtIn ofDocument:document];
-  ODWTestEditor *editor = [[ODWTestEditor alloc] init];
-  editor.textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
-  editor.textView.string = [document.textModel getValue];
-  [editor.textView setSelectedRange:NSMakeRange(15, 0)];
-  // UDCode's text view shows the model's text.
-  id follow = [[NSNotificationCenter defaultCenter] addObserverForName:UDTextModelDidChangeNotification object:document.textModel queue:nil
-                                                             usingBlock:^(NSNotification *note) {
-    editor.textView.string = [document.textModel getValue];
-  }];
-  _workbench.selectedDocument = document;
-  _workbench.selectedEditor = editor;
-  XCTAssertTrue([ODWServices isRequestDocument:document], @"%@", document.languageMode.identifier);
-
-  [navigator insertRequest:ODWTemplateOfEntitySet(builtIn.connection.store.schema, @"Products", ODWTemplateCount) ofService:builtIn];
-  NSString *text = [document.textModel getValue];
-  XCTAssertEqualObjects(text, @"GET Categories\n\n### How many Products\nGET Products/$count\n");
-  XCTAssertEqual(_workbench.opened.count, (NSUInteger)0, @"not in a new document");
-  XCTAssertEqual(editor.textView.selectedRange.location, [text rangeOfString:@"GET Products"].location);
-  XCTAssertTrue(document.textModel.undoManager.canUndo);
-  [document.textModel.undoManager undo];
-  XCTAssertEqualObjects([document.textModel getValue], @"GET Categories\n", @"undone as one");
-
-  // The front document another service's: a new one.
-  ODWService *other = [_services serviceNamed:@"TripPin"] ?: [_services.services lastObject];
-  XCTAssertNotEqual(other, builtIn);
-  [_services setService:other ofDocument:document];
-  [navigator insertRequest:@"### X\nGET X\n" ofService:builtIn];
-  XCTAssertEqual(_workbench.opened.count, (NSUInteger)1);
-  XCTAssertEqualObjects([_workbench.opened.lastObject.textModel getValue], @"### X\nGET X\n");
-  XCTAssertEqualObjects([document.textModel getValue], @"GET Categories\n", @"the other service's left alone");
-  [[NSNotificationCenter defaultCenter] removeObserver:follow];
 }
 
 #pragma mark The builder
@@ -406,6 +320,11 @@
   [_services connect:builtIn];
   [self waitFor:^{ return builtIn.connected; }];
   return builtIn;
+}
+
+- (NSDictionary *)fileOfText:(NSString *)text
+{
+  return [NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
 }
 
 - (NSDictionary *)queryOfText:(NSString *)text
@@ -448,7 +367,7 @@
   NSString *text = [ODWBuilderViewController textOfQuery:@{ @"entity": @"Product", @"limit": @"3" } service:@"Built-in Sample"];
   UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:nil languageMode:nil];
   ODWBuilderViewController *builder = [[ODWBuilderViewController alloc] initWithServices:_services document:document];
-  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1100, 360) styleMask:NSWindowStyleMaskTitled
+  NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1100, 420) styleMask:NSWindowStyleMaskTitled
                                                    backing:NSBackingStoreBuffered defer:YES];
   [window setReleasedWhenClosed:NO];
   [window.contentView addSubview:builder.view];
@@ -470,14 +389,16 @@
                   NSStringFromRect(view.frame), NSStringFromRect(panelView.bounds));
   }
   NSRect inTab = [builder.view convertRect:panelView.bounds fromView:panelView];
-  XCTAssertEqualWithAccuracy(NSMaxY(inTab), NSMinY(builder.servicePopup.frame) - 4, 12, @"the panel at the top: %@", NSStringFromRect(inTab));
+  NSRect shown = [builder.view convertRect:builder.panelScroll.bounds fromView:builder.panelScroll];
+  XCTAssertEqualWithAccuracy(NSMaxY(inTab), NSMaxY(shown), 1, @"the panel at the top: %@ in %@", NSStringFromRect(inTab), NSStringFromRect(shown));
+  XCTAssertFalse(builder.fieldsSection.isHidden, @"a product's key's fields");
+  XCTAssertLessThanOrEqual(NSMaxY(shown), NSMinY([builder.view convertRect:builder.fieldsSection.bounds fromView:builder.fieldsSection]),
+                           @"under the key's fields");
   CGFloat height = NSHeight(builder.view.frame);
   [builder.view setFrameSize:NSMakeSize(400, height)];
   XCTAssertEqualWithAccuracy(NSWidth(panelView.frame), 560, 0.5, @"not squeezed: WBQueryPanelStacked.xib's width");
   XCTAssertEqualWithAccuracy(NSMaxY([builder.view convertRect:panelView.bounds fromView:panelView]), NSMaxY(inTab), 1, @"still at the top");
   [builder.view setFrameSize:NSMakeSize(1100, height)];
-  // Execute is the tab's, whatever is focused.
-  XCTAssertEqual(builder.panel.executeButton.target, builder);
 
   // The panel changed: the text written, as one edit.
   builder.panel.limitField.stringValue = @"2";
@@ -496,12 +417,39 @@
   XCTAssertEqualObjects(builder.panel.limitField.stringValue, @"4");
 
   // Execute: its GET, answered.
-  [builder.panel.executeButton performClick:nil];
+  [builder.executeButton performClick:nil];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
   ODWAnswer *answer = _answers.lastObject;
   XCTAssertNil(answer.failure);
   XCTAssertTrue([answer.title hasPrefix:@"GET Categories"], @"%@", answer.title);
   XCTAssertEqual(answer.rows.count, (NSUInteger)4, @"%@", answer.text);
+
+  // A key given: the one's GET.
+  XCTAssertTrue([builder.requestLine.stringValue hasPrefix:@"GET Categories?$top=4"], @"%@", builder.requestLine.stringValue);
+  [builder tableView:builder.fieldsTable setObjectValue:@"2" forTableColumn:[builder.fieldsTable tableColumnWithIdentifier:@"value"] row:0];
+  XCTAssertTrue([builder.requestLine.stringValue hasPrefix:@"GET Categories(2)"], @"%@", builder.requestLine.stringValue);
+  XCTAssertFalse([builder.requestLine.stringValue containsString:@"$top"], @"one entity's: its $select and $expand only");
+  XCTAssertTrue([self waitFor:^{ return (BOOL)([[self fileOfText:[document.textModel getValue]][@"key"] count] == 1); }],
+                @"%@", [document.textModel getValue]);
+
+  // Another kind: an update of the same entity set, its key kept, a body of
+  // its properties.
+  [builder.kindPopup selectItemWithTag:ODWBuilderUpdate];
+  [builder kindChosen:builder.kindPopup];
+  XCTAssertEqual(builder.kind, ODWBuilderUpdate);
+  XCTAssertTrue(builder.panelScroll.isHidden);
+  XCTAssertFalse(builder.bodySection.isHidden);
+  XCTAssertEqualObjects(builder.targetPopup.titleOfSelectedItem, @"Categories");
+  XCTAssertEqualObjects(builder.requestLine.stringValue, @"PATCH Categories(2)");
+  XCTAssertTrue([builder.bodyView.string containsString:@"\"CategoryName\""], @"%@", builder.bodyView.string);
+  XCTAssertTrue([self waitFor:^{ return [[self fileOfText:[document.textModel getValue]][@"request"] isEqual:@"update"]; }]);
+  NSDictionary *file = [self fileOfText:[document.textModel getValue]];
+  XCTAssertEqualObjects(file[@"entitySet"], @"Categories");
+  XCTAssertEqualObjects(file[@"key"], @{ @"CategoryID": @"2" });
+  // A body that is no JSON: no request, and why.
+  builder.bodyView.string = @"{ nope";
+  [builder textDidChange:[NSNotification notificationWithName:NSTextDidChangeNotification object:builder.bodyView]];
+  XCTAssertEqualObjects(builder.requestLine.stringValue, @"The body is not JSON.");
   [window orderOut:nil];
 }
 
@@ -517,8 +465,12 @@
     WBQueryPanel *panel = [[WBQueryPanel alloc] initStacked:stacked.boolValue];
     NSView *view = panel.view;
     XCTAssertNotNil(view, @"stacked %@", stacked);
-    for (NSString *outlet in outlets) XCTAssertNotNil([panel valueForKey:outlet], @"%@, stacked %@", outlet, stacked);
-    XCTAssertEqual(panel.executeButton.action, @selector(runFetch:));
+    for (NSString *outlet in outlets) {
+      // The stacked one's host shows the GET, Explain and Execute.
+      if (stacked.boolValue && [@[ @"wireURLField", @"explainButton", @"executeButton" ] containsObject:outlet]) continue;
+      XCTAssertNotNil([panel valueForKey:outlet], @"%@, stacked %@", outlet, stacked);
+    }
+    if (!stacked.boolValue) XCTAssertEqualObjects(NSStringFromSelector(panel.executeButton.action), @"runFetch:");
     XCTAssertEqual(panel.sortTable.dataSource, (id)panel);
     XCTAssertEqual(panel.expandOutline.dataSource, (id)panel);
     XCTAssertEqual(panel.selectTable.dataSource, (id)panel);
@@ -561,7 +513,7 @@
   XCTAssertEqual(bottom.paneSwitch.segmentCount, (NSInteger)3);
   [bottom showPane:ODWBottomTraces];
   XCTAssertEqual(bottom.pane, ODWBottomTraces);
-  [_services sendRequest:ODWRequestsOfText(@"GET Categories\n").firstObject toService:[_services serviceNamed:@"Built-in Sample"]];
+  [self send:@"Categories" to:[_services serviceNamed:@"Built-in Sample"]];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(bottom.answer != nil); }]);
   XCTAssertEqual(bottom.pane, ODWBottomResults, @"an answer brings Results forward");
   XCTAssertEqual(bottom.rowsTable.numberOfRows, (NSInteger)bottom.answer.rows.count);
@@ -574,9 +526,9 @@
 
   // Another answer, of fewer columns, then more: the table as wide as its
   // columns each time (its rows drawn under all of them).
-  for (NSString *text in @[ @"GET Categories?$select=Name\n", @"GET Products\n" ]) {
+  for (NSString *text in @[ @"Categories?$select=CategoryName", @"Products" ]) {
     ODWAnswer *last = bottom.answer;
-    [_services sendRequest:ODWRequestsOfText(text).firstObject toService:[_services serviceNamed:@"Built-in Sample"]];
+    [self send:text to:[_services serviceNamed:@"Built-in Sample"]];
     XCTAssertTrue([self waitFor:^{ return (BOOL)(bottom.answer != last); }]);
     NSInteger count = bottom.rowsTable.numberOfColumns;
     XCTAssertGreaterThan(count, (NSInteger)0, @"%@", text);

@@ -2,35 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- .odata documents: OData requests written as VS Code's REST Client
-	     writes them (ODWRequests), sent from the Editor menu. Text, with no
-	     grammar of their own. -->
 	<key>languageModes</key>
 	<array>
-		<!-- .odataq documents: a query built with the Workbench's query
-		     panel (ODWBuilderViewController), kept as JSON (the grammar
-		     the JSON mode's). -->
+		<!-- .odataq documents: a request built with the request builder
+		     (ODWBuilderViewController; a query, the Workbench's query
+		     panel's), kept as JSON (the grammar the JSON mode's). -->
 		<dict>
 			<key>identifier</key>
 			<string>odataq</string>
 			<key>displayName</key>
-			<string>OData Query</string>
+			<string>OData Request</string>
 			<key>fileExtensions</key>
 			<array>
 				<string>odataq</string>
 			</array>
 			<key>grammarOf</key>
 			<string>json</string>
-		</dict>
-		<dict>
-			<key>identifier</key>
-			<string>odata</string>
-			<key>displayName</key>
-			<string>OData Requests</string>
-			<key>fileExtensions</key>
-			<array>
-				<string>odata</string>
-			</array>
 		</dict>
 	</array>
 </dict>

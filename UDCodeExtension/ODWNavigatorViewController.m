@@ -6,7 +6,7 @@
 #import "ODWServiceSheet.h"
 #import "ODWBuilderViewController.h"
 #import "ODWTemplates.h"
-#import <UDPieceTable/UDTextModel.h>
+#import <ODataKit/ODataSchema.h>
 #import <objc/runtime.h>
 
 typedef NS_ENUM(NSInteger, ODWNodeKind) {
@@ -256,7 +256,6 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   if (sel_isEqual(action, @selector(connectService:))) return service && !service.connected && !service.connecting;
   if (sel_isEqual(action, @selector(disconnectService:))) return service.connected || service.connecting;
   if (sel_isEqual(action, @selector(signOutOfService:))) return service && service.kind == ODWServiceOther;
-  if (sel_isEqual(action, @selector(sendToService:))) return service && [_services canSend];
   return YES;
 }
 
@@ -340,96 +339,18 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 
 #pragma mark Requests
 
-// A new .odata document, sent to the service: its first request written
-// (an entity set's), or a note of how they are written.
-- (void)openRequests:(NSString *)text ofService:(ODWService *)service send:(BOOL)send
+// A new builder document of the service's: the file's request, named
+// (its tab's title; Save's file name); sent once it is shown, when asked.
+- (void)openBuilderOfFile:(NSDictionary *)file named:(NSString *)name service:(ODWService *)service execute:(BOOL)execute
 {
   ODWServices *services = _services;
   id<UDWorkbench> workbench = services.workbench;
-  [workbench openUntitledDocumentWithText:text languageMode:@"odata" name:[service.name stringByAppendingString:@" Requests"]];
+  services.executesNextBuilder = execute;
+  [workbench openUntitledDocumentWithText:[ODWBuilderViewController textOfFile:file service:service.name]
+                             languageMode:@"odataq" name:name];
+  services.executesNextBuilder = NO;
   UDCodeDocument *document = workbench.selectedDocument;
-  if (!document) return;
-  [services setService:service ofDocument:document];
-  [workbench.selectedEditor.textView setSelectedRange:NSMakeRange(text.length, 0)];
-  if (send) [services sendRequest:nil];
-}
-
-- (IBAction)newRequestDocument:(id)sender
-{
-  ODWService *service = [self actedNode].service;
-  if (!service) return;
-  NSString *first = [service entitySetNames].firstObject;
-  NSString *text = [NSString stringWithFormat:@"# Requests to %@ (%@), sent with Editor > Run (⌘↩), or all of them\n"
-                                              @"# with Run All (⇧⌘↩). Each is a request line (METHOD URL, the URL\n"
-                                              @"# from the service root), its headers, a blank line, its body;\n"
-                                              @"# ### begins the next.\n\nGET %@?$top=20\n",
-                                              service.name, service.root.absoluteString, first ?: @"$metadata"];
-  [self openRequests:text ofService:service send:NO];
-}
-
-- (IBAction)sendToService:(id)sender
-{
-  ODWService *service = [self actedNode].service;
-  ODWServices *services = _services;
-  UDCodeDocument *document = services.workbench.selectedDocument;
-  if (!service || !document || ![services canSend]) return;
-  [services setService:service ofDocument:document];
-}
-
-- (IBAction)newRequestOfItem:(id)sender
-{
-  ODWNode *node = [self actedNode];
-  if (node.kind == ODWNodeEntitySet) {
-    [self openRequests:[NSString stringWithFormat:@"GET %@?$top=20\n", node.title] ofService:node.service send:YES];
-  } else if (node.kind == ODWNodeOperation) {
-    [self openRequests:[NSString stringWithFormat:@"GET %@()\n", node.title] ofService:node.service send:NO];
-  }
-}
-
-// A template of the item's (its sender's tag an ODWTemplate, for an entity
-// set), in the front request document at its caret when it is the
-// service's (or no service's yet), else in a new one.
-- (IBAction)insertRequestOfItem:(id)sender
-{
-  ODWNode *node = [self actedNode];
-  ODataSchema *schema = node.service.connection.store.schema;
-  if (!schema) return;
-  NSString *request = node.kind == ODWNodeEntitySet ? ODWTemplateOfEntitySet(schema, node.title, (ODWTemplate)[sender tag])
-                    : node.kind == ODWNodeOperation ? ODWTemplateOfOperation(schema, node.title)
-                                                    : nil;
-  if (request) [self insertRequest:request ofService:node.service];
-}
-
-- (void)insertRequest:(NSString *)request ofService:(ODWService *)service
-{
-  ODWServices *services = _services;
-  id<UDWorkbench> workbench = services.workbench;
-  UDCodeDocument *document = workbench.selectedDocument;
-  NSTextView *textView = workbench.selectedEditor.textView;
-  ODWService *documentService = document ? [services serviceOfDocument:document] : nil;
-  if (!document || !textView || ![ODWServices isRequestDocument:document] || (documentService && documentService != service)) {
-    [self openRequests:request ofService:service send:NO];
-    return;
-  }
-  UDTextModel *model = document.textModel;
-  NSString *text = [model getValue];
-  NSRange at;
-  NSString *changed = ODWTextWithTemplate(text, textView.selectedRange.location, request, &at);
-  // One edit, of what changed (undone as one): what the texts begin and end
-  // with alike left alone.
-  NSUInteger head = 0, tail = 0;
-  while (head < text.length && head < changed.length && [text characterAtIndex:head] == [changed characterAtIndex:head]) head++;
-  while (tail < text.length - head && tail < changed.length - head &&
-         [text characterAtIndex:text.length - 1 - tail] == [changed characterAtIndex:changed.length - 1 - tail]) {
-    tail++;
-  }
-  UDPosition from = [model getPositionAt:(NSInteger)head], to = [model getPositionAt:(NSInteger)(text.length - tail)];
-  NSString *inserted = [changed substringWithRange:NSMakeRange(head, changed.length - tail - head)];
-  [model applyEdits:@[ [[UDTextModelEdit alloc] initWithRange:(UDRange){from.line, from.column, to.line, to.column}
-                                                          text:inserted] ]];
-  [services setService:service ofDocument:document];
-  [textView setSelectedRange:NSMakeRange(at.location, 0)];
-  [textView scrollRangeToVisible:at];
+  if (document) [services setService:service ofDocument:document];
 }
 
 - (IBAction)newQueryBuilder:(id)sender
@@ -440,17 +361,30 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   // An entity set's entity: its type's name, as the model built from
   // $metadata names its entities.
   NSDictionary *query = @{};
-  if (node.kind == ODWNodeEntitySet) {
-    NSString *type = service.connection.store.schema.entitySets[node.title];
-    NSString *entity = [[type componentsSeparatedByString:@"."] lastObject];
-    if (entity.length && service.connection.model.entitiesByName[entity]) query = @{ @"entity": entity };
-  }
-  ODWServices *services = _services;
-  id<UDWorkbench> workbench = services.workbench;
+  NSString *entity = node.kind == ODWNodeEntitySet ? ODWEntityOfEntitySet(service.connection.store.schema, node.title) : nil;
+  if (entity.length && service.connection.model.entitiesByName[entity]) query = @{ @"entity": entity };
   NSString *name = node.kind == ODWNodeEntitySet ? [NSString stringWithFormat:@"%@ Query", node.title]
                                                  : [service.name stringByAppendingString:@" Query"];
-  [workbench openUntitledDocumentWithText:[ODWBuilderViewController textOfQuery:query service:service.name]
-                             languageMode:@"odataq" name:name];
+  [self openBuilderOfFile:@{ @"request": @"query", @"query": query } named:name service:service execute:NO];
+}
+
+// A builder set up for a request of the item's: an entity set's (its
+// sender's tag an ODWTemplate), an operation's call.
+- (IBAction)insertRequestOfItem:(id)sender
+{
+  ODWNode *node = [self actedNode];
+  ODataSchema *schema = node.service.connection.store.schema;
+  if (!schema) return;
+  if (node.kind == ODWNodeEntitySet) {
+    ODWTemplate kind = (ODWTemplate)[sender tag];
+    NSDictionary *file = ODWTemplateOfEntitySet(schema, node.title, kind);
+    NSArray *names = @[ @"%@ Query", @"%@ by Key", @"%@ Count", @"New %@", @"%@ Update", @"%@ Delete" ];
+    NSString *name = [NSString stringWithFormat:names[(NSUInteger)MIN(MAX(kind, 0), 5)], node.title];
+    if (file) [self openBuilderOfFile:file named:name service:node.service execute:NO];
+  } else if (node.kind == ODWNodeOperation) {
+    NSDictionary *file = ODWTemplateOfOperation(schema, node.title);
+    if (file) [self openBuilderOfFile:file named:[node.title stringByAppendingString:@" Call"] service:node.service execute:NO];
+  }
 }
 
 - (IBAction)copyName:(id)sender
@@ -468,9 +402,12 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   ODWNode *node = [self nodeAtRow:_outlineView.clickedRow];
   if (!node) return;
   if (node.kind == ODWNodeEntitySet || node.kind == ODWNodeOperation) {
-    _menuNode = node;
-    [self newRequestOfItem:sender];
-    _menuNode = nil;
+    // An entity set's rows, asked for; an operation's call, set up.
+    ODataSchema *schema = node.service.connection.store.schema;
+    BOOL set = node.kind == ODWNodeEntitySet;
+    NSDictionary *file = !schema ? nil : set ? ODWTemplateOfEntitySet(schema, node.title, ODWTemplateGetAll) : ODWTemplateOfOperation(schema, node.title);
+    NSString *name = [node.title stringByAppendingString:set ? @" Query" : @" Call"];
+    if (file) [self openBuilderOfFile:file named:name service:node.service execute:set];
   } else if (!node.service.connected && !node.service.connecting) {
     [_services connect:node.service];
   }
