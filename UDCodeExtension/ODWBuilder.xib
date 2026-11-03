@@ -22,11 +22,11 @@
              The query is the document's text; Execute, and Editor > Run,
              send its GET. -->
         <customView id="QB-root" customClass="ODWBuilderView" userLabel="Query Builder">
-            <rect key="frame" x="0.0" y="0.0" width="1100" height="330"/>
+            <rect key="frame" x="0.0" y="0.0" width="1100" height="342"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
             <subviews>
                 <textField verticalHuggingPriority="750" id="QB-service-label">
-                    <rect key="frame" x="14" y="302" width="56" height="17"/>
+                    <rect key="frame" x="14" y="314" width="56" height="17"/>
                     <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                     <textFieldCell key="cell" lineBreakMode="clipping" title="Service:" id="QB-service-label-cell">
                         <font key="font" metaFont="system"/>
@@ -35,7 +35,7 @@
                     </textFieldCell>
                 </textField>
                 <popUpButton verticalHuggingPriority="750" id="QB-service">
-                    <rect key="frame" x="72" y="296" width="220" height="26"/>
+                    <rect key="frame" x="72" y="308" width="220" height="26"/>
                     <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                     <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" inset="2" id="QB-service-cell">
                         <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -47,7 +47,7 @@
                     </connections>
                 </popUpButton>
                 <button verticalHuggingPriority="750" id="QB-connect">
-                    <rect key="frame" x="294" y="294" width="96" height="32"/>
+                    <rect key="frame" x="294" y="306" width="96" height="32"/>
                     <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                     <buttonCell key="cell" type="push" title="Connect" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="QB-connect-cell">
                         <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -58,7 +58,7 @@
                     </connections>
                 </button>
                 <textField verticalHuggingPriority="750" id="QB-status">
-                    <rect key="frame" x="396" y="302" width="690" height="17"/>
+                    <rect key="frame" x="396" y="314" width="690" height="17"/>
                     <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                     <textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" title="Choose the service to build the query against." id="QB-status-cell">
                         <font key="font" metaFont="smallSystem"/>
@@ -66,10 +66,29 @@
                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                     </textFieldCell>
                 </textField>
-                <customView id="QB-panel-host" userLabel="Query Panel">
-                    <rect key="frame" x="0.0" y="0.0" width="1100" height="290"/>
+                <!-- The panel at its own size, put at the top of the host
+                     (flipped) from code; a tab narrower or shorter than it
+                     scrolls rather than pushes its controls together. -->
+                <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" id="QB-panel-scroll">
+                    <rect key="frame" x="0.0" y="0.0" width="1100" height="302"/>
                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                </customView>
+                    <clipView key="contentView" drawsBackground="NO" id="QB-panel-clip">
+                        <rect key="frame" x="0.0" y="0.0" width="1100" height="302"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <customView id="QB-panel-host" customClass="ODWPanelHostView" userLabel="Query Panel">
+                                <rect key="frame" x="0.0" y="0.0" width="1100" height="302"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                            </customView>
+                        </subviews>
+                    </clipView>
+                    <scroller key="horizontalScroller" verticalHuggingPriority="750" horizontal="YES" id="QB-panel-hs">
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                    </scroller>
+                    <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="QB-panel-vs">
+                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                    </scroller>
+                </scrollView>
             </subviews>
             <connections>
                 <outlet property="controller" destination="-2" id="QB-o-controller"/>

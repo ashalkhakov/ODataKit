@@ -22,6 +22,7 @@
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *aggregateField;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *wireURLField;
 @property (nonatomic, readwrite, strong) IBOutlet NSButton *explainButton;
+@property (nonatomic, readwrite, strong) IBOutlet NSButton *executeButton;
 @end
 
 @implementation WBQueryPanel {

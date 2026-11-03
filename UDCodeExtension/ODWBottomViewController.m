@@ -125,6 +125,14 @@ static NSString *ODWCellText(id value)
     [_rowsTable addTableColumn:column];
   }
   [_rowsTable reloadData];
+  // As wide as its columns (at least its clip view): gnustep-gui leaves the
+  // frame the last answer's, its rows drawn only that far.
+  NSInteger count = _rowsTable.numberOfColumns;
+  CGFloat width = count ? NSMaxX([_rowsTable rectOfColumn:count - 1]) : 0;
+  NSSize size = _rowsTable.frame.size;
+  size.width = MAX(width, _rowsTable.enclosingScrollView.contentSize.width);
+  [_rowsTable setFrameSize:size];
+  [_rowsTable.headerView setNeedsDisplay:YES];
   _jsonView.string = answer.text ?: @"";
   [_jsonView scrollRangeToVisible:NSMakeRange(0, 0)];
   _statusLabel.stringValue = [self statusOf:answer];

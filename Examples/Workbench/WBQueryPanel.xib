@@ -15,6 +15,7 @@
                 <outlet property="entityPopup" destination="ENT" id="c3"/>
                 <outlet property="expandOutline" destination="EXPO" id="oEXPO"/>
                 <outlet property="explainButton" destination="EXPL" id="oEXPL"/>
+                <outlet property="executeButton" destination="GO" id="oGO"/>
                 <outlet property="faultsButton" destination="FLT" id="c10"/>
                 <outlet property="groupField" destination="GRP" id="oGRP"/>
                 <outlet property="limitField" destination="LIM" id="c8"/>
@@ -36,7 +37,7 @@
              to the first responder: the Workbench's window controller, or a
              host's editor (UDCode's OData builder). -->
         <customView translatesAutoresizingMaskIntoConstraints="NO" id="QP-root" userLabel="Query Panel">
-            <rect key="frame" x="0.0" y="0.0" width="1084" height="285"/>
+            <rect key="frame" x="0.0" y="0.0" width="1084" height="297"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
             <subviews>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LENT">

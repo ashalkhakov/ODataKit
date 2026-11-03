@@ -30,6 +30,20 @@
 
 @end
 
+// The panel's host, the scroll view's document: flipped, so the panel is
+// put at its top and the scroll view starts there.
+@interface ODWPanelHostView : NSView
+@end
+
+@implementation ODWPanelHostView
+
+- (BOOL)isFlipped
+{
+  return YES;
+}
+
+@end
+
 @interface ODWBuilderViewController ()
 @property (nonatomic, readwrite, weak) IBOutlet NSPopUpButton *servicePopup;
 @property (nonatomic, readwrite, weak) IBOutlet NSButton *connectButton;
@@ -46,6 +60,8 @@
   BOOL _writing;
   // The connection the panel's query is of.
   WBConnection *_panelConnection;
+  // The panel's own size (its XIB's): the least it is shown at.
+  NSSize _panelSize;
 }
 
 + (NSString *)textOfQuery:(NSDictionary *)query service:(NSString *)service
@@ -82,6 +98,10 @@
 - (void)loadView
 {
   [super loadView];
+  NSClipView *clip = _panelHost.enclosingScrollView.contentView;
+  clip.postsFrameChangedNotifications = YES;
+  [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(clipDidResize:)
+                                               name:NSViewFrameDidChangeNotification object:clip];
   [self showReading:YES];
 }
 
@@ -144,6 +164,29 @@
   [self showPanelReading:reading];
 }
 
+// The panel as wide as the tab, its own height, at the top; no smaller than
+// its own size (the scroll view scrolls then).
+- (void)layoutPanel
+{
+  NSView *view = _panel.view;
+  if (!view) return;
+  NSSize shown = _panelHost.enclosingScrollView.contentSize;
+  NSSize size = NSMakeSize(MAX(shown.width, _panelSize.width), MAX(shown.height, _panelSize.height));
+  [_panelHost setFrameSize:size];
+  view.frame = NSMakeRect(0, 0, size.width, _panelSize.height);
+  // Its top in view again (a scroller come or gone moves it), across as it
+  // was.
+  NSClipView *clip = _panelHost.enclosingScrollView.contentView;
+  CGFloat across = MIN(MAX(clip.bounds.origin.x, 0), MAX(size.width - NSWidth(clip.bounds), 0));
+  [clip scrollToPoint:NSMakePoint(across, 0)];
+  [_panelHost.enclosingScrollView reflectScrolledClipView:clip];
+}
+
+- (void)clipDidResize:(NSNotification *)note
+{
+  [self layoutPanel];
+}
+
 - (void)removePanel
 {
   [_panel.view removeFromSuperview];
@@ -160,11 +203,15 @@
     [self removePanel];
     _panel = [[WBQueryPanel alloc] init];
     NSView *view = _panel.view;
-    view.frame = _panelHost.bounds;
-    view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _panelSize = view.frame.size;
+    view.autoresizingMask = NSViewNotSizable;
     [_panelHost addSubview:view];
-    // Explain is the Workbench's, at its built-in service.
+    [self layoutPanel];
+    // Explain is the Workbench's, at its built-in service; Execute is the
+    // tab's, wherever the focus is.
     [_panel.explainButton setHidden:YES];
+    _panel.executeButton.target = self;
+    _panel.executeButton.action = @selector(runFetch:);
     _panel.connection = connection;
     _panelConnection = connection;
     __weak ODWBuilderViewController *weak = self;

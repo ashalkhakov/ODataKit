@@ -175,7 +175,7 @@
                         </connections>
                     </button>
                     <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="QPH" userLabel="Query Panel (WBQueryPanel.xib)">
-                        <rect key="frame" x="16" y="515" width="1084" height="285"/>
+                        <rect key="frame" x="16" y="515" width="1084" height="297"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                     </customView>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="TSCR">

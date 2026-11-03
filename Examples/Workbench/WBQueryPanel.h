@@ -54,6 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSTextField *groupField;
 @property (nonatomic, readonly) NSTextField *aggregateField;
 @property (nonatomic, readonly) NSTextField *wireURLField;
+// Execute: runFetch: to the first responder, unless its host aims it.
+@property (nonatomic, readonly) NSButton *executeButton;
 @property (nonatomic, readonly) NSButton *explainButton;
 
 // The predicate typed in (its text view's change).

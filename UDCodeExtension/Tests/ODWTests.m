@@ -282,6 +282,23 @@
   XCTAssertEqualObjects(builder.panel.limitField.stringValue, @"3");
   XCTAssertTrue([builder.panel.translation containsString:@"Products?"], @"%@", builder.panel.translation);
 
+  // The panel whole, at the top of the tab, its controls inside it; in a
+  // tab narrower than it, as wide as it is (scrolled to).
+  NSView *panelView = builder.panel.view;
+  for (NSView *view in panelView.subviews) {
+    XCTAssertTrue(NSContainsRect(panelView.bounds, view.frame), @"%@ at %@ is outside the panel's %@", view,
+                  NSStringFromRect(view.frame), NSStringFromRect(panelView.bounds));
+  }
+  NSRect inTab = [builder.view convertRect:panelView.bounds fromView:panelView];
+  XCTAssertEqualWithAccuracy(NSMaxY(inTab), NSMinY(builder.servicePopup.frame) - 4, 12, @"the panel at the top: %@", NSStringFromRect(inTab));
+  CGFloat height = NSHeight(builder.view.frame);
+  [builder.view setFrameSize:NSMakeSize(600, height)];
+  XCTAssertEqualWithAccuracy(NSWidth(panelView.frame), 1084, 0.5, @"not squeezed: WBQueryPanel.xib's width");
+  XCTAssertEqualWithAccuracy(NSMaxY([builder.view convertRect:panelView.bounds fromView:panelView]), NSMaxY(inTab), 1, @"still at the top");
+  [builder.view setFrameSize:NSMakeSize(1100, height)];
+  // Execute is the tab's, whatever is focused.
+  XCTAssertEqual(builder.panel.executeButton.target, builder);
+
   // The panel changed: the text written, as one edit.
   builder.panel.limitField.stringValue = @"2";
   [builder.panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:builder.panel.limitField]];
@@ -299,7 +316,7 @@
   XCTAssertEqualObjects(builder.panel.limitField.stringValue, @"4");
 
   // Execute: its GET, answered.
-  [builder runFetch:nil];
+  [builder.panel.executeButton performClick:nil];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
   ODWAnswer *answer = _answers.lastObject;
   XCTAssertNil(answer.failure);
@@ -353,6 +370,17 @@
     XCTAssertTrue(column.width >= 60 && column.width <= 320, @"%@ is %.0f wide", column.identifier, column.width);
   }
   XCTAssertTrue([bottom.jsonView.string containsString:@"value"]);
+
+  // Another answer, of fewer columns, then more: the table as wide as its
+  // columns each time (its rows drawn under all of them).
+  for (NSString *text in @[ @"GET Categories?$select=Name\n", @"GET Products\n" ]) {
+    ODWAnswer *last = bottom.answer;
+    [_services sendRequest:ODWRequestsOfText(text).firstObject toService:[_services serviceNamed:@"Built-in Sample"]];
+    XCTAssertTrue([self waitFor:^{ return (BOOL)(bottom.answer != last); }]);
+    NSInteger count = bottom.rowsTable.numberOfColumns;
+    XCTAssertGreaterThan(count, (NSInteger)0, @"%@", text);
+    XCTAssertGreaterThanOrEqual(NSWidth(bottom.rowsTable.frame), NSMaxX([bottom.rowsTable rectOfColumn:count - 1]), @"%@", text);
+  }
 }
 
 - (void)testTheServiceSheetSaysWhatIsMissing
