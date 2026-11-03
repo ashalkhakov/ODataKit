@@ -3,9 +3,9 @@
 // window's services (the Workbench's built-in sample, Northwind, TripPin,
 // the project's and the user's: ODWServices), each with what it serves once
 // connected; .odata documents are requests written as VS Code's REST Client
-// writes them (ODWRequests), sent from the Editor menu (Send Request ⌘↩,
-// Send All ⇧⌘↩) to the service chosen for them; the answers, the wire log
-// and traces are its segment of the bottom area (ODWBottomViewController).
+// writes them (ODWRequests), sent with UDCode's Editor > Run (⌘↩) and Run
+// All (⇧⌘↩) to the service chosen for them; the answers, the wire log and
+// traces are its segment of the bottom area (ODWBottomViewController).
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 #pragma once

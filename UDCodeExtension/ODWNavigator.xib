@@ -11,15 +11,14 @@
                 <outlet property="outlineView" destination="OD-outline" id="OD-o-outline"/>
                 <outlet property="serviceMenu" destination="OD-menu-service" id="OD-o-service"/>
                 <outlet property="itemMenu" destination="OD-menu-item" id="OD-o-item"/>
-                <outlet property="editorMenu" destination="OD-menu-editor" id="OD-o-editor"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <!-- The OData navigator (ODWNavigatorViewController): the window's
              services (ODWServices), each with what it serves once connected;
-             a right click's menu is the clicked row's kind's; the Editor
-             menu's items, an .odata document's. -->
+             a right click's menu is the clicked row's kind's. An .odata
+             document is sent with UDCode's Editor > Run and Run All. -->
         <menu title="Services" autoenablesItems="YES" id="OD-menu" userLabel="Services Menu (the clicked row's kind's items)">
             <connections>
                 <outlet property="delegate" destination="-2" id="OD-o-menu-delegate"/>
@@ -75,22 +74,6 @@
                 <menuItem title="Copy Name" id="OD-s-copy">
                     <connections>
                         <action selector="copyName:" target="-2" id="OD-s-copy-a"/>
-                    </connections>
-                </menuItem>
-            </items>
-        </menu>
-        <menu title="Editor" autoenablesItems="YES" id="OD-menu-editor" userLabel="The Editor Menu's (an .odata document's)">
-            <items>
-                <menuItem title="Send Request" keyEquivalent="&#xd;" id="OD-e-send">
-                    <modifierMask key="keyEquivalentModifierMask" command="YES"/>
-                    <connections>
-                        <action selector="sendRequest:" target="-2" id="OD-e-send-a"/>
-                    </connections>
-                </menuItem>
-                <menuItem title="Send All Requests" keyEquivalent="&#xd;" id="OD-e-all">
-                    <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
-                    <connections>
-                        <action selector="sendAllRequests:" target="-2" id="OD-e-all-a"/>
                     </connections>
                 </menuItem>
             </items>

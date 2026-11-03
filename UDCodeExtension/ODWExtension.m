@@ -108,9 +108,16 @@
   return image;
 }
 
-- (NSArray<NSMenuItem *> *)editorMenuItemsForWorkbench:(id<UDWorkbench>)workbench
+// UDCode's Editor > Run (⌘↩) and Run All (⇧⌘↩): an .odata document's
+// request at the caret, or all of them, sent to its service.
+- (BOOL)workbench:(id<UDWorkbench>)workbench canRunDocument:(UDCodeDocument *)document
 {
-  return [[self navigatorOf:workbench] editorMenuItems];
+  return [ODWServices isRequestDocument:document];
+}
+
+- (void)workbench:(id<UDWorkbench>)workbench runDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all
+{
+  [[self servicesOf:workbench] sendRequestsOfDocument:document selection:selection all:all];
 }
 
 @end

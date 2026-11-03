@@ -123,11 +123,16 @@ typedef NS_ENUM(NSInteger, ODWServiceKind) {
 // A request sent to a service (connected first when it is not); its answer
 // told by ODWAnswerNotification.
 - (void)sendRequest:(ODWRequest *)request toService:(ODWService *)service;
-// The selected .odata document's request at the caret; all of its requests,
-// one after another.
+// An .odata document's request at a selection (its caret, or where its
+// selection begins), or all of its requests, one after another: UDCode's
+// Editor > Run and Run All (ODWExtension).
+- (void)sendRequestsOfDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all;
+// The selected .odata document's request at its caret; all of its requests.
 - (IBAction)sendRequest:(nullable id)sender;
 - (IBAction)sendAllRequests:(nullable id)sender;
-// Whether the selected tab is an .odata document's text.
+// Whether a document is an .odata document, to send; whether the selected
+// tab is one's text.
++ (BOOL)isRequestDocument:(UDCodeDocument *)document;
 - (BOOL)canSend;
 // The last answer, for the Results pane opened later.
 @property (nonatomic, readonly, nullable) ODWAnswer *lastAnswer;

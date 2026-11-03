@@ -45,7 +45,6 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 @property (nonatomic, readwrite, weak) IBOutlet NSOutlineView *outlineView;
 @property (nonatomic, strong) IBOutlet NSMenu *serviceMenu;
 @property (nonatomic, strong) IBOutlet NSMenu *itemMenu;
-@property (nonatomic, strong) IBOutlet NSMenu *editorMenu;
 @end
 
 @implementation ODWNavigatorViewController {
@@ -241,7 +240,6 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 {
   SEL action = item.action;
   ODWService *service = [self actedNode].service;
-  if (sel_isEqual(action, @selector(sendRequest:)) || sel_isEqual(action, @selector(sendAllRequests:))) return [_services canSend];
   if (sel_isEqual(action, @selector(editService:)) || sel_isEqual(action, @selector(removeService:))) return service && !service.preset;
   if (sel_isEqual(action, @selector(connectService:))) return service && !service.connected && !service.connecting;
   if (sel_isEqual(action, @selector(disconnectService:))) return service.connected || service.connecting;
@@ -257,14 +255,6 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
     return sel_isEqual(item.action, @selector(refreshService:)) ? service != nil : service && !service.preset;
   }
   return YES;
-}
-
-- (NSArray<NSMenuItem *> *)editorMenuItems
-{
-  (void)self.view;
-  NSMutableArray *items = [NSMutableArray array];
-  for (NSMenuItem *item in _editorMenu.itemArray) [items addObject:[item copy]];
-  return items;
 }
 
 #pragma mark Services
@@ -357,8 +347,8 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   ODWService *service = [self actedNode].service;
   if (!service) return;
   NSString *first = [service entitySetNames].firstObject;
-  NSString *text = [NSString stringWithFormat:@"# Requests to %@ (%@), sent with Send Request (⌘↩), or all of them\n"
-                                              @"# with Send All (⇧⌘↩). Each is a request line (METHOD URL, the URL\n"
+  NSString *text = [NSString stringWithFormat:@"# Requests to %@ (%@), sent with Editor > Run (⌘↩), or all of them\n"
+                                              @"# with Run All (⇧⌘↩). Each is a request line (METHOD URL, the URL\n"
                                               @"# from the service root), its headers, a blank line, its body;\n"
                                               @"# ### begins the next.\n\nGET %@?$top=20\n",
                                               service.name, service.root.absoluteString, first ?: @"$metadata"];
@@ -405,16 +395,6 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   } else if (!node.service.connected && !node.service.connecting) {
     [_services connect:node.service];
   }
-}
-
-- (IBAction)sendRequest:(id)sender
-{
-  [_services sendRequest:sender];
-}
-
-- (IBAction)sendAllRequests:(id)sender
-{
-  [_services sendAllRequests:sender];
 }
 
 @end

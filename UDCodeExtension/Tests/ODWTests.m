@@ -194,6 +194,26 @@
   XCTAssertEqual(_services.exchangeLog.entries.count, exchanges);
 }
 
+// UDCode's Run: the request at the selection, sent to the document's
+// service.
+- (void)testRunSendsTheRequestAtTheCaret
+{
+  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:@"GET Categories\n\n###\nGET Products?$top=2\n" fileURL:nil languageMode:nil];
+  ODWService *builtIn = [_services serviceNamed:@"Built-in Sample"];
+  [_services setService:builtIn ofDocument:document];
+  XCTAssertEqual([_services serviceOfDocument:document], builtIn);
+  NSString *text = [document.textModel getValue];
+  [_services sendRequestsOfDocument:document selection:NSMakeRange([text rangeOfString:@"Products"].location, 0) all:NO];
+  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
+  XCTAssertEqualObjects(_answers.lastObject.title, @"GET Products?$top=2", @"the request the caret is in");
+  XCTAssertEqual(_answers.lastObject.rows.count, (NSUInteger)2, @"%@", _answers.lastObject.text);
+  // Run All: each, in order.
+  [_answers removeAllObjects];
+  [_services sendRequestsOfDocument:document selection:NSMakeRange(0, 0) all:YES];
+  XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count == 2); }]);
+  XCTAssertEqualObjects([_answers valueForKey:@"title"], (@[ @"GET Categories", @"GET Products?$top=2" ]));
+}
+
 #pragma mark The XIBs
 
 - (void)testTheNavigatorLoadsWithItsMenus
@@ -203,13 +223,15 @@
   XCTAssertNotNil(navigator.outlineView);
   XCTAssertNotNil(navigator.outlineView.menu, @"a context menu");
   XCTAssertEqual(navigator.outlineView.numberOfRows, (NSInteger)3, @"the three presets");
-  for (NSString *outlet in @[ @"serviceMenu", @"itemMenu", @"editorMenu" ]) {
+  for (NSString *outlet in @[ @"serviceMenu", @"itemMenu" ]) {
     XCTAssertGreaterThan([[[navigator valueForKey:outlet] itemArray] count], (NSUInteger)0, @"%@", outlet);
   }
-  NSArray<NSMenuItem *> *editor = [navigator editorMenuItems];
-  XCTAssertEqualObjects([editor valueForKey:@"title"], (@[ @"Send Request", @"Send All Requests" ]));
-  XCTAssertEqualObjects(editor[0].keyEquivalent, @"\r");
-  XCTAssertTrue(editor[1].keyEquivalentModifierMask & NSEventModifierFlagShift);
+  // ⌘↩ is UDCode's Editor > Run, which the extension answers: no Editor
+  // menu item of its own takes it.
+  ODWExtension *extension = [[ODWExtension alloc] init];
+  XCTAssertTrue([extension respondsToSelector:@selector(workbench:canRunDocument:)]);
+  XCTAssertTrue([extension respondsToSelector:@selector(workbench:runDocument:selection:all:)]);
+  XCTAssertFalse([extension respondsToSelector:@selector(editorMenuItemsForWorkbench:)]);
   // The right-clicked row's kind's items.
   NSMenu *menu = navigator.outlineView.menu;
   [navigator menuNeedsUpdate:menu];

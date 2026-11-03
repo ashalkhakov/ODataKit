@@ -167,7 +167,7 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   NSMutableArray<ODWService *> *_kept;  // the project's, then the user's
   NSMapTable<UDCodeDocument *, NSString *> *_documentServices;
   WBSignInPanel *_signInPanel;
-  // Requests sent one after another (Send All): the rest of them.
+  // Requests sent one after another (Run All): the rest of them.
   NSMutableArray *_queue;
   BOOL _sending;
 }
@@ -476,10 +476,15 @@ static NSString *const ODWCredentialService = @"UDCode OData";
 
 #pragma mark Sending
 
++ (BOOL)isRequestDocument:(UDCodeDocument *)document
+{
+  return [document.languageMode.identifier isEqualToString:@"odata"];
+}
+
 - (BOOL)canSend
 {
   UDCodeDocument *document = _workbench.selectedDocument;
-  return document && _workbench.selectedEditor && [document.languageMode.identifier isEqualToString:@"odata"];
+  return document && _workbench.selectedEditor && [ODWServices isRequestDocument:document];
 }
 
 - (IBAction)sendRequest:(id)sender
@@ -498,7 +503,11 @@ static NSString *const ODWCredentialService = @"UDCode OData";
     NSBeep();
     return;
   }
-  UDCodeDocument *document = _workbench.selectedDocument;
+  [self sendRequestsOfDocument:_workbench.selectedDocument selection:_workbench.selectedEditor.textView.selectedRange all:all];
+}
+
+- (void)sendRequestsOfDocument:(UDCodeDocument *)document selection:(NSRange)selection all:(BOOL)all
+{
   ODWService *service = [self serviceOfDocument:document];
   if (!service) {
     [self tell:[self answerOf:nil service:nil title:@"No service" failure:@"Choose a service for this document first: in the OData navigator, Send To."]];
@@ -507,7 +516,7 @@ static NSString *const ODWCredentialService = @"UDCode OData";
   NSString *text = [document.textModel getValue];
   NSArray *requests = all ? ODWRequestsOfText(text) : nil;
   if (!all) {
-    ODWRequest *one = ODWRequestAt(text, _workbench.selectedEditor.textView.selectedRange.location);
+    ODWRequest *one = ODWRequestAt(text, selection.location);
     requests = one ? @[ one ] : @[];
   }
   if (!requests.count) {

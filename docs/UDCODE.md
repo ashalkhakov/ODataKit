@@ -23,7 +23,7 @@ Each ODataKit release attaches a package for each platform:
 Install it with **UDCode > Extensions… > Install from Package…**, or from a
 shell with `UDCode --install-extension odata-<version>-<platform>.udcx`,
 then start UDCode again. A package states which UDCode versions it is for
-(`engines.udcode` in its `package.json`: 0.18 and later), and UDCode refuses
+(`engines.udcode` in its `package.json`: 0.19 and later), and UDCode refuses
 one built for another version or another platform.
 
 ## Services
@@ -77,8 +77,9 @@ Content-Type: application/json
 - `###` begins the next request (and names it, when text follows it).
   Lines beginning with `#` or `//` are comments.
 
-**Editor > Send Request** (⌘↩) sends the request at the caret; **Send All
-Requests** (⇧⌘↩) sends them all, one after another. A document sends to the
+**Editor > Run** (⌘↩) sends the request at the caret; **Run All** (⇧⌘↩)
+sends them all, one after another. (They are UDCode's, from 0.19, and run
+the SQL mode's statements in a `.sql` document.) A document sends to the
 service chosen for it (a service's **Send Requests To This Service**,
 remembered for the file), or to the only service connected. A service not
 connected yet is connected first. **New Request Document** on a service, or
@@ -104,8 +105,9 @@ The extension's segment of the bottom area has three panes:
 `UDCodeExtension/` holds the extension:
 
 - **`ODWExtension`**, its principal class: the `odata` mode
-  (`LanguageInfo.plist`), the navigator, the bottom area's segment, and the
-  Editor menu's items, for each window.
+  (`LanguageInfo.plist`), the navigator and the bottom area's segment, for
+  each window; it answers UDCode's Editor > Run for `.odata` documents
+  (`-workbench:canRunDocument:`, `-workbench:runDocument:selection:all:`).
 - **`ODWServices`**, a window's services: kept where they say, connected
   through the Workbench's `WBConnection` (the built-in service's
   `WorkbenchEngine`, or the network), signed in with `ODataSignIn` and
@@ -160,4 +162,5 @@ The tests in `UDCodeExtension/Tests` (`ODWTests`, run by `make check` and by
 - a request to the built-in service is answered, its rows read, its
   exchange in the wire log and its trace kept;
 - the navigator, the bottom pane and the service sheet load from their
-  XIBs, connected, with their menus.
+  XIBs, connected, with their menus;
+- UDCode's Run sends an `.odata` document's request at the caret.
