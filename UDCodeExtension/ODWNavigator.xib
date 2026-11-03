@@ -17,8 +17,9 @@
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <!-- The OData navigator (ODWNavigatorViewController): the window's
              services (ODWServices), each with what it serves once connected;
-             a right click's menu is the clicked row's kind's. An .odata
-             document is sent with UDCode's Editor > Run and Run All. -->
+             a right click's menu is the clicked row's kind's: New Query
+             Builder, Insert Request and Insert Call open an .odataq
+             builder. -->
         <menu title="Services" autoenablesItems="YES" id="OD-menu" userLabel="Services Menu (the clicked row's kind's items)">
             <connections>
                 <outlet property="delegate" destination="-2" id="OD-o-menu-delegate"/>

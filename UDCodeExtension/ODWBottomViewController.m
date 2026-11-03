@@ -142,7 +142,7 @@ static NSString *ODWCellText(id value)
 // 200 OK · 20 rows · 143 ms — Products?$top=20 (Northwind)
 - (NSString *)statusOf:(ODWAnswer *)answer
 {
-  if (!answer) return @"No request sent yet: Editor > Run (⌘↩) in an .odata document.";
+  if (!answer) return @"No request sent yet: Execute, or Editor > Run (⌘↩), in an .odataq builder.";
   if (answer.failure) return [NSString stringWithFormat:@"%@: %@", answer.title, answer.failure];
   NSMutableArray *parts = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"%ld %@", (long)answer.status,
                                                           [WBExchangeLog reasonOfStatus:answer.status]]];
