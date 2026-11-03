@@ -334,6 +334,34 @@
                                                 languageServerCommand:nil defaultNewDocumentText:@""
                                                 languageConfiguration:[UDLanguageConfiguration emptyConfiguration]
                                                            keyHandler:nil extension:nil];
+  // The context menu of an entity set's row: Insert Request's submenu
+  // whole, Insert Call not there; of an operation's, the other way about.
+  NSOutlineView *outline = navigator.outlineView;
+  for (NSInteger row = 0; row < outline.numberOfRows; row++) [outline expandItem:[outline itemAtRow:row]];
+  NSInteger setRow = -1, operationRow = -1;
+  for (NSInteger row = 0; row < outline.numberOfRows; row++) {
+    NSString *title = [[outline itemAtRow:row] valueForKey:@"title"];
+    if ([title isEqualToString:@"Products"]) setRow = row;
+    if ([[builtIn operationNames] containsObject:title]) operationRow = row;
+  }
+  XCTAssertGreaterThanOrEqual(setRow, 0);
+  XCTAssertGreaterThanOrEqual(operationRow, 0);
+  [outline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)setRow] byExtendingSelection:NO];
+  [navigator menuNeedsUpdate:outline.menu];
+  NSMenuItem *shown = [outline.menu itemWithTitle:@"Insert Request"];
+  XCTAssertEqual(shown.submenu.numberOfItems, (NSInteger)7);
+  XCTAssertNil([outline.menu itemWithTitle:@"Insert Call"]);
+  [navigator menuNeedsUpdate:outline.menu];
+  XCTAssertEqual([outline.menu itemWithTitle:@"Insert Request"].submenu.numberOfItems, (NSInteger)7, @"the menu made again");
+  NSMenuItem *count = [[outline.menu itemWithTitle:@"Insert Request"].submenu itemWithTitle:@"GET $count"];
+  XCTAssertEqual(count.target, navigator);
+  [navigator menuDidClose:outline.menu];
+  [outline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)operationRow] byExtendingSelection:NO];
+  [navigator menuNeedsUpdate:outline.menu];
+  XCTAssertNil([outline.menu itemWithTitle:@"Insert Request"]);
+  XCTAssertNotNil([outline.menu itemWithTitle:@"Insert Call"]);
+  [navigator menuDidClose:outline.menu];
+
   UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:@"GET Categories\n" fileURL:nil languageMode:odata];
   [_services setService:builtIn ofDocument:document];
   ODWTestEditor *editor = [[ODWTestEditor alloc] init];

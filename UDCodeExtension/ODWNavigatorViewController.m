@@ -53,6 +53,7 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 @implementation ODWNavigatorViewController {
   NSArray<ODWNode *> *_roots;
   ODWNode *_menuNode;  // what the context menu is about
+  BOOL _fillingMenu;   // gnustep-gui asks again as an item with a submenu is put in
   ODWServiceSheet *_sheet;
 }
 
@@ -224,6 +225,8 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
+  if (_fillingMenu) return;
+  _fillingMenu = YES;
   [menu removeAllItems];
   _menuNode = [self nodeAtRow:_outlineView.clickedRow];
   BOOL entitySet = _menuNode.kind == ODWNodeEntitySet, operation = _menuNode.kind == ODWNodeOperation;
@@ -233,6 +236,7 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
     if (items == _itemMenu && ((item.tag == 1 && !entitySet) || (item.tag == 2 && !operation))) continue;
     [menu addItem:[item copy]];
   }
+  _fillingMenu = NO;
 }
 
 - (void)menuDidClose:(NSMenu *)menu
