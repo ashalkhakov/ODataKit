@@ -219,17 +219,13 @@ static NSString *WBKindName(OTSpanKind kind)
   return @"internal";
 }
 
-static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat width)
-{
-  NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:identifier];
-  [column.headerCell setStringValue:title];
-  column.width = width;
-  column.editable = NO;
-  return column;
-}
+@interface WBTracesViewController ()
+@property (nonatomic, readwrite, weak) IBOutlet NSTableView *traceTable;
+@property (nonatomic, readwrite, weak) IBOutlet NSOutlineView *spanOutline;
+@property (nonatomic, readwrite, strong) IBOutlet NSTextView *detailView;
+@end
 
-@implementation WBTraceWindow {
-  WBTraceRecorder *_recorder;
+@implementation WBTracesViewController {
   NSArray<WBTrace *> *_traces;       // as the table shows them
   WBTrace *_shown;                   // the one the tree is of
   NSArray<WBSpanNode *> *_roots;
@@ -238,12 +234,11 @@ static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat wi
 
 - (instancetype)initWithRecorder:(WBTraceRecorder *)recorder
 {
-  self = [super init];
+  self = [super initWithNibName:@"WBTraces" bundle:[NSBundle bundleForClass:[WBTracesViewController class]]];
   if (!self) return nil;
   _recorder = recorder;
   _traces = @[];
   _roots = @[];
-  [self makeWindow];
   [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(tracesChanged:) name:WBTracesDidChangeNotification
                                              object:recorder];
   return self;
@@ -254,91 +249,28 @@ static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat wi
   [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-- (NSScrollView *)scrollViewFor:(NSView *)document frame:(NSRect)frame
+// gnustep-gui has no -viewDidLoad: the view's parts set up as it loads.
+- (void)loadView
 {
-  NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:frame];
-  scroll.hasVerticalScroller = YES;
-  scroll.hasHorizontalScroller = YES;
-  scroll.autohidesScrollers = YES;
-  scroll.borderType = NSBezelBorder;
-  scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  scroll.documentView = document;
-  return scroll;
-}
-
-- (void)makeWindow
-{
-  NSRect frame = NSMakeRect(120, 120, 1000, 640);
-  _window = [[NSWindow alloc] initWithContentRect:frame
-                                        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable |
-                                                  NSWindowStyleMaskMiniaturizable
-                                          backing:NSBackingStoreBuffered defer:YES];
-  _window.title = @"Traces";
-  _window.releasedWhenClosed = NO;
-  _window.minSize = NSMakeSize(600, 360);
-  NSView *content = _window.contentView;
-
-  NSSplitView *across = [[NSSplitView alloc] initWithFrame:content.bounds];
-  across.vertical = YES;
-  across.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-
-  _traceTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 380, 640)];
-  [_traceTable addTableColumn:WBColumn(@"time", @"Time", 90)];
-  [_traceTable addTableColumn:WBColumn(@"name", @"Trace", 140)];
-  [_traceTable addTableColumn:WBColumn(@"ms", @"ms", 50)];
-  [_traceTable addTableColumn:WBColumn(@"spans", @"Spans", 40)];
-  _traceTable.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
-  _traceTable.dataSource = self;
-  _traceTable.delegate = self;
-  _traceTable.allowsEmptySelection = YES;
-  [across addSubview:[self scrollViewFor:_traceTable frame:NSMakeRect(0, 0, 380, 640)]];
-
-  NSSplitView *down = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 640, 640)];
-  down.vertical = NO;
-  down.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  _spanOutline = [[NSOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 670, 380)];
-  NSTableColumn *name = WBColumn(@"name", @"Span", 280);
-  [_spanOutline addTableColumn:name];
-  _spanOutline.outlineTableColumn = name;
-  [_spanOutline addTableColumn:WBColumn(@"start", @"Start ms", 65)];
-  [_spanOutline addTableColumn:WBColumn(@"duration", @"ms", 60)];
-  [_spanOutline addTableColumn:WBColumn(@"scope", @"Library", 170)];
-  _spanOutline.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
-  _spanOutline.dataSource = self;
-  _spanOutline.delegate = self;
-  [down addSubview:[self scrollViewFor:_spanOutline frame:NSMakeRect(0, 0, 670, 380)]];
-
-  _detailView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 670, 260)];
-  _detailView.editable = NO;
-  _detailView.richText = NO;
+  [super loadView];
   _detailView.font = [NSFont userFixedPitchFontOfSize:11];
-  // GNUstep leaves a text view made in code black on black.
-  _detailView.textColor = [NSColor textColor];
-  _detailView.backgroundColor = [NSColor textBackgroundColor];
-  _detailView.drawsBackground = YES;
-  _detailView.verticallyResizable = YES;
-  _detailView.horizontallyResizable = NO;
-  _detailView.autoresizingMask = NSViewWidthSizable;
-  _detailView.maxSize = NSMakeSize(FLT_MAX, FLT_MAX);
   _detailView.textContainer.widthTracksTextView = YES;
-  [down addSubview:[self scrollViewFor:_detailView frame:NSMakeRect(0, 0, 670, 260)]];
-  [across addSubview:down];
-  [content addSubview:across];
-  [across adjustSubviews];
-  [down adjustSubviews];
-  [across setPosition:380 ofDividerAtIndex:0];
-  [down setPosition:380 ofDividerAtIndex:0];
+  [(NSSplitView *)self.view setPosition:380 ofDividerAtIndex:0];
+  NSSplitView *down = (NSSplitView *)[[(NSSplitView *)self.view subviews] lastObject];
+  if ([down isKindOfClass:[NSSplitView class]]) [down setPosition:380 ofDividerAtIndex:0];
+  [self showDetailOf:nil];
+  [self reloadTraces];
 }
 
-- (void)show
+// Whether it is shown, and so kept up.
+- (BOOL)isShowing
 {
-  [self reloadTraces];
-  [_window makeKeyAndOrderFront:nil];
+  return self.isViewLoaded && self.view.window != nil && self.view.window.isVisible;
 }
 
 - (void)tracesChanged:(NSNotification *)notification
 {
-  if (!_window.isVisible) return;
+  if (![self isShowing]) return;
   [self reloadTraces];
   // The trace shown may have more spans now (a reply that came later).
   if (_shown) [self showTree:_shown keepingSelection:YES];
@@ -360,8 +292,8 @@ static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat wi
 
 - (BOOL)showTraceWithID:(NSString *)traceID spanID:(NSString *)spanID
 {
+  [self view];
   [self reloadTraces];
-  if (!_window.isVisible) [_window orderFront:nil];
   WBTrace *trace = [_recorder traceWithID:traceID];
   NSUInteger row = trace ? [_traces indexOfObjectIdenticalTo:trace] : NSNotFound;
   if (row == NSNotFound) return NO;
@@ -426,7 +358,7 @@ static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat wi
   } else {
     [self showDetailOf:nil];
   }
-  _window.title = trace ? [NSString stringWithFormat:@"Traces — %@ (%@)", trace.root.name ?: @"", trace.traceID] : @"Traces";
+  if (_shownTraceChanged) _shownTraceChanged(trace);
 }
 
 - (void)showDetailOf:(OTSpan *)span
@@ -538,6 +470,60 @@ static NSTableColumn *WBColumn(NSString *identifier, NSString *title, CGFloat wi
 {
   WBSpanNode *node = [_spanOutline itemAtRow:_spanOutline.selectedRow];
   [self showDetailOf:node.span];
+}
+
+@end
+
+@interface WBTraceWindow ()
+@property (nonatomic, readwrite, strong) IBOutlet NSWindow *window;
+@end
+
+@implementation WBTraceWindow
+
+- (instancetype)initWithRecorder:(WBTraceRecorder *)recorder
+{
+  self = [super init];
+  if (!self) return nil;
+  NSNib *nib = [[NSNib alloc] initWithNibNamed:@"WBTraceWindow" bundle:[NSBundle bundleForClass:[WBTraceWindow class]]];
+  NSArray *objects = nil;
+  if (![nib instantiateWithOwner:self topLevelObjects:&objects] || !_window) return nil;
+  _tracesController = [[WBTracesViewController alloc] initWithRecorder:recorder];
+  NSView *content = _window.contentView, *traces = _tracesController.view;
+  traces.frame = content.bounds;
+  traces.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  [content addSubview:traces];
+  __weak NSWindow *window = _window;
+  _tracesController.shownTraceChanged = ^(WBTrace *trace) {
+    window.title = trace ? [NSString stringWithFormat:@"Traces — %@ (%@)", trace.root.name ?: @"", trace.traceID] : @"Traces";
+  };
+  return self;
+}
+
+- (NSTableView *)traceTable
+{
+  return _tracesController.traceTable;
+}
+
+- (NSOutlineView *)spanOutline
+{
+  return _tracesController.spanOutline;
+}
+
+- (NSTextView *)detailView
+{
+  return _tracesController.detailView;
+}
+
+- (void)show
+{
+  [_tracesController reloadTraces];
+  [_window makeKeyAndOrderFront:nil];
+}
+
+- (BOOL)showTraceWithID:(NSString *)traceID spanID:(NSString *)spanID
+{
+  if (!_window.isVisible) [_window orderFront:nil];
+  return [_tracesController showTraceWithID:traceID spanID:spanID];
 }
 
 @end

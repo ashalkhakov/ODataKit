@@ -9,12 +9,15 @@ static NSString * const WBBuiltInRoot = @"http://workbench.local/odata/";
 static NSString * const WBNorthwindRoot = @"https://services.odata.org/V4/Northwind/Northwind.svc/";
 static NSString * const WBTripPinRoot = @"https://services.odata.org/V4/TripPinServiceRW/";
 
+// The Catalog, from the bundle the Workbench's code is in: the app's, or a
+// host's bundle that compiles it in (files.make: UDCode's OData extension).
 static NSURL *WorkbenchModelURL(void)
 {
-  NSBundle *bundle = [NSBundle mainBundle];
-  for (NSString *ext in @[ @"momd", @"xcdatamodeld" ]) {
-    NSURL *url = [bundle URLForResource:@"Catalog" withExtension:ext];
-    if (url) return url;
+  for (NSBundle *bundle in @[ [NSBundle bundleForClass:[WBConnection class]], [NSBundle mainBundle] ]) {
+    for (NSString *ext in @[ @"momd", @"xcdatamodeld" ]) {
+      NSURL *url = [bundle URLForResource:@"Catalog" withExtension:ext];
+      if (url) return url;
+    }
   }
 #ifdef WORKBENCH_MODEL_DIR
   NSString *src = [@(WORKBENCH_MODEL_DIR) stringByAppendingPathComponent:@"Catalog.xcdatamodeld"];

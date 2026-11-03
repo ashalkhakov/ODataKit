@@ -1,8 +1,8 @@
 // Signing in to a service that asks for it, as its $metadata says
 // (ODataSignIn): a user and password, or OpenID Connect's device flow, in
-// a panel made in code: the code to enter, the page to enter it on (opened
-// in the browser), and the identity provider's client the Workbench signs
-// in as.
+// a panel (WBSignInPanel.xib): the code to enter, the page to enter it on
+// (opened in the browser), and the identity provider's client the Workbench
+// signs in as.
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 

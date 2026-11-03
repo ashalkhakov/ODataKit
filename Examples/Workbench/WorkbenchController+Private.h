@@ -8,6 +8,7 @@
 #import "WBQuery.h"
 #import "WBResults.h"
 #import "WBTraces.h"
+#import "WBExchangeLog.h"
 #import "WBSync.h"
 #import "WBSignInPanel.h"
 
@@ -44,7 +45,8 @@
 
 // The wire log, newest first, and the window that shows one exchange
 // (ExchangeWindow.xib, loaded when first shown).
-@property (nonatomic, strong) NSMutableArray *log;
+@property (nonatomic, readonly) NSArray<WorkbenchLogEntry *> *log;
+@property (nonatomic, readonly) WBExchangeLog *exchangeLog;
 @property (nonatomic, strong) IBOutlet NSTableView *logTable;
 @property (nonatomic, strong) IBOutlet NSWindow *exchangeWindow;
 @property (nonatomic, strong) IBOutlet NSTextView *requestView;
