@@ -28,6 +28,7 @@ ODataTests_OBJC_FILES = \
 	../ODWRequests.m \
 	../ODWServiceSheet.m \
 	../ODWServices.m \
+	../ODWTemplates.m \
 	$(addprefix $(WORKBENCH)/,$(WORKBENCH_KIT_OBJC_FILES))
 ODataTests_RESOURCE_FILES = \
 	../ODWBottom.xib \

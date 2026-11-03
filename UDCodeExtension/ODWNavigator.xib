@@ -81,6 +81,51 @@
                         <action selector="newQueryBuilder:" target="-2" id="OD-s-builder-a"/>
                     </connections>
                 </menuItem>
+                <!-- Tag 1: an entity set's only; tag 2: an operation's only
+                     (ODWNavigatorViewController's -menuNeedsUpdate:). The
+                     requests' tags are ODWTemplate's. -->
+                <menuItem title="Insert Request" tag="1" id="OD-s-insert">
+                    <menu key="submenu" title="Insert Request" id="OD-s-insert-menu">
+                        <items>
+                            <menuItem title="GET All" id="OD-t-all">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-all-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="GET by Key" tag="1" id="OD-t-key">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-key-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="GET $count" tag="2" id="OD-t-count">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-count-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="OD-t-sep"/>
+                            <menuItem title="POST a New One" tag="3" id="OD-t-post">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-post-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="PATCH One" tag="4" id="OD-t-patch">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-patch-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="DELETE One" tag="5" id="OD-t-delete">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-delete-a"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Insert Call" tag="2" id="OD-s-call">
+                    <connections>
+                        <action selector="insertRequestOfItem:" target="-2" id="OD-s-call-a"/>
+                    </connections>
+                </menuItem>
                 <menuItem title="Copy Name" id="OD-s-copy">
                     <connections>
                         <action selector="copyName:" target="-2" id="OD-s-copy-a"/>

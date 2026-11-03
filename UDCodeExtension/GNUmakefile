@@ -29,7 +29,8 @@ ODW_OBJC_FILES = \
 	ODWNavigatorViewController.m \
 	ODWRequests.m \
 	ODWServiceSheet.m \
-	ODWServices.m
+	ODWServices.m \
+	ODWTemplates.m
 ODW_RESOURCE_FILES = \
 	Resources/LanguageInfo.plist \
 	ODWBottom.xib \

@@ -85,6 +85,28 @@ remembered for the file), or to the only service connected. A service not
 connected yet is connected first. **New Request Document** on a service, or
 double-clicking an entity set, opens one already sent to it.
 
+### Requests written for you
+
+A right click on an entity set offers **Insert Request**: a request of
+it, written from the service's `$metadata`:
+
+- **GET All** (`$top=20`), **GET by Key** (`Products(1)`, a composite
+  key's parts by name), **GET $count**;
+- **POST a New One**, its body a JSON object of the entity's properties
+  (its base types' first, computed ones and streams left out);
+- **PATCH One** (the same body, its key left out) and **DELETE One**.
+
+On a function or an action, **Insert Call** writes its call: a function's
+`GET`, its parameters in the URL; an action's `POST`, its parameters the
+body. Values are samples of their types (`1`, `'text'`, `2024-01-01`, an
+enumeration's first member) for you to change.
+
+The request goes into the front `.odata` document when it is that
+service's (or no service's yet): after the request the caret is in, as a
+request of its own (its `###` line says what it does), the caret on its request
+line, ready for Editor > Run; undone as one. Otherwise it opens in a new
+document.
+
 ## Building a query
 
 Instead of writing a request, you can build one. **New Query Builder**
@@ -154,7 +176,8 @@ The extension's segment of the bottom area has three panes:
   sent as written (`-[WBConnection sendRequest:done:]`: signed as the store
   signs its own, asked again once with fresh credentials after a 401),
   inside a client span (OTelKit's `OTHTTP`).
-- **`ODWRequests`**, the REST Client format.
+- **`ODWRequests`**, the REST Client format; **`ODWTemplates`**, the
+  requests Insert Request and Insert Call write.
 - **`ODWBuilderViewController`**, an `.odataq` document's editor: the
   Workbench's `WBQueryPanel` (the same panel as the Workbench's window,
   stacked: `WBQueryPanelStacked.xib`, its controls and outlets

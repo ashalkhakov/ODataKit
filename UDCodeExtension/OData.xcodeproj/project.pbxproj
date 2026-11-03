@@ -14,6 +14,7 @@
 		0169A4F9A2B44087DD81E4ED /* ODWRequests.m in Sources */ = {isa = PBXBuildFile; fileRef = B4BE1AA6CB0CBE94648DB277 /* ODWRequests.m */; };
 		7BCC16579FF19C80D5C7B29B /* ODWServiceSheet.m in Sources */ = {isa = PBXBuildFile; fileRef = 36E4CEF6174B911674DB23E6 /* ODWServiceSheet.m */; };
 		12B05E87CD77EF101D6B043A /* ODWServices.m in Sources */ = {isa = PBXBuildFile; fileRef = 68E6AC49B88D5B4240311D5B /* ODWServices.m */; };
+		BD59A44D458FE085EC75E1CB /* ODWTemplates.m in Sources */ = {isa = PBXBuildFile; fileRef = 476ABA99500F97768D5FFC5B /* ODWTemplates.m */; };
 		3F8B80C7C7D6D2007F3854E8 /* WBConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = FF35649B8AEFACDD7D8E2E34 /* WBConnection.m */; };
 		055BA84D386FD82DA7E5E6C4 /* WBExchangeLog.m in Sources */ = {isa = PBXBuildFile; fileRef = 9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */; };
 		E5635A62738F392F85A562F5 /* WBQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = 82810F99273AC75A3D929FD0 /* WBQuery.m */; };
@@ -60,6 +61,7 @@
 		2240A079C355E563EC4ACAC8 /* ODWRequests.m in Sources */ = {isa = PBXBuildFile; fileRef = B4BE1AA6CB0CBE94648DB277 /* ODWRequests.m */; };
 		519297B1C1D8C9C986A00132 /* ODWServiceSheet.m in Sources */ = {isa = PBXBuildFile; fileRef = 36E4CEF6174B911674DB23E6 /* ODWServiceSheet.m */; };
 		3913DE99B91CCA79A55BD150 /* ODWServices.m in Sources */ = {isa = PBXBuildFile; fileRef = 68E6AC49B88D5B4240311D5B /* ODWServices.m */; };
+		6A868ED9092D01F0E6411BE1 /* ODWTemplates.m in Sources */ = {isa = PBXBuildFile; fileRef = 476ABA99500F97768D5FFC5B /* ODWTemplates.m */; };
 		19A19DD398F48EC11D6785B1 /* WBConnection.m in Sources */ = {isa = PBXBuildFile; fileRef = FF35649B8AEFACDD7D8E2E34 /* WBConnection.m */; };
 		5C1F6561F5A16E0B4DC297DD /* WBExchangeLog.m in Sources */ = {isa = PBXBuildFile; fileRef = 9F052A9856DC7DC0250ED692 /* WBExchangeLog.m */; };
 		BD7F8A9A4889991A8C859CDE /* WBQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = 82810F99273AC75A3D929FD0 /* WBQuery.m */; };
@@ -127,6 +129,8 @@
 		36E4CEF6174B911674DB23E6 /* ODWServiceSheet.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWServiceSheet.m; sourceTree = "<group>"; };
 		961372165BDC746AEA994FA7 /* ODWServices.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWServices.h; sourceTree = "<group>"; };
 		68E6AC49B88D5B4240311D5B /* ODWServices.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWServices.m; sourceTree = "<group>"; };
+		A484D1659D714D4D6C0FA7DB /* ODWTemplates.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ODWTemplates.h; sourceTree = "<group>"; };
+		476ABA99500F97768D5FFC5B /* ODWTemplates.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ODWTemplates.m; sourceTree = "<group>"; };
 		2E6410E8C314F77333184B96 /* ODWBottom.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWBottom.xib; sourceTree = "<group>"; };
 		8F800D7BDA3F211409573FBE /* ODWBuilder.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWBuilder.xib; sourceTree = "<group>"; };
 		3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ODWNavigator.xib; sourceTree = "<group>"; };
@@ -249,6 +253,8 @@
 				36E4CEF6174B911674DB23E6 /* ODWServiceSheet.m */,
 				961372165BDC746AEA994FA7 /* ODWServices.h */,
 				68E6AC49B88D5B4240311D5B /* ODWServices.m */,
+				A484D1659D714D4D6C0FA7DB /* ODWTemplates.h */,
+				476ABA99500F97768D5FFC5B /* ODWTemplates.m */,
 				2E6410E8C314F77333184B96 /* ODWBottom.xib */,
 				8F800D7BDA3F211409573FBE /* ODWBuilder.xib */,
 				3EA5BC30E0E09B389E48917C /* ODWNavigator.xib */,
@@ -460,6 +466,7 @@
 				0169A4F9A2B44087DD81E4ED /* ODWRequests.m in Sources */,
 				7BCC16579FF19C80D5C7B29B /* ODWServiceSheet.m in Sources */,
 				12B05E87CD77EF101D6B043A /* ODWServices.m in Sources */,
+				BD59A44D458FE085EC75E1CB /* ODWTemplates.m in Sources */,
 				3F8B80C7C7D6D2007F3854E8 /* WBConnection.m in Sources */,
 				055BA84D386FD82DA7E5E6C4 /* WBExchangeLog.m in Sources */,
 				E5635A62738F392F85A562F5 /* WBQuery.m in Sources */,
@@ -486,6 +493,7 @@
 				2240A079C355E563EC4ACAC8 /* ODWRequests.m in Sources */,
 				519297B1C1D8C9C986A00132 /* ODWServiceSheet.m in Sources */,
 				3913DE99B91CCA79A55BD150 /* ODWServices.m in Sources */,
+				6A868ED9092D01F0E6411BE1 /* ODWTemplates.m in Sources */,
 				19A19DD398F48EC11D6785B1 /* WBConnection.m in Sources */,
 				5C1F6561F5A16E0B4DC297DD /* WBExchangeLog.m in Sources */,
 				BD7F8A9A4889991A8C859CDE /* WBQuery.m in Sources */,

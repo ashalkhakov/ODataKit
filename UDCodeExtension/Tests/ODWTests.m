@@ -14,6 +14,8 @@
 #import "ODWExtension.h"
 #import "ODWBuilderViewController.h"
 #import "WBQueryPanel.h"
+#import "ODWTemplates.h"
+#import <ODataKit/ODataSchema.h>
 #import <UDPieceTable/UDTextModel.h>
 
 // The window's side, as much of it as the services ask of: its project (a
@@ -24,13 +26,34 @@
 @property (nonatomic, strong, nullable) UDCodeDocument *selectedDocument;
 @property (nonatomic, strong, nullable) id selectedEditor;
 @property (nonatomic, strong) NSMutableArray *shownInBottomArea;
+// The documents opened (UDWorkbench's -openUntitledDocumentWithText:...),
+// the last the selected one.
+@property (nonatomic, strong) NSMutableArray<UDCodeDocument *> *opened;
+@end
+
+// An editor: its text view, the document's text.
+@interface ODWTestEditor : NSObject
+@property (nonatomic, strong) NSTextView *textView;
+@end
+
+@implementation ODWTestEditor
 @end
 
 @implementation ODWTestWorkbench
 - (instancetype)init
 {
-  if ((self = [super init])) _shownInBottomArea = [NSMutableArray array];
+  if ((self = [super init])) {
+    _shownInBottomArea = [NSMutableArray array];
+    _opened = [NSMutableArray array];
+  }
   return self;
+}
+- (void)openUntitledDocumentWithText:(NSString *)text languageMode:(NSString *)mode name:(NSString *)name
+{
+  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:nil languageMode:nil];
+  [_opened addObject:document];
+  _selectedDocument = document;
+  _selectedEditor = nil;
 }
 - (void)showBottomAreaViewController:(NSViewController *)viewController title:(NSString *)title extension:(id)extension
 {
@@ -215,6 +238,135 @@
   [_services sendRequestsOfDocument:document selection:NSMakeRange(0, 0) all:YES];
   XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count == 2); }]);
   XCTAssertEqualObjects([_answers valueForKey:@"title"], (@[ @"GET Categories", @"GET Products?$top=2" ]));
+}
+
+#pragma mark Templates
+
+// Each of an entity set's, and a function's call: a request as the
+// documents write them; the GETs answered.
+- (void)testTemplatesAreRequestsTheServiceAnswers
+{
+  ODWService *builtIn = [self connectedBuiltIn];
+  ODataSchema *schema = builtIn.connection.store.schema;
+  XCTAssertNotNil(schema);
+  NSDictionary *methods = @{ @(ODWTemplateGetAll): @"GET", @(ODWTemplateGetByKey): @"GET", @(ODWTemplateCount): @"GET",
+                             @(ODWTemplatePost): @"POST", @(ODWTemplatePatch): @"PATCH", @(ODWTemplateDelete): @"DELETE" };
+  for (NSNumber *kind in methods) {
+    NSString *text = ODWTemplateOfEntitySet(schema, @"Products", kind.integerValue);
+    NSArray<ODWRequest *> *requests = ODWRequestsOfText(text ?: @"");
+    XCTAssertEqual(requests.count, (NSUInteger)1, @"%@", text);
+    XCTAssertEqualObjects(requests.firstObject.method, methods[kind], @"%@", text);
+    XCTAssertTrue([text hasPrefix:@"###"], @"its separator names it: %@", text);
+    if (requests.firstObject.body.length) {
+      id body = [NSJSONSerialization JSONObjectWithData:[requests.firstObject.body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+      XCTAssertTrue([body isKindOfClass:[NSDictionary class]], @"a JSON object: %@", requests.firstObject.body);
+      if (kind.integerValue == ODWTemplatePatch) XCTAssertNil(body[@"ProductID"], @"no key in a PATCH: %@", body);
+      if (kind.integerValue == ODWTemplatePost) XCTAssertNotNil(body[@"ProductName"], @"%@", body);
+    }
+  }
+  XCTAssertTrue([ODWTemplateOfEntitySet(schema, @"Products", ODWTemplateGetByKey) containsString:@"GET Products(1)\n"]);
+  XCTAssertNil(ODWTemplateOfEntitySet(schema, @"Nothing", ODWTemplateGetAll));
+  for (NSNumber *kind in @[ @(ODWTemplateGetAll), @(ODWTemplateGetByKey), @(ODWTemplateCount) ]) {
+    [_answers removeAllObjects];
+    [_services sendRequest:ODWRequestsOfText(ODWTemplateOfEntitySet(schema, @"Products", kind.integerValue)).firstObject toService:builtIn];
+    XCTAssertTrue([self waitFor:^{ return (BOOL)(self->_answers.count > 0); }]);
+    XCTAssertNil(_answers.lastObject.failure, @"%@", _answers.lastObject.text);
+    XCTAssertEqual(_answers.lastObject.status, (NSInteger)200, @"%@: %@", _answers.lastObject.title, _answers.lastObject.text);
+  }
+  // An operation's call: a function's GET, an action's POST.
+  for (NSString *name in [builtIn operationNames]) {
+    NSString *text = ODWTemplateOfOperation(schema, name);
+    ODWRequest *request = ODWRequestsOfText(text ?: @"").firstObject;
+    XCTAssertNotNil(request, @"%@", name);
+    NSString *method = schema.operationImports[name].isAction ? @"POST" : @"GET";
+    XCTAssertEqualObjects(request.method, method, @"%@", text);
+    XCTAssertTrue([request.target hasPrefix:name], @"%@", text);
+  }
+}
+
+// A template put in a text: apart from the requests around it.
+- (void)testATemplateIsPutInApart
+{
+  NSString *request = @"### Mine\nGET Mine\n";
+  NSRange at;
+  XCTAssertEqualObjects(ODWTextWithTemplate(@"", 0, request, &at), request);
+  XCTAssertEqual(at.location, (NSUInteger)9, @"the caret on its request line");
+  // At the end, after a request: a blank line before it.
+  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A\n", 6, request, NULL), @"GET A\n\n### Mine\nGET Mine\n");
+  // Inside a request: after all of it (its headers not parted from it).
+  NSString *text = @"GET A\nAccept: x\n";
+  NSString *changed = ODWTextWithTemplate(text, 2, request, &at);
+  XCTAssertEqualObjects(changed, @"GET A\nAccept: x\n\n### Mine\nGET Mine\n");
+  XCTAssertEqualObjects([changed substringWithRange:NSMakeRange(at.location, 8)], @"GET Mine");
+  // At its start: before it, set apart.
+  XCTAssertEqualObjects(ODWTextWithTemplate(text, 0, request, NULL), @"### Mine\nGET Mine\n\n###\nGET A\nAccept: x\n");
+  // Before a separator: the separator kept.
+  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A\n\n###\nGET B\n", 7, request, NULL),
+                        @"GET A\n\n### Mine\nGET Mine\n\n###\nGET B\n");
+  // No end of line at the end: one added.
+  XCTAssertEqualObjects(ODWTextWithTemplate(@"GET A", 5, request, NULL), @"GET A\n\n### Mine\nGET Mine\n");
+  for (NSString *t in @[ @"GET A\n", @"GET A\nAccept: x\n", @"GET A\n\n###\nGET B\n" ]) {
+    for (NSUInteger caret = 0; caret <= t.length; caret++) {
+      NSArray *requests = ODWRequestsOfText(ODWTextWithTemplate(t, caret, request, NULL));
+      XCTAssertTrue([[requests valueForKey:@"target"] containsObject:@"Mine"], @"%@ at %lu", t, (unsigned long)caret);
+      XCTAssertEqual(requests.count, ODWRequestsOfText(t).count + 1, @"%@ at %lu", t, (unsigned long)caret);
+      XCTAssertEqualObjects([[requests valueForKey:@"target"] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF != 'Mine'"]],
+                            [ODWRequestsOfText(t) valueForKey:@"target"], @"the others as they were: %@ at %lu", t, (unsigned long)caret);
+    }
+  }
+}
+
+// The navigator's Insert Request: at the caret of the service's front
+// request document, as one edit; else in a new document.
+- (void)testInsertRequestWritesAtTheCaret
+{
+  ODWService *builtIn = [self connectedBuiltIn];
+  ODWNavigatorViewController *navigator = [[ODWNavigatorViewController alloc] initWithServices:_services];
+  XCTAssertNotNil(navigator.view);
+  NSMenu *itemMenu = [navigator valueForKey:@"itemMenu"];
+  NSMenuItem *insert = [itemMenu itemWithTitle:@"Insert Request"];
+  XCTAssertEqual(insert.submenu.numberOfItems, (NSInteger)7, @"six requests and a separator");
+  XCTAssertNotNil([itemMenu itemWithTitle:@"Insert Call"]);
+
+  // An .odata document: the mode LanguageInfo.plist gives UDCode.
+  UDLanguageMode *odata = [[UDLanguageMode alloc] initWithIdentifier:@"odata" displayName:@"OData" fileExtensions:@[ @"odata" ]
+                                                         languageFunc:NULL highlightsQuery:nil indentsQuery:nil lspLanguageID:nil
+                                                languageServerCommand:nil defaultNewDocumentText:@""
+                                                languageConfiguration:[UDLanguageConfiguration emptyConfiguration]
+                                                           keyHandler:nil extension:nil];
+  UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:@"GET Categories\n" fileURL:nil languageMode:odata];
+  [_services setService:builtIn ofDocument:document];
+  ODWTestEditor *editor = [[ODWTestEditor alloc] init];
+  editor.textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 300)];
+  editor.textView.string = [document.textModel getValue];
+  [editor.textView setSelectedRange:NSMakeRange(15, 0)];
+  // UDCode's text view shows the model's text.
+  id follow = [[NSNotificationCenter defaultCenter] addObserverForName:UDTextModelDidChangeNotification object:document.textModel queue:nil
+                                                             usingBlock:^(NSNotification *note) {
+    editor.textView.string = [document.textModel getValue];
+  }];
+  _workbench.selectedDocument = document;
+  _workbench.selectedEditor = editor;
+  XCTAssertTrue([ODWServices isRequestDocument:document], @"%@", document.languageMode.identifier);
+
+  [navigator insertRequest:ODWTemplateOfEntitySet(builtIn.connection.store.schema, @"Products", ODWTemplateCount) ofService:builtIn];
+  NSString *text = [document.textModel getValue];
+  XCTAssertEqualObjects(text, @"GET Categories\n\n### How many Products\nGET Products/$count\n");
+  XCTAssertEqual(_workbench.opened.count, (NSUInteger)0, @"not in a new document");
+  XCTAssertEqual(editor.textView.selectedRange.location, [text rangeOfString:@"GET Products"].location);
+  XCTAssertTrue(document.textModel.undoManager.canUndo);
+  [document.textModel.undoManager undo];
+  XCTAssertEqualObjects([document.textModel getValue], @"GET Categories\n", @"undone as one");
+
+  // The front document another service's: a new one.
+  ODWService *other = [_services serviceNamed:@"TripPin"] ?: [_services.services lastObject];
+  XCTAssertNotEqual(other, builtIn);
+  [_services setService:other ofDocument:document];
+  [navigator insertRequest:@"### X\nGET X\n" ofService:builtIn];
+  XCTAssertEqual(_workbench.opened.count, (NSUInteger)1);
+  XCTAssertEqualObjects([_workbench.opened.lastObject.textModel getValue], @"### X\nGET X\n");
+  XCTAssertEqualObjects([document.textModel getValue], @"GET Categories\n", @"the other service's left alone");
+  [[NSNotificationCenter defaultCenter] removeObserver:follow];
 }
 
 #pragma mark The builder

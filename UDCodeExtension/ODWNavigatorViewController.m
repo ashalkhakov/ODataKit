@@ -5,6 +5,8 @@
 #import "ODWServices.h"
 #import "ODWServiceSheet.h"
 #import "ODWBuilderViewController.h"
+#import "ODWTemplates.h"
+#import <UDPieceTable/UDTextModel.h>
 #import <objc/runtime.h>
 
 typedef NS_ENUM(NSInteger, ODWNodeKind) {
@@ -224,8 +226,13 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
 {
   [menu removeAllItems];
   _menuNode = [self nodeAtRow:_outlineView.clickedRow];
-  NSMenu *items = _menuNode.kind == ODWNodeEntitySet || _menuNode.kind == ODWNodeOperation ? _itemMenu : _menuNode ? _serviceMenu : nil;
-  for (NSMenuItem *item in items.itemArray) [menu addItem:[item copy]];
+  BOOL entitySet = _menuNode.kind == ODWNodeEntitySet, operation = _menuNode.kind == ODWNodeOperation;
+  NSMenu *items = entitySet || operation ? _itemMenu : _menuNode ? _serviceMenu : nil;
+  for (NSMenuItem *item in items.itemArray) {
+    // The item menu's: tagged 1 an entity set's only, 2 an operation's.
+    if (items == _itemMenu && ((item.tag == 1 && !entitySet) || (item.tag == 2 && !operation))) continue;
+    [menu addItem:[item copy]];
+  }
 }
 
 - (void)menuDidClose:(NSMenu *)menu
@@ -373,6 +380,52 @@ typedef NS_ENUM(NSInteger, ODWNodeKind) {
   } else if (node.kind == ODWNodeOperation) {
     [self openRequests:[NSString stringWithFormat:@"GET %@()\n", node.title] ofService:node.service send:NO];
   }
+}
+
+// A template of the item's (its sender's tag an ODWTemplate, for an entity
+// set), in the front request document at its caret when it is the
+// service's (or no service's yet), else in a new one.
+- (IBAction)insertRequestOfItem:(id)sender
+{
+  ODWNode *node = [self actedNode];
+  ODataSchema *schema = node.service.connection.store.schema;
+  if (!schema) return;
+  NSString *request = node.kind == ODWNodeEntitySet ? ODWTemplateOfEntitySet(schema, node.title, (ODWTemplate)[sender tag])
+                    : node.kind == ODWNodeOperation ? ODWTemplateOfOperation(schema, node.title)
+                                                    : nil;
+  if (request) [self insertRequest:request ofService:node.service];
+}
+
+- (void)insertRequest:(NSString *)request ofService:(ODWService *)service
+{
+  ODWServices *services = _services;
+  id<UDWorkbench> workbench = services.workbench;
+  UDCodeDocument *document = workbench.selectedDocument;
+  NSTextView *textView = workbench.selectedEditor.textView;
+  ODWService *documentService = document ? [services serviceOfDocument:document] : nil;
+  if (!document || !textView || ![ODWServices isRequestDocument:document] || (documentService && documentService != service)) {
+    [self openRequests:request ofService:service send:NO];
+    return;
+  }
+  UDTextModel *model = document.textModel;
+  NSString *text = [model getValue];
+  NSRange at;
+  NSString *changed = ODWTextWithTemplate(text, textView.selectedRange.location, request, &at);
+  // One edit, of what changed (undone as one): what the texts begin and end
+  // with alike left alone.
+  NSUInteger head = 0, tail = 0;
+  while (head < text.length && head < changed.length && [text characterAtIndex:head] == [changed characterAtIndex:head]) head++;
+  while (tail < text.length - head && tail < changed.length - head &&
+         [text characterAtIndex:text.length - 1 - tail] == [changed characterAtIndex:changed.length - 1 - tail]) {
+    tail++;
+  }
+  UDPosition from = [model getPositionAt:(NSInteger)head], to = [model getPositionAt:(NSInteger)(text.length - tail)];
+  NSString *inserted = [changed substringWithRange:NSMakeRange(head, changed.length - tail - head)];
+  [model applyEdits:@[ [[UDTextModelEdit alloc] initWithRange:(UDRange){from.line, from.column, to.line, to.column}
+                                                          text:inserted] ]];
+  [services setService:service ofDocument:document];
+  [textView setSelectedRange:NSMakeRange(at.location, 0)];
+  [textView scrollRangeToVisible:at];
 }
 
 - (IBAction)newQueryBuilder:(id)sender

@@ -3,7 +3,8 @@
 // its functions and actions). Double-clicking a service connects to it;
 // an entity set, a new request of it, sent. A right click's menu is the
 // row's: a service's (a new request document, send to it, connect, sign
-// out, edit, remove), an entity set's (a new request, copy its name).
+// out, edit, remove), an entity set's (a new request, a request of it
+// inserted: ODWTemplates; copy its name), a function's (its call inserted).
 // Copyright (C) 2026 OIS contributors
 // SPDX-License-Identifier: LGPL-2.1-or-later
 #pragma once
@@ -35,6 +36,12 @@ NS_ASSUME_NONNULL_BEGIN
 // A new query document (.odataq), built against the service: of the entity
 // set's entity, when it is one's.
 - (IBAction)newQueryBuilder:(nullable id)sender;
+// A request of the item's (an entity set's: its sender's tag an
+// ODWTemplate; an operation's call) in the front request document at its
+// caret, when that is the item's service's (or no service's yet); else in a
+// new one.
+- (IBAction)insertRequestOfItem:(nullable id)sender;
+- (void)insertRequest:(NSString *)request ofService:(ODWService *)service;
 - (IBAction)copyName:(nullable id)sender;
 - (IBAction)openItem:(nullable id)sender;
 @end
