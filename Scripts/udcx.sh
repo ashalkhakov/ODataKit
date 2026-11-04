@@ -78,7 +78,11 @@ else
   else
     binary=$bundle/OData
     linked=$(LD_LIBRARY_PATH="$dirs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$binary")
-    carried=$(echo "$linked" | awk '$3 ~ /^\// {print $3}' | grep -E "/gnustep/Local/|^$root/obj/" || true)
+    # the tree's, GNUstep's Local libraries, and Avahi's Bonjour layer
+    # (libdns_sd, ODataSync's), which a desktop need not have (Fedora's is
+    # a package of its own, avahi-compat-libdns_sd); what it links in turn,
+    # Avahi's client and D-Bus, UDCode has
+    carried=$(echo "$linked" | awk '$3 ~ /^\// {print $3}' | grep -E "/gnustep/Local/|^$root/obj/|/libdns_sd\.so" || true)
   fi
   # (Windows' API sets, api-ms-win-*, are no files: ldd finds none)
   if echo "$linked" | grep -v "api-ms-win-" | grep -q "not found"; then
