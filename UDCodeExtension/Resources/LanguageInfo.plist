@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>languageModes</key>
+	<array>
+		<!-- .odataq documents: a request built with the request builder
+		     (ODWBuilderViewController; a query, the Workbench's query
+		     panel's), kept as JSON (the grammar the JSON mode's). -->
+		<dict>
+			<key>identifier</key>
+			<string>odataq</string>
+			<key>displayName</key>
+			<string>OData Request</string>
+			<key>fileExtensions</key>
+			<array>
+				<string>odataq</string>
+			</array>
+			<key>grammarOf</key>
+			<string>json</string>
+		</dict>
+	</array>
+</dict>
+</plist>

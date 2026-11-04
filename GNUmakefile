@@ -347,7 +347,11 @@ after-uninstall::
 # (Tools/), the example apps and the server's tools (Server/); the tools,
 # the Workbench, the Device app, the launcher that chooses between them,
 # and the server's tools installed beside the libraries.
-ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench $(ODATAKIT_PEERS) Examples/Launcher Server
+# UDCode's OData extension, where UDCode's SDK is installed (.github/pins.env's
+# UDCODEKIT_VERSION; UDCodeExtension/GNUmakefile): built, not installed (its
+# package is Scripts/udcx.sh's).
+ODATAKIT_UDCODE = $(if $(wildcard $(GNUSTEP_LOCAL_HEADERS)/UDCodeKit/UDExtension.h $(GNUSTEP_SYSTEM_HEADERS)/UDCodeKit/UDExtension.h),UDCodeExtension)
+ODATAKIT_PARTS = Tools Examples/Catalog Examples/Workbench $(ODATAKIT_PEERS) Examples/Launcher Server $(ODATAKIT_UDCODE)
 ODATAKIT_INSTALLED = Tools Examples/Workbench $(ODATAKIT_PEERS) Examples/Launcher Server
 
 after-all::
@@ -357,7 +361,7 @@ after-install::
 	@for part in $(ODATAKIT_INSTALLED); do $(MAKE) -C $$part install || exit 1; done
 
 after-clean::
-	@for part in $(ODATAKIT_PARTS) Tests Tests/Live; do $(MAKE) -C $$part clean || exit 1; done
+	@for part in $(ODATAKIT_PARTS) Tests Tests/Live $(ODATAKIT_UDCODE:%=%/Tests); do $(MAKE) -C $$part clean || exit 1; done
 
 # make check:
 #   the unit tests (the discovery test runs when avahi-daemon does)
@@ -370,6 +374,8 @@ after-clean::
 #   the live service checks and the Workbench's online self-test, against
 #     services.odata.org: out of our hands, so they warn rather than fail
 #   the Device app syncing with the Workbench, as peers
+#   UDCode's OData extension, where it is built (UDCodeExtension/Tests):
+#     against the built-in service, in process
 # The windows run under Xvfb when there is no display.
 XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
 ODATAKIT_RUN = LD_LIBRARY_PATH="$(CURDIR)/obj$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" PATH="$(CURDIR)/obj:$$PATH" AVAHI_COMPAT_NOWARN=1
@@ -396,3 +402,4 @@ check::
 	  $(ODATAKIT_RUN) XVFB="$(XVFB)" Scripts/peer-sync-check.sh \
 	    Examples/Workbench/Workbench.app/Workbench Examples/DeviceDesktop/DeviceDesktop.app/DeviceDesktop || exit 1; \
 	else echo "check: devices nearby are not synced with here yet: the peer sync check is skipped"; fi
+	$(if $(ODATAKIT_UDCODE),$(XVFB) $(MAKE) -C UDCodeExtension/Tests run-tests)

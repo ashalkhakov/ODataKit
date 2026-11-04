@@ -4,6 +4,7 @@
 #import "WBConnection.h"
 #import "WorkbenchSupport.h"
 #import <ODataService/ODataServer.h>
+#import <ODataSync/ODataSignIn.h>
 
 static NSString * const WBBuiltInRoot = @"http://workbench.local/odata/";
 static NSString * const WBNorthwindRoot = @"https://services.odata.org/V4/Northwind/Northwind.svc/";
@@ -43,6 +44,13 @@ static NSURL *WBTripPinSession(void)
 @implementation WBConnection {
   id _wire;  // the transport in use: the engine, or a network transport
   HSServer *_server;
+}
+
+// The store's type known to Core Data before any connection adds a store
+// of it: in the Workbench, and in a host that compiles this in.
++ (void)initialize
+{
+  if (self == [WBConnection class]) [ODataIncrementalStore registerStore];
 }
 
 + (NSString *)rootOfService:(WBService)service
@@ -251,6 +259,74 @@ static NSURL *WBTripPinSession(void)
   _mergePolicy = mergePolicy;
   _context.mergePolicy = mergePolicy == 1 ? NSMergeByPropertyObjectTrumpMergePolicy
                        : mergePolicy == 2 ? NSMergeByPropertyStoreTrumpMergePolicy : NSErrorMergePolicy;
+}
+
+#pragma mark Requests as written
+
+// How a request is signed: the sign-in's configuration (its credentials,
+// asked for once the service refuses one), or a plain one; the ways the
+// service declares, once $metadata is read.
+- (ODataConfiguration *)requestConfiguration
+{
+  id<ODataCredentialProviding> provider = _service == WBServiceBuiltIn ? nil : _credentialProvider;
+  ODataConfiguration *configuration = [provider isKindOfClass:[ODataSignIn class]]
+      ? [(ODataSignIn *)provider configuration]
+      : [[ODataConfiguration alloc] initWithURL:_serviceRoot options:nil];
+  configuration.authorizations = _store.schema.authorizations;
+  return configuration;
+}
+
+- (void)sendRequest:(NSURLRequest *)request done:(void (^)(ODataExchange *exchange))done
+{
+  [self sendRequest:request configuration:[self requestConfiguration] again:YES done:done];
+}
+
+- (void)sendRequest:(NSURLRequest *)request configuration:(ODataConfiguration *)configuration again:(BOOL)again
+               done:(void (^)(ODataExchange *exchange))done
+{
+  NSMutableURLRequest *signedRequest = [request mutableCopy];
+  [configuration applyToRequest:signedRequest];
+  // The request's own headers are what it says: a configuration's are only
+  // those it leaves out.
+  [request.allHTTPHeaderFields enumerateKeysAndObjectsUsingBlock:^(NSString *name, NSString *value, BOOL *stop) {
+    [signedRequest setValue:value forHTTPHeaderField:name];
+  }];
+  ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:signedRequest target:self action:@selector(requestDone:)];
+  exchange.context = @[ [done copy], request, configuration, @(again) ];
+  if (!_wire) {
+    exchange.error = WBError(10, @"Not connected to the service.");
+    [exchange finish];
+    return;
+  }
+  [_wire startExchange:exchange];
+}
+
+// On the transport's thread: told on the main one; a refusal asked again
+// with fresh credentials, once.
+- (void)requestDone:(ODataExchange *)exchange
+{
+  if (![NSThread isMainThread]) {
+    [self performSelectorOnMainThread:@selector(requestDone:) withObject:exchange waitUntilDone:NO];
+    return;
+  }
+  NSArray *context = exchange.context;
+  void (^done)(ODataExchange *) = context[0];
+  NSInteger status = [exchange.URLResponse isKindOfClass:[NSHTTPURLResponse class]] ? [(NSHTTPURLResponse *)exchange.URLResponse statusCode] : 0;
+  if (status == 401 && [context[3] boolValue]) {
+    ODataConfiguration *configuration = context[2];
+    NSURLRequest *original = context[1];
+    // Refreshing may wait for the identity provider: away from the main
+    // thread, as the store asks it.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      BOOL fresh = [configuration refreshCredentials];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (fresh) [self sendRequest:original configuration:configuration again:NO done:done];
+        else done(exchange);
+      });
+    });
+    return;
+  }
+  done(exchange);
 }
 
 - (NSString *)summary

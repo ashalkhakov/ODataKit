@@ -36,15 +36,16 @@ permissions:
 
 jobs:
   linux:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1.8.0
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1.10.0
     with:
       tag: ${{ inputs.tag }}
       library: true
-      extra-packages: libsqlite3-dev libpq-dev libmariadb-dev libqrencode-dev avahi-daemon
+      # patchelf and zip: the OData extension's package (Scripts/udcx.sh)
+      extra-packages: libsqlite3-dev libpq-dev libmariadb-dev libqrencode-dev avahi-daemon patchelf zip
       databases: postgres mysql mariadb
 
   windows:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1.8.0
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1.10.0
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -53,7 +54,7 @@ jobs:
     secrets: inherit
 
   macos:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1.8.0
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1.10.0
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -61,7 +62,7 @@ jobs:
     secrets: inherit
 
   docker:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/docker.yml@v1.8.0
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/docker.yml@v1.10.0
     with:
       tag: ${{ inputs.tag }}
       dockerfile: Docker/Dockerfile

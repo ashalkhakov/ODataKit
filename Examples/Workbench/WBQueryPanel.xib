@@ -1,0 +1,509 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="WBQueryPanel">
+            <connections>
+                <outlet property="view" destination="QP-root" id="QP-o-view"/>
+                <outlet property="aggregateField" destination="AGG" id="oAGG"/>
+                <outlet property="batchSizeField" destination="BAT" id="c26"/>
+                <outlet property="computeField" destination="COMP" id="oCOMP"/>
+                <outlet property="entityPopup" destination="ENT" id="c3"/>
+                <outlet property="expandOutline" destination="EXPO" id="oEXPO"/>
+                <outlet property="explainButton" destination="EXPL" id="oEXPL"/>
+                <outlet property="executeButton" destination="GO" id="oGO"/>
+                <outlet property="faultsButton" destination="FLT" id="c10"/>
+                <outlet property="groupField" destination="GRP" id="oGRP"/>
+                <outlet property="limitField" destination="LIM" id="c8"/>
+                <outlet property="predicateView" destination="PRED" id="c9"/>
+                <outlet property="resultTypePopup" destination="RES" id="c4"/>
+                <outlet property="searchField" destination="SRCH" id="oSRCH"/>
+                <outlet property="selectTable" destination="SELT" id="oSELT"/>
+                <outlet property="skipField" destination="SKP" id="c25"/>
+                <outlet property="sortTable" destination="SORT" id="oSORT"/>
+                <outlet property="subentitiesButton" destination="SUB" id="c27"/>
+                <outlet property="timeField" destination="TIME" id="oTIME"/>
+                <outlet property="wireURLField" destination="WIRE" id="c11"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <!-- The query panel (WBQueryPanel): everything a fetch request can
+             ask of the store, and the GET it sends. Execute and Explain go
+             to the first responder: the Workbench's window controller, or a
+             host's editor (UDCode's OData builder). -->
+        <customView translatesAutoresizingMaskIntoConstraints="NO" id="QP-root" userLabel="Query Panel">
+            <rect key="frame" x="0.0" y="0.0" width="1084" height="297"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+            <subviews>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LENT">
+                        <rect key="frame" x="0.0" y="277" width="80" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="Entity" id="LENTC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ENT">
+                        <rect key="frame" x="0.0" y="253" width="150" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" inset="2" id="ENTC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <menu key="menu" id="ENTM"/>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="entityChanged:" target="-2" id="AENT"/>
+                        </connections>
+                    </popUpButton>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LRES">
+                        <rect key="frame" x="160" y="277" width="80" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="Result" id="LRESC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RES">
+                        <rect key="frame" x="160" y="253" width="150" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" title="objects" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" inset="2" selectedItem="R0" id="RESC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <menu key="menu" id="RESM">
+                                <items>
+                                    <menuItem title="objects" state="on" id="R0"/>
+                                    <menuItem title="object IDs" id="R1"/>
+                                    <menuItem title="dictionary" id="R2"/>
+                                    <menuItem title="count" id="R3"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="queryChanged:" target="-2" id="ARES"/>
+                        </connections>
+                    </popUpButton>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LLIM">
+                        <rect key="frame" x="320" y="277" width="60" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="$top" id="LLIMC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LIM">
+                        <rect key="frame" x="320" y="253" width="60" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="∞" drawsBackground="YES" id="LIMC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSKP">
+                        <rect key="frame" x="388" y="277" width="60" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="$skip" id="LSKPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SKP">
+                        <rect key="frame" x="388" y="253" width="60" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="0" drawsBackground="YES" id="SKPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LBAT">
+                        <rect key="frame" x="456" y="277" width="80" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="page size" id="LBATC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="BAT">
+                        <rect key="frame" x="456" y="253" width="70" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="service's" drawsBackground="YES" id="BATC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SUB">
+                        <rect key="frame" x="538" y="253" width="130" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="sub-entities" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="SUBC">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="system"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="queryChanged:" target="-2" id="ASUB"/>
+                        </connections>
+                    </button>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FLT">
+                        <rect key="frame" x="674" y="253" width="140" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="return as faults" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="FLTC">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="system"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="queryChanged:" target="-2" id="AFLT"/>
+                        </connections>
+                    </button>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GO">
+                        <rect key="frame" x="944" y="249" width="140" height="32"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="Execute" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="GOC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="runFetch:" target="-1" id="AGO"/>
+                        </connections>
+                    </button>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LPRED">
+                        <rect key="frame" x="0.0" y="213" width="120" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="NSPredicate" id="LPREDC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PSCR">
+                        <rect key="frame" x="0.0" y="173" width="1084" height="38"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                        <clipView key="contentView" id="PCLIP">
+                            <rect key="frame" x="1" y="1" width="1082" height="36"/>
+                            <autoresizingMask key="autoresizingMask"/>
+                            <subviews>
+                                <textView importsGraphics="NO" richText="NO" verticallyResizable="NO" id="PRED">
+                                    <rect key="frame" x="0.0" y="0.0" width="1082" height="36"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <size key="minSize" width="1082" height="36"/>
+                                    <size key="maxSize" width="1084" height="38"/>
+                                </textView>
+                            </subviews>
+                        </clipView>
+                        <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="PVS">
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </scroller>
+                    </scrollView>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LTIME">
+                        <rect key="frame" x="820" y="277" width="120" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="application time" id="LTIMEC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TIME">
+                        <rect key="frame" x="820" y="253" width="118" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="2024-10-01, a..b" drawsBackground="YES" id="TIMEC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="TIMED"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSORT">
+                        <rect key="frame" x="0.0" y="149" width="300" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="Sort ($orderby): key paths, first first" id="LSORTC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="SORTS">
+                        <rect key="frame" x="0.0" y="61" width="300" height="86"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <clipView key="contentView" id="SORTCL">
+                            <rect key="frame" x="1" y="1" width="298" height="84"/>
+                            <autoresizingMask key="autoresizingMask"/>
+                            <subviews>
+                                <tableView multipleSelection="NO" headerView="SORTH" id="SORT">
+                                    <rect key="frame" x="0.0" y="0.0" width="298" height="61"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <tableColumns>
+                                        <tableColumn identifier="key" width="220" minWidth="16" maxWidth="1000" id="SORTK">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="key path"/>
+                                            <textFieldCell key="dataCell" selectable="YES" editable="YES" id="SORTKD">
+                                                <font key="font" metaFont="system"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </tableColumn>
+                                        <tableColumn identifier="descending" width="50" minWidth="16" maxWidth="1000" id="SORTD">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="desc"/>
+                                            <buttonCell key="dataCell" type="check" bezelStyle="regularSquare" imagePosition="left" inset="2" id="SORTDD">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                        </tableColumn>
+                                    </tableColumns>
+                                    <connections>
+                                        <outlet property="dataSource" destination="-2" id="SORTDS"/>
+                                        <outlet property="delegate" destination="-2" id="SORTDL"/>
+                                    </connections>
+                                </tableView>
+                            </subviews>
+                        </clipView>
+                        <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="SORTVS">
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </scroller>
+                        <tableHeaderView key="headerView" id="SORTH">
+                            <rect key="frame" x="0.0" y="0.0" width="298" height="23"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </tableHeaderView>
+                    </scrollView>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SADD">
+                        <rect key="frame" x="304" y="125" width="32" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="+" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SADDC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="addSort:" target="-2" id="SADDA"/>
+                        </connections>
+                    </button>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SREM">
+                        <rect key="frame" x="304" y="103" width="32" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="-" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SREMC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="removeSort:" target="-2" id="SREMA"/>
+                        </connections>
+                    </button>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SUP">
+                        <rect key="frame" x="304" y="83" width="32" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="↑" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SUPC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="moveSortUp:" target="-2" id="SUPA"/>
+                        </connections>
+                    </button>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SDN">
+                        <rect key="frame" x="304" y="61" width="32" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="↓" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="SDNC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="moveSortDown:" target="-2" id="SDNA"/>
+                        </connections>
+                    </button>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LEXP">
+                        <rect key="frame" x="346" y="149" width="360" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="Prefetch ($expand): open to nest" id="LEXPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="EXPOS">
+                        <rect key="frame" x="346" y="61" width="360" height="86"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <clipView key="contentView" id="EXPOCL">
+                            <rect key="frame" x="1" y="1" width="358" height="84"/>
+                            <autoresizingMask key="autoresizingMask"/>
+                            <subviews>
+                                <outlineView multipleSelection="NO" headerView="EXPOH" indentationPerLevel="16" outlineTableColumn="EXPR" id="EXPO">
+                                    <rect key="frame" x="0.0" y="0.0" width="358" height="61"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <tableColumns>
+                                        <tableColumn identifier="include" width="24" minWidth="16" maxWidth="1000" id="EXPI">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border"/>
+                                            <buttonCell key="dataCell" type="check" bezelStyle="regularSquare" imagePosition="left" inset="2" id="EXPID">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                        </tableColumn>
+                                        <tableColumn identifier="relationship" width="300" minWidth="16" maxWidth="1000" id="EXPR">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="relationship"/>
+                                            <textFieldCell key="dataCell" selectable="YES" editable="YES" id="EXPRD">
+                                                <font key="font" metaFont="system"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </tableColumn>
+                                    </tableColumns>
+                                    <connections>
+                                        <outlet property="dataSource" destination="-2" id="EXPODS"/>
+                                        <outlet property="delegate" destination="-2" id="EXPODL"/>
+                                    </connections>
+                                </outlineView>
+                            </subviews>
+                        </clipView>
+                        <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="EXPOVS">
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </scroller>
+                        <tableHeaderView key="headerView" id="EXPOH">
+                            <rect key="frame" x="0.0" y="0.0" width="358" height="23"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </tableHeaderView>
+                    </scrollView>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSEL">
+                        <rect key="frame" x="718" y="149" width="366" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="Properties ($select, dictionary results)" id="LSELC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="SELTS">
+                        <rect key="frame" x="718" y="61" width="366" height="86"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <clipView key="contentView" id="SELTCL">
+                            <rect key="frame" x="1" y="1" width="364" height="84"/>
+                            <autoresizingMask key="autoresizingMask"/>
+                            <subviews>
+                                <tableView multipleSelection="NO" headerView="SELTH" id="SELT">
+                                    <rect key="frame" x="0.0" y="0.0" width="364" height="61"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <tableColumns>
+                                        <tableColumn identifier="include" width="24" minWidth="16" maxWidth="1000" id="SELI">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border"/>
+                                            <buttonCell key="dataCell" type="check" bezelStyle="regularSquare" imagePosition="left" inset="2" id="SELID">
+                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                <font key="font" metaFont="system"/>
+                                            </buttonCell>
+                                        </tableColumn>
+                                        <tableColumn identifier="property" width="300" minWidth="16" maxWidth="1000" id="SELP">
+                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="property"/>
+                                            <textFieldCell key="dataCell" selectable="YES" editable="YES" id="SELPD">
+                                                <font key="font" metaFont="system"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </tableColumn>
+                                    </tableColumns>
+                                    <connections>
+                                        <outlet property="dataSource" destination="-2" id="SELTDS"/>
+                                        <outlet property="delegate" destination="-2" id="SELTDL"/>
+                                    </connections>
+                                </tableView>
+                            </subviews>
+                        </clipView>
+                        <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="SELTVS">
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </scroller>
+                        <tableHeaderView key="headerView" id="SELTH">
+                            <rect key="frame" x="0.0" y="0.0" width="364" height="23"/>
+                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                        </tableHeaderView>
+                    </scrollView>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSRCH">
+                        <rect key="frame" x="0.0" y="36" width="54" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="$search" id="LSRCHC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SRCH">
+                        <rect key="frame" x="54" y="33" width="190" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="tea OR &quot;green tea&quot;" drawsBackground="YES" id="SRCHC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="SRCHD"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LCOMP">
+                        <rect key="frame" x="254" y="36" width="58" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="compute" id="LCOMPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="COMP">
+                        <rect key="frame" x="312" y="33" width="230" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="unitPrice * 2 as twice" drawsBackground="YES" id="COMPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="COMPD"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LGRP">
+                        <rect key="frame" x="552" y="36" width="60" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="group by" id="LGRPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GRP">
+                        <rect key="frame" x="612" y="33" width="170" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="category.name" drawsBackground="YES" id="GRPC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="GRPD"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LAGG">
+                        <rect key="frame" x="792" y="36" width="66" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" title="aggregate" id="LAGGC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="AGG">
+                        <rect key="frame" x="858" y="33" width="226" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="sum:(unitPrice) as total" drawsBackground="YES" id="AGGC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="AGGD"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="WIRE">
+                        <rect key="frame" x="0.0" y="5" width="984" height="22"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" selectable="YES" id="WIREC">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="EXPL">
+                        <rect key="frame" x="990" y="0.0" width="94" height="32"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="Explain" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="EXPLC">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="explainQuery:" target="-1" id="EXPLA"/>
+                        </connections>
+                    </button>
+            </subviews>
+        </customView>
+    </objects>
+</document>

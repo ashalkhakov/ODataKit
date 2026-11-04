@@ -89,6 +89,19 @@ static NSString *WBRawHeaders(NSDictionary *headers)
   return [url stringByRemovingPercentEncoding] ?: url;
 }
 
++ (NSString *)reasonOfStatus:(NSInteger)status
+{
+  // HTTP's own reason phrases: Foundation's localized ones say "no error".
+  static NSDictionary *reasons;
+  if (!reasons) {
+    reasons = @{ @200: @"OK", @201: @"Created", @202: @"Accepted", @204: @"No Content", @302: @"Found", @304: @"Not Modified",
+                 @400: @"Bad Request", @401: @"Unauthorized", @403: @"Forbidden", @404: @"Not Found", @405: @"Method Not Allowed",
+                 @406: @"Not Acceptable", @409: @"Conflict", @412: @"Precondition Failed", @415: @"Unsupported Media Type",
+                 @428: @"Precondition Required", @500: @"Internal Server Error", @501: @"Not Implemented", @503: @"Service Unavailable" };
+  }
+  return reasons[@(status)] ?: [NSHTTPURLResponse localizedStringForStatusCode:status].capitalizedString ?: @"";
+}
+
 + (NSString *)rawRequestOf:(WorkbenchLogEntry *)entry
 {
   return [NSString stringWithFormat:@"%@ %@ HTTP/1.1\n%@\n%@", entry.method, entry.URL, WBRawHeaders(entry.requestHeaders),
@@ -98,16 +111,7 @@ static NSString *WBRawHeaders(NSDictionary *headers)
 + (NSString *)rawResponseOf:(WorkbenchLogEntry *)entry
 {
   if (!entry.status) return [NSString stringWithFormat:@"(no answer: %@)", entry.failure ?: @"the request failed"];
-  // HTTP's own reason phrases: Foundation's localized ones say "no error".
-  static NSDictionary *reasons;
-  if (!reasons) {
-    reasons = @{ @200: @"OK", @201: @"Created", @202: @"Accepted", @204: @"No Content", @302: @"Found", @304: @"Not Modified",
-                 @400: @"Bad Request", @401: @"Unauthorized", @403: @"Forbidden", @404: @"Not Found", @405: @"Method Not Allowed",
-                 @406: @"Not Acceptable", @409: @"Conflict", @412: @"Precondition Failed", @415: @"Unsupported Media Type",
-                 @428: @"Precondition Required", @500: @"Internal Server Error", @501: @"Not Implemented", @503: @"Service Unavailable" };
-  }
-  NSString *reason = reasons[@(entry.status)] ?: [NSHTTPURLResponse localizedStringForStatusCode:entry.status].capitalizedString;
-  return [NSString stringWithFormat:@"HTTP/1.1 %ld %@\n%@\n%@", (long)entry.status, reason ?: @"",
+  return [NSString stringWithFormat:@"HTTP/1.1 %ld %@\n%@\n%@", (long)entry.status, [self reasonOfStatus:entry.status],
                                     WBRawHeaders(entry.responseHeaders), WBRawBody(entry.responseData)];
 }
 

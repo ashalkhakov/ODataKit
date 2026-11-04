@@ -432,12 +432,13 @@ static void WBCheck(BOOL ok, NSString *what, NSString *detail)
 // that act on a row wait for one; sort keys are reordered.
 - (void)checkMasterDetail
 {
-  // The query's switches, as the xib wires them: a change to one is a change to the query.
+  // The query's switches, as the query panel's xib wires them: a change to
+  // one is a change to the query.
   BOOL wired = YES;
   for (NSControl *control in @[ self.resultTypePopup, self.subentitiesButton, self.faultsButton ]) {
-    wired = wired && control.target == self && sel_isEqual(control.action, @selector(queryChanged:));
+    wired = wired && control.target == self.queryPanel && sel_isEqual(control.action, @selector(queryChanged:));
   }
-  WBCheck(wired, @"the xib wires the result type and the switches to queryChanged:", nil);
+  WBCheck(wired, @"the query panel's xib wires the result type and the switches to queryChanged:", nil);
 
   [self runPreset:[self presetLabelled:@"All products"]];
   BOOL fetched = self.results.rows.count > 0;

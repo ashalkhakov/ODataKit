@@ -9,6 +9,7 @@ WORKBENCH_KIT_OBJC_FILES = \
 	WBConnection.m \
 	WBExchangeLog.m \
 	WBQuery.m \
+	WBQueryPanel.m \
 	WBResults.m \
 	WBSignInPanel.m \
 	WBTraces.m \
@@ -16,6 +17,8 @@ WORKBENCH_KIT_OBJC_FILES = \
 	WorkbenchModel.m \
 	WorkbenchSupport.m
 WORKBENCH_KIT_RESOURCE_FILES = \
+	WBQueryPanel.xib \
+	WBQueryPanelStacked.xib \
 	WBSignInPanel.xib \
 	WBTraces.xib \
 	WBTraceWindow.xib

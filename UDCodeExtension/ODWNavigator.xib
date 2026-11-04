@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="NO" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="ODWNavigatorViewController">
+            <connections>
+                <outlet property="view" destination="OD-root" id="OD-o-view"/>
+                <outlet property="outlineView" destination="OD-outline" id="OD-o-outline"/>
+                <outlet property="serviceMenu" destination="OD-menu-service" id="OD-o-service"/>
+                <outlet property="itemMenu" destination="OD-menu-item" id="OD-o-item"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <!-- The OData navigator (ODWNavigatorViewController): the window's
+             services (ODWServices), each with what it serves once connected;
+             a right click's menu is the clicked row's kind's: New Query
+             Builder, Insert Request and Insert Call open an .odataq
+             builder. -->
+        <menu title="Services" autoenablesItems="YES" id="OD-menu" userLabel="Services Menu (the clicked row's kind's items)">
+            <connections>
+                <outlet property="delegate" destination="-2" id="OD-o-menu-delegate"/>
+            </connections>
+        </menu>
+        <menu title="Service" autoenablesItems="YES" id="OD-menu-service" userLabel="A Service's">
+            <items>
+                <menuItem title="New Query Builder" id="OD-m-builder">
+                    <connections>
+                        <action selector="newQueryBuilder:" target="-2" id="OD-m-builder-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="Connect" id="OD-m-connect">
+                    <connections>
+                        <action selector="connectService:" target="-2" id="OD-m-connect-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="Disconnect" id="OD-m-disconnect">
+                    <connections>
+                        <action selector="disconnectService:" target="-2" id="OD-m-disconnect-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="Sign Out" id="OD-m-sign-out">
+                    <connections>
+                        <action selector="signOutOfService:" target="-2" id="OD-m-sign-out-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="Edit Service…" id="OD-m-edit">
+                    <connections>
+                        <action selector="editService:" target="-2" id="OD-m-edit-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem isSeparatorItem="YES" id="OD-m-sep"/>
+                <menuItem title="Remove Service…" id="OD-m-remove">
+                    <connections>
+                        <action selector="removeService:" target="-2" id="OD-m-remove-a"/>
+                    </connections>
+                </menuItem>
+            </items>
+        </menu>
+        <menu title="Entity Set" autoenablesItems="YES" id="OD-menu-item" userLabel="An Entity Set's or a Function's">
+            <items>
+                <menuItem title="New Query Builder" id="OD-s-builder">
+                    <connections>
+                        <action selector="newQueryBuilder:" target="-2" id="OD-s-builder-a"/>
+                    </connections>
+                </menuItem>
+                <!-- Tag 1: an entity set's only; tag 2: an operation's only
+                     (ODWNavigatorViewController's -menuNeedsUpdate:). The
+                     requests' tags are ODWTemplate's. -->
+                <menuItem title="Insert Request" tag="1" id="OD-s-insert">
+                    <menu key="submenu" title="Insert Request" id="OD-s-insert-menu">
+                        <items>
+                            <menuItem title="GET All" id="OD-t-all">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-all-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="GET by Key" tag="1" id="OD-t-key">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-key-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="GET $count" tag="2" id="OD-t-count">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-count-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="OD-t-sep"/>
+                            <menuItem title="POST a New One" tag="3" id="OD-t-post">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-post-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="PATCH One" tag="4" id="OD-t-patch">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-patch-a"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="DELETE One" tag="5" id="OD-t-delete">
+                                <connections>
+                                    <action selector="insertRequestOfItem:" target="-2" id="OD-t-delete-a"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Insert Call" tag="2" id="OD-s-call">
+                    <connections>
+                        <action selector="insertRequestOfItem:" target="-2" id="OD-s-call-a"/>
+                    </connections>
+                </menuItem>
+                <menuItem title="Copy Name" id="OD-s-copy">
+                    <connections>
+                        <action selector="copyName:" target="-2" id="OD-s-copy-a"/>
+                    </connections>
+                </menuItem>
+            </items>
+        </menu>
+        <customView id="OD-root" userLabel="OData Navigator">
+            <rect key="frame" x="0.0" y="0.0" width="240" height="600"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="18" horizontalPageScroll="10" verticalLineScroll="18" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="OD-scroll">
+                    <rect key="frame" x="0.0" y="24.0" width="240" height="576"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    <clipView key="contentView" drawsBackground="NO" id="OD-clip">
+                        <rect key="frame" x="0.0" y="0.0" width="240" height="576"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <outlineView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" columnResizing="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="18" rowSizeStyle="small" indentationPerLevel="12" outlineTableColumn="OD-col" id="OD-outline" userLabel="Services and What They Serve">
+                                <rect key="frame" x="0.0" y="0.0" width="240" height="576"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <size key="intercellSpacing" width="3" height="0.0"/>
+                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                <tableColumns>
+                                    <tableColumn identifier="name" editable="NO" width="234" minWidth="40" maxWidth="1000" id="OD-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Services">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="OD-cell" customClass="UDBadgeTextFieldCell" userLabel="Name, with its State or Kind">
+                                            <font key="font" metaFont="smallSystem"/>
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES"/>
+                                    </tableColumn>
+                                </tableColumns>
+                                <connections>
+                                    <action trigger="doubleAction" selector="openItem:" target="-2" id="OD-a-double"/>
+                                    <outlet property="dataSource" destination="-2" id="OD-o-source"/>
+                                    <outlet property="delegate" destination="-2" id="OD-o-delegate"/>
+                                    <outlet property="menu" destination="OD-menu" id="OD-o-menu"/>
+                                </connections>
+                            </outlineView>
+                        </subviews>
+                        <nil key="backgroundColor"/>
+                    </clipView>
+                    <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="OD-hscroll">
+                        <rect key="frame" x="-100" y="-100" width="223" height="15"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                    <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="OD-vscroll">
+                        <rect key="frame" x="-100" y="-100" width="15" height="102"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                </scrollView>
+                <button toolTip="Add a service" verticalHuggingPriority="750" id="OD-add" userLabel="Add">
+                    <rect key="frame" x="4.0" y="2.0" width="24.0" height="20.0"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <buttonCell key="cell" type="smallSquare" title="+" bezelStyle="smallSquare" alignment="center" lineBreakMode="truncatingTail" borderStyle="border" inset="2" id="OD-add-cell">
+                        <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        <font key="font" metaFont="system"/>
+                    </buttonCell>
+                    <connections>
+                        <action selector="addService:" target="-2" id="OD-a-add"/>
+                    </connections>
+                </button>
+                <button toolTip="Remove the service" verticalHuggingPriority="750" id="OD-remove" userLabel="Remove">
+                    <rect key="frame" x="32.0" y="2.0" width="24.0" height="20.0"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <buttonCell key="cell" type="smallSquare" title="−" bezelStyle="smallSquare" alignment="center" lineBreakMode="truncatingTail" borderStyle="border" inset="2" id="OD-remove-cell">
+                        <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        <font key="font" metaFont="system"/>
+                    </buttonCell>
+                    <connections>
+                        <action selector="removeService:" target="-2" id="OD-a-remove"/>
+                    </connections>
+                </button>
+                <button toolTip="Connect again: its $metadata read again" verticalHuggingPriority="750" id="OD-refresh" userLabel="Refresh">
+                    <rect key="frame" x="60.0" y="2.0" width="24.0" height="20.0"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                    <buttonCell key="cell" type="smallSquare" title="↻" bezelStyle="smallSquare" alignment="center" lineBreakMode="truncatingTail" borderStyle="border" inset="2" id="OD-refresh-cell">
+                        <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                        <font key="font" metaFont="system"/>
+                    </buttonCell>
+                    <connections>
+                        <action selector="refreshService:" target="-2" id="OD-a-refresh"/>
+                    </connections>
+                </button>
+            </subviews>
+            <point key="canvasLocation" x="200" y="200"/>
+        </customView>
+    </objects>
+</document>

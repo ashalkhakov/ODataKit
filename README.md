@@ -140,6 +140,13 @@ and on a desktop, macOS or Linux ([its desktop counterpart](Examples/DeviceDeskt
 Each syncs over the network with a Workbench that serves its built-in service,
 and with the other devices nearby ([peer sync](docs/peer-sync.md)).
 
+The Workbench also runs inside [UDCode](https://github.com/ashalkhakov/UDCodeKit),
+as its OData Workbench extension: the services you work with kept per project
+or for you, requests built in `.odataq` files (queries, creates, updates,
+deletes, calls; taken away as curl) and sent from the editor, the answers,
+the wire log and traces in UDCode's bottom area. Each release
+attaches its `.udcx` packages ([docs/UDCODE.md](docs/UDCODE.md)).
+
 ## What works
 
 - **Reading**: filters (comparisons, `in`, string, date and arithmetic

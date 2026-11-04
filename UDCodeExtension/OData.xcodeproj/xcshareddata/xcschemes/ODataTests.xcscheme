@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion = "2600" version = "1.3">
+   <BuildAction parallelizeBuildables = "YES" buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry buildForTesting = "YES" buildForRunning = "YES" buildForProfiling = "YES" buildForArchiving = "YES" buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5129A0C18D36E1BD3CE3D3CC"
+               BuildableName = "OData.bundle"
+               BlueprintName = "OData"
+               ReferencedContainer = "container:OData.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry buildForTesting = "YES" buildForRunning = "NO" buildForProfiling = "NO" buildForArchiving = "NO" buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4B3ABF69A0546D309EAB5BD0"
+               BuildableName = "ODataTests.xctest"
+               BlueprintName = "ODataTests"
+               ReferencedContainer = "container:OData.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction buildConfiguration = "Debug" selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv = "YES">
+      <Testables>
+         <TestableReference skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4B3ABF69A0546D309EAB5BD0"
+               BuildableName = "ODataTests.xctest"
+               BlueprintName = "ODataTests"
+               ReferencedContainer = "container:OData.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
+   </TestAction>
+   <LaunchAction buildConfiguration = "Debug" launchStyle = "0" useCustomWorkingDirectory = "NO" ignoresPersistentStateOnLaunch = "NO" debugDocumentVersioning = "YES" debugServiceExtension = "internal" allowLocationSimulation = "YES">
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "5129A0C18D36E1BD3CE3D3CC"
+            BuildableName = "OData.bundle"
+            BlueprintName = "OData"
+            ReferencedContainer = "container:OData.xcodeproj">
+         </BuildableReference>
+      </MacroExpansion>
+   </LaunchAction>
+   <ArchiveAction buildConfiguration = "Release" revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>

@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="NO" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="ODWBottomViewController">
+            <connections>
+                <outlet property="view" destination="BP-root" id="BP-o-view"/>
+                <outlet property="paneSwitch" destination="BP-switch" id="BP-o-switch"/>
+                <outlet property="statusLabel" destination="BP-status" id="BP-o-status"/>
+                <outlet property="tabView" destination="BP-tabs" id="BP-o-tabs"/>
+                <outlet property="rowsTable" destination="BP-rows" id="BP-o-rows"/>
+                <outlet property="templateColumn" destination="BP-rows-template" id="BP-o-template"/>
+                <outlet property="jsonView" destination="BP-json" id="BP-o-json"/>
+                <outlet property="logTable" destination="BP-log" id="BP-o-log"/>
+                <outlet property="exchangeView" destination="BP-exchange" id="BP-o-exchange"/>
+                <outlet property="tracesHost" destination="BP-traces-host" id="BP-o-traces"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <!-- The OData extension's segment of the bottom area
+             (ODWBottomViewController): the last answer (its rows, its JSON),
+             the wire log (every exchange, the chosen one as it went), and
+             traces (WBTracesViewController, put in its host from code). -->
+        <customView id="BP-root" userLabel="OData">
+            <rect key="frame" x="0.0" y="0.0" width="900" height="240"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <segmentedControl verticalHuggingPriority="750" id="BP-switch" userLabel="Results, Wire Log, Traces">
+                    <rect key="frame" x="6" y="217" width="240" height="20"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                    <segmentedCell key="cell" borderStyle="border" alignment="left" style="rounded" trackingMode="selectOne" id="BP-switch-cell">
+                        <font key="font" metaFont="smallSystem"/>
+                        <segments>
+                            <segment label="Results" width="78" selected="YES"/>
+                            <segment label="Wire Log" width="78" tag="1"/>
+                            <segment label="Traces" width="78" tag="2"/>
+                        </segments>
+                    </segmentedCell>
+                    <connections>
+                        <action selector="paneChanged:" target="-2" id="BP-a-switch"/>
+                    </connections>
+                </segmentedControl>
+                <textField verticalHuggingPriority="750" id="BP-status">
+                    <rect key="frame" x="254" y="219" width="640" height="16"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                    <textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" title="No request sent yet: Execute, or Editor > Run (⌘↩), in an .odataq builder." id="BP-status-cell">
+                        <font key="font" metaFont="smallSystem"/>
+                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
+                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                    </textFieldCell>
+                </textField>
+                <tabView type="noTabsNoBorder" id="BP-tabs">
+                    <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    <font key="font" metaFont="system"/>
+                    <tabViewItems>
+                        <tabViewItem label="Results" identifier="results" id="BP-tab-results">
+                            <view key="view" id="BP-tab-results-view">
+                                <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <subviews>
+                                <splitView arrangesAllSubviews="NO" dividerStyle="thin" id="BP-results-split" userLabel="Rows and JSON">
+                                    <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="18" horizontalPageScroll="10" verticalLineScroll="18" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="BP-rows-scroll">
+                                            <rect key="frame" x="0" y="0" width="900" height="130"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" id="BP-rows-scroll-clip">
+                                                <rect key="frame" x="0.0" y="23" width="900" height="107"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="none" multipleSelection="NO" autosaveColumns="NO" rowHeight="18" rowSizeStyle="small" headerView="BP-rows-scroll-header" id="BP-rows">
+                                                        <rect key="frame" x="0.0" y="0.0" width="900" height="107"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <size key="intercellSpacing" width="3" height="0.0"/>
+                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                        <tableViewGridLines key="gridStyleMask" vertical="YES"/>
+                                                        <tableColumns>
+                                                    <tableColumn identifier="template" editable="NO" width="120" minWidth="30" maxWidth="2000" id="BP-rows-template">
+                                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Column">
+                                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                        </tableHeaderCell>
+                                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="BP-rows-template-cell">
+                                                            <font key="font" metaFont="smallSystem"/>
+                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        </textFieldCell>
+                                                        <tableColumnResizingMask key="resizingMask" userResizable="YES"/>
+                                                    </tableColumn>
+                                                        </tableColumns>
+                                                        <connections>
+                                                            <outlet property="dataSource" destination="-2" id="BP-rows-ds"/>
+                                                            <outlet property="delegate" destination="-2" id="BP-rows-dg"/>
+                                                        </connections>
+                                                    </tableView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="BP-rows-scroll-h">
+                                                <rect key="frame" x="-100" y="-100" width="100" height="15"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="BP-rows-scroll-v">
+                                                <rect key="frame" x="-100" y="-100" width="15" height="100"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <tableHeaderView key="headerView" id="BP-rows-scroll-header">
+                                                <rect key="frame" x="0.0" y="0.0" width="900" height="23"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </tableHeaderView>
+                                        </scrollView>
+                                        <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="BP-json-scroll">
+                                            <rect key="frame" x="0" y="131" width="900" height="85"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" id="BP-json-scroll-clip">
+                                                <rect key="frame" x="0.0" y="0.0" width="900" height="85"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <textView editable="NO" importsGraphics="NO" richText="NO" verticallyResizable="YES" usesFontPanel="NO" findStyle="panel" allowsUndo="NO" id="BP-json">
+                                                        <rect key="frame" x="0.0" y="0.0" width="900" height="85"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <size key="minSize" width="900" height="85"/>
+                                                        <size key="maxSize" width="10000000" height="10000000"/>
+                                                    </textView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="BP-json-scroll-h">
+                                                <rect key="frame" x="-100" y="-100" width="100" height="15"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="BP-json-scroll-v">
+                                                <rect key="frame" x="-100" y="-100" width="15" height="100"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                        </scrollView>
+                                    </subviews>
+                                    <holdingPriorities>
+                                        <real value="250"/>
+                                        <real value="260"/>
+                                    </holdingPriorities>
+                                </splitView>
+                                </subviews>
+                            </view>
+                        </tabViewItem>
+                        <tabViewItem label="Wire Log" identifier="log" id="BP-tab-log">
+                            <view key="view" id="BP-tab-log-view">
+                                <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <subviews>
+                                <splitView arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" id="BP-log-split" userLabel="Exchanges and the Chosen One">
+                                    <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="18" horizontalPageScroll="10" verticalLineScroll="18" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="BP-log-scroll">
+                                            <rect key="frame" x="0" y="0" width="440" height="216"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" id="BP-log-scroll-clip">
+                                                <rect key="frame" x="0.0" y="23" width="440" height="193"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="18" rowSizeStyle="small" headerView="BP-log-scroll-header" id="BP-log">
+                                                        <rect key="frame" x="0.0" y="0.0" width="440" height="193"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <size key="intercellSpacing" width="3" height="0.0"/>
+                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                        <tableViewGridLines key="gridStyleMask" vertical="YES"/>
+                                                        <tableColumns>
+                                                    <tableColumn identifier="time" editable="NO" width="80" minWidth="30" maxWidth="2000" id="BP-log-time">
+                                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Time">
+                                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                        </tableHeaderCell>
+                                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="BP-log-time-cell">
+                                                            <font key="font" metaFont="smallSystem"/>
+                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        </textFieldCell>
+                                                        <tableColumnResizingMask key="resizingMask" userResizable="YES"/>
+                                                    </tableColumn>
+                                                    <tableColumn identifier="method" editable="NO" width="56" minWidth="30" maxWidth="2000" id="BP-log-method">
+                                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Method">
+                                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                        </tableHeaderCell>
+                                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="BP-log-method-cell">
+                                                            <font key="font" metaFont="smallSystem"/>
+                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        </textFieldCell>
+                                                        <tableColumnResizingMask key="resizingMask" userResizable="YES"/>
+                                                    </tableColumn>
+                                                    <tableColumn identifier="status" editable="NO" width="48" minWidth="30" maxWidth="2000" id="BP-log-status">
+                                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Status">
+                                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                        </tableHeaderCell>
+                                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="BP-log-status-cell">
+                                                            <font key="font" metaFont="smallSystem"/>
+                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        </textFieldCell>
+                                                        <tableColumnResizingMask key="resizingMask" userResizable="YES"/>
+                                                    </tableColumn>
+                                                    <tableColumn identifier="URL" editable="NO" width="240" minWidth="30" maxWidth="2000" id="BP-log-url">
+                                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="URL">
+                                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                        </tableHeaderCell>
+                                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" title="Text Cell" id="BP-log-url-cell">
+                                                            <font key="font" metaFont="smallSystem"/>
+                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        </textFieldCell>
+                                                        <tableColumnResizingMask key="resizingMask" userResizable="YES"/>
+                                                    </tableColumn>
+                                                        </tableColumns>
+                                                        <connections>
+                                                            <outlet property="dataSource" destination="-2" id="BP-log-ds"/>
+                                                            <outlet property="delegate" destination="-2" id="BP-log-dg"/>
+                                                        </connections>
+                                                    </tableView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="BP-log-scroll-h">
+                                                <rect key="frame" x="-100" y="-100" width="100" height="15"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="BP-log-scroll-v">
+                                                <rect key="frame" x="-100" y="-100" width="15" height="100"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <tableHeaderView key="headerView" id="BP-log-scroll-header">
+                                                <rect key="frame" x="0.0" y="0.0" width="440" height="23"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </tableHeaderView>
+                                        </scrollView>
+                                        <scrollView borderType="none" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="BP-exchange-scroll">
+                                            <rect key="frame" x="441" y="0" width="459" height="216"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" id="BP-exchange-scroll-clip">
+                                                <rect key="frame" x="0.0" y="0.0" width="459" height="216"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <textView editable="NO" importsGraphics="NO" richText="NO" verticallyResizable="YES" usesFontPanel="NO" findStyle="panel" allowsUndo="NO" id="BP-exchange">
+                                                        <rect key="frame" x="0.0" y="0.0" width="459" height="216"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <size key="minSize" width="459" height="216"/>
+                                                        <size key="maxSize" width="10000000" height="10000000"/>
+                                                    </textView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="BP-exchange-scroll-h">
+                                                <rect key="frame" x="-100" y="-100" width="100" height="15"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="BP-exchange-scroll-v">
+                                                <rect key="frame" x="-100" y="-100" width="15" height="100"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                            </scroller>
+                                        </scrollView>
+                                    </subviews>
+                                    <holdingPriorities>
+                                        <real value="260"/>
+                                        <real value="250"/>
+                                    </holdingPriorities>
+                                </splitView>
+                                </subviews>
+                            </view>
+                        </tabViewItem>
+                        <tabViewItem label="Traces" identifier="traces" id="BP-tab-traces">
+                            <view key="view" id="BP-tab-traces-view">
+                                <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <subviews>
+                                    <customView id="BP-traces-host" userLabel="Traces">
+                                        <rect key="frame" x="0.0" y="0.0" width="900" height="216"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    </customView>
+                                </subviews>
+                            </view>
+                        </tabViewItem>
+                    </tabViewItems>
+                </tabView>
+            </subviews>
+        </customView>
+    </objects>
+</document>

@@ -1,0 +1,11 @@
+{
+  "name": "odata",
+  "publisher": "ashalkhakov",
+  "displayName": "OData Workbench",
+  "description": "OData v4 services in UDCode: saved services (the Workbench's built-in sample, Northwind, TripPin, your own), requests built in .odataq files (queries, creates, updates, deletes, calls; as curl too) and sent from the editor, their answers, the wire log and traces",
+  "version": "0.0.0",
+  "license": "LGPL-2.1-or-later",
+  "repository": "https://github.com/ashalkhakov/ODataKit",
+  "engines": { "udcode": "^0.19.0" },
+  "main": "./OData.bundle"
+}

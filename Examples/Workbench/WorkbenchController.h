@@ -12,15 +12,15 @@
 @property (nonatomic, strong) IBOutlet NSTextField *serviceURLField;
 @property (nonatomic, strong) IBOutlet NSButton *connectButton;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *presetsPopup;
-@property (nonatomic, strong) IBOutlet NSPopUpButton *entityPopup;
-@property (nonatomic, strong) IBOutlet NSPopUpButton *resultTypePopup;
-@property (nonatomic, strong) IBOutlet NSTextField *limitField;
-@property (nonatomic, strong) IBOutlet NSTextField *skipField;
-@property (nonatomic, strong) IBOutlet NSTextField *batchSizeField;
-@property (nonatomic, strong) IBOutlet NSButton *subentitiesButton;
-@property (nonatomic, strong) IBOutlet NSTextView *predicateView;
-@property (nonatomic, strong) IBOutlet NSButton *faultsButton;
-@property (nonatomic, strong) IBOutlet NSTextField *wireURLField;
+@property (nonatomic, readonly) NSPopUpButton *entityPopup;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSPopUpButton *resultTypePopup;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSTextField *limitField;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSTextField *skipField;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSTextField *batchSizeField;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSButton *subentitiesButton;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSTextView *predicateView;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSButton *faultsButton;  // the query panel's (WBQueryPanel)
+@property (nonatomic, readonly) NSTextField *wireURLField;  // the query panel's (WBQueryPanel)
 @property (nonatomic, strong) IBOutlet NSTextField *statusField;
 @property (nonatomic, strong) IBOutlet NSTableView *tableView;
 // The wire log: a table of exchanges, put in this scroll view.

@@ -46,6 +46,14 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSMutableSet<NSString *> *prefetch;
 @property (nonatomic, readonly) NSMutableSet<NSString *> *select;
 
+// All of it, as a property list a file keeps (UDCode's OData builder's):
+// entity, type (objects, object IDs, dictionary, count), predicate, sort
+// ([{key, descending}]), expand and select (key paths and names), limit,
+// skip, pageSize, subentities, faults, search, compute, group, aggregate,
+// time; only what differs from a new query. And taken back: what the
+// dictionary leaves out, a new query's.
+- (NSDictionary *)dictionary;
+- (void)takeDictionary:(NSDictionary *)dictionary;
 - (NSArray<NSString *> *)entityNames;
 // The entity asked for, or the model's first.
 - (nullable NSEntityDescription *)entity;

@@ -16,4 +16,7 @@
    <FileRef
       location = "group:ODataKit.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:UDCodeExtension/OData.xcodeproj">
+   </FileRef>
 </Workspace>
