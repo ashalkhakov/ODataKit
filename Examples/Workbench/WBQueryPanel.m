@@ -12,6 +12,10 @@
 @property (nonatomic, readwrite, strong) IBOutlet NSButton *subentitiesButton;
 @property (nonatomic, readwrite, strong) IBOutlet NSButton *faultsButton;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *predicateView;
+@property (nonatomic, readwrite, strong) IBOutlet NSPredicateEditor *predicateEditor;
+@property (nonatomic, readwrite, strong) IBOutlet NSSegmentedControl *predicateModeControl;
+@property (nonatomic, strong) IBOutlet NSTabView *predicateTabView;
+@property (nonatomic, strong) IBOutlet NSTextField *predicateNote;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *timeField;
 @property (nonatomic, readwrite, strong) IBOutlet NSTableView *sortTable;
 @property (nonatomic, readwrite, strong) IBOutlet NSOutlineView *expandOutline;
@@ -27,6 +31,7 @@
 
 @implementation WBQueryPanel {
   NSMutableDictionary *_pathItems;  // key path -> the one string the outline knows it by
+  BOOL _prefersText;                // Text chosen: kept until Builder is
 }
 
 - (instancetype)init
@@ -122,6 +127,7 @@
                  : _query.resultType == NSManagedObjectIDResultType ? @"object IDs" : @"objects";
   [_resultTypePopup selectItemWithTitle:type];
   _predicateView.string = _query.predicateText ?: @"";
+  [self showPredicate];
   _limitField.stringValue = _query.limitText ?: @"";
   _skipField.stringValue = _query.skipText ?: @"";
   _searchField.stringValue = _query.searchText ?: @"";
@@ -169,9 +175,137 @@
 
 - (void)predicateChanged:(NSNotification *)n
 {
-  (void)n;
+  // Typed: whether the builder can show it now.
+  if (n) [self setBuilderAvailable:[self showTextInBuilder:_predicateView.string]];
   [self changed];
   [self refreshTranslation];
+}
+
+#pragma mark The predicate, built or written
+
+// All, Any and None (the XIB's), and a row for each of the entity's
+// attributes that has operators: a binary or transformable one has none.
+- (void)rebuildPredicateTemplates
+{
+  NSMutableArray *templates = [NSMutableArray array];
+  for (NSPredicateEditorRowTemplate *template in _predicateEditor.rowTemplates) {
+    if (template.compoundTypes) {
+      [templates addObject:template];
+      break;
+    }
+  }
+  NSEntityDescription *entity = [_query entity];
+  NSMutableArray *paths = [NSMutableArray array];
+  for (NSString *name in [entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    NSAttributeDescription *attribute = entity.attributesByName[name];  // gnustep-base: no generics to type the subscript
+    switch (attribute.attributeType) {
+      case NSInteger16AttributeType:
+      case NSInteger32AttributeType:
+      case NSInteger64AttributeType:
+      case NSDecimalAttributeType:
+      case NSDoubleAttributeType:
+      case NSFloatAttributeType:
+      case NSStringAttributeType:
+      case NSBooleanAttributeType:
+      case NSDateAttributeType:
+        [paths addObject:name];
+        break;
+      default:
+        break;
+    }
+  }
+  if (paths.count) {
+    [templates addObjectsFromArray:[NSPredicateEditorRowTemplate templatesWithAttributeKeyPaths:paths inEntityDescription:entity]];
+  }
+  _predicateEditor.rowTemplates = templates;
+}
+
+// The builder's predicate as text: none for no rows, or All of nothing.
+- (NSString *)builderText
+{
+  NSPredicate *predicate = _predicateEditor.predicate;
+  NSString *format = predicate.predicateFormat;
+  return !format || [format isEqualToString:@"TRUEPREDICATE"] ? @"" : format;
+}
+
+// The text into the builder, if it can show it as it is: it reads back the
+// same predicate. A comparison alone goes under All, so that a row added
+// beside it joins it.
+- (BOOL)showTextInBuilder:(NSString *)text
+{
+  NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  if ([trimmed hasPrefix:@"$"]) return NO;
+  NSPredicate *predicate = nil;
+  if (trimmed.length) {
+    @try {
+      predicate = [NSPredicate predicateWithFormat:trimmed];
+    } @catch (NSException *exception) {
+      return NO;
+    }
+  }
+  @try {
+    if (!predicate) {
+      // Nothing: All, with no rows under it yet.
+      _predicateEditor.objectValue = nil;
+      [_predicateEditor insertRowAtIndex:0 withType:NSRuleEditorRowTypeCompound asSubrowOfRow:-1 animate:NO];
+    } else if ([predicate isKindOfClass:[NSCompoundPredicate class]]) {
+      _predicateEditor.objectValue = predicate;
+    } else {
+      _predicateEditor.objectValue = [NSCompoundPredicate andPredicateWithSubpredicates:@[ predicate ]];
+    }
+  } @catch (NSException *exception) {
+    return NO;
+  }
+  return [[self builderText] isEqualToString:predicate ? predicate.predicateFormat : @""];
+}
+
+- (void)setBuilderAvailable:(BOOL)available
+{
+  [_predicateModeControl setEnabled:available forSegment:0];
+  _predicateNote.hidden = available;
+  if (!available) [self selectPredicatePage:NO];
+}
+
+- (void)selectPredicatePage:(BOOL)builder
+{
+  [_predicateTabView selectTabViewItemWithIdentifier:builder ? @"builder" : @"text"];
+  _predicateModeControl.selectedSegment = builder ? 0 : 1;
+}
+
+- (BOOL)showsPredicateBuilder
+{
+  return [_predicateTabView.selectedTabViewItem.identifier isEqual:@"builder"];
+}
+
+// The query's predicate shown: in the builder unless Text was chosen, or
+// the builder cannot show it.
+- (void)showPredicate
+{
+  [self rebuildPredicateTemplates];
+  BOOL shown = [self showTextInBuilder:_predicateView.string];
+  [self setBuilderAvailable:shown];
+  [self selectPredicatePage:shown && !_prefersText];
+}
+
+- (IBAction)predicateEdited:(id)sender
+{
+  (void)sender;
+  _predicateView.string = [self builderText];
+  [self predicateChanged:nil];
+}
+
+- (IBAction)predicateModeChanged:(id)sender
+{
+  (void)sender;
+  if (_predicateModeControl.selectedSegment == 0) {
+    BOOL shown = [self showTextInBuilder:_predicateView.string];
+    [self setBuilderAvailable:shown];
+    if (shown) _prefersText = NO;
+    [self selectPredicatePage:shown];
+  } else {
+    _prefersText = YES;
+    [self selectPredicatePage:NO];
+  }
 }
 
 // A switch of the query's: result type, sub-entities, faults.

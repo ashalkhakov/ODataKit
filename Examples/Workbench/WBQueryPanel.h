@@ -50,6 +50,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSButton *subentitiesButton;
 @property (nonatomic, readonly) NSButton *faultsButton;
 @property (nonatomic, readonly) NSTextView *predicateView;
+// The predicate built: rows of the entity's attributes, under All, Any or
+// None. The text stays the query's; the builder shows it where it can.
+@property (nonatomic, readonly) NSPredicateEditor *predicateEditor;
+// Builder or Text. Builder is off for a text it cannot show: OData's own
+// options ($...), a hierarchy test, what no row can say.
+@property (nonatomic, readonly) NSSegmentedControl *predicateModeControl;
+@property (nonatomic, readonly) BOOL showsPredicateBuilder;
 @property (nonatomic, readonly) NSTextField *timeField;
 @property (nonatomic, readonly) NSTableView *sortTable;
 @property (nonatomic, readonly) NSOutlineView *expandOutline;
@@ -65,6 +72,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // The predicate typed in (its text view's change).
 - (void)predicateChanged:(nullable NSNotification *)notification;
+// The predicate built (the editor's action): written into the text.
+- (IBAction)predicateEdited:(nullable id)sender;
+// Builder or Text chosen.
+- (IBAction)predicateModeChanged:(nullable id)sender;
 - (IBAction)entityChanged:(nullable id)sender;
 - (IBAction)queryChanged:(nullable id)sender;
 - (IBAction)addSort:(nullable id)sender;

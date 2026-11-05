@@ -24,7 +24,8 @@ Each ODataKit release attaches a package for each platform:
 Install it with **UDCode > Extensions… > Install from Package…**, or from a
 shell with `UDCode --install-extension odata-<version>-<platform>.udcx`,
 then start UDCode again. A package states which UDCode versions it is for
-(`engines.udcode` in its `package.json`: 0.19 and later), and UDCode refuses
+(`engines.udcode` in its `package.json`: 0.19.2 and later 0.19 releases, whose
+GNUstep has the predicate editor its query builder uses), and UDCode refuses
 one built for another version or another platform.
 
 ## Services
@@ -63,7 +64,8 @@ double-clicking an entity set, which also sends it.
 The **Request** popup says what kind it is:
 
 - **Query (GET)**: the Workbench's query panel, a field or a list a row: an
-  entity, a predicate in `NSPredicate` syntax, `$top`, `$skip` and a page
+  entity, a predicate in `NSPredicate` syntax, built as rows of the
+  entity's attributes (**Builder**) or written (**Text**), `$top`, `$skip` and a page
   size, the result type (objects, object IDs, dictionaries, a count); sort
   keys (`$orderby`), relationships to prefetch, opened to nest (`$expand`),
   the properties of a dictionary result (`$select`); `$search`, values
@@ -220,6 +222,9 @@ The tests in `UDCodeExtension/Tests` (`ODWTests`, run by `make check` and by
   built-in service, and curl gives it quoted for a shell;
 - Insert Request and Insert Call open a builder set up for the request, from
   the row's context menu;
+- the predicate is shown in the predicate editor, its rows the entity's
+  attributes, and what is built there is the query's text and its
+  `$filter`; a text the editor cannot show stays text, with Builder off;
 - a query is kept whole as JSON and read back, and the builder writes each
   change into its document (another kind of request too), reads the
   document's changes back, and sends its request; given a key, a query is
