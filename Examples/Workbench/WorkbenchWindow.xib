@@ -175,11 +175,11 @@
                         </connections>
                     </button>
                     <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="QPH" userLabel="Query Panel (WBQueryPanel.xib)">
-                        <rect key="frame" x="16" y="515" width="1084" height="297"/>
+                        <rect key="frame" x="16" y="451" width="1084" height="361"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                     </customView>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="TSCR">
-                        <rect key="frame" x="16" y="176" width="700" height="336"/>
+                        <rect key="frame" x="16" y="176" width="700" height="272"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <clipView key="contentView" id="TCLIP">
                             <rect key="frame" x="1" y="1" width="698" height="334"/>
@@ -214,7 +214,7 @@
                         </tableHeaderView>
                     </scrollView>
                     <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="17" horizontalPageScroll="10" verticalLineScroll="17" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="LSCR">
-                        <rect key="frame" x="728" y="176" width="372" height="336"/>
+                        <rect key="frame" x="728" y="176" width="372" height="272"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
                         <clipView key="contentView" id="LCLIP">
                             <rect key="frame" x="1" y="1" width="370" height="334"/>

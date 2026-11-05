@@ -453,12 +453,74 @@
   [window orderOut:nil];
 }
 
+#pragma mark The predicate, built or written
+
+// The query's predicate in the builder, its rows the entity's attributes;
+// what is built is the text, and the GET's $filter. A text the builder
+// cannot show stays text, and Builder is off for it.
+- (void)testThePredicateIsBuiltOrWritten
+{
+  ODWService *builtIn = [self connectedBuiltIn];
+  XCTAssertTrue(builtIn.connected, @"%@", builtIn.failure);
+  WBQueryPanel *panel = [[WBQueryPanel alloc] initStacked:YES];
+  panel.connection = builtIn.connection;
+  WBQuery *query = [[WBQuery alloc] initWithModel:builtIn.connection.model builtIn:YES];
+  query.entityName = @"Product";
+  query.predicateText = @"unitPrice > 10";
+  panel.query = query;
+  XCTAssertTrue(panel.showsPredicateBuilder, @"a comparison is shown in the builder");
+  XCTAssertTrue([panel.predicateModeControl isEnabledForSegment:0]);
+  XCTAssertGreaterThan(panel.predicateEditor.rowTemplates.count, 1u, @"rows for the entity's attributes");
+  XCTAssertEqual(panel.predicateEditor.numberOfRows, 2, @"under All");
+  XCTAssertEqualObjects(panel.predicateEditor.predicate.predicateFormat, @"unitPrice > 10");
+
+  // Built: the text, and the GET.
+  panel.predicateEditor.objectValue = [NSPredicate predicateWithFormat:@"unitPrice > 1 AND name BEGINSWITH 'C'"];
+  [NSApp sendAction:panel.predicateEditor.action to:panel.predicateEditor.target from:panel.predicateEditor];
+  XCTAssertEqualObjects(panel.predicateView.string,
+                        [NSPredicate predicateWithFormat:@"unitPrice > 1 AND name BEGINSWITH 'C'"].predicateFormat);
+  XCTAssertEqualObjects([panel currentQuery].predicateText, panel.predicateView.string, @"the query's text is the builder's");
+  XCTAssertTrue([panel.translation rangeOfString:@"$filter="].location != NSNotFound &&
+                [panel.translation rangeOfString:@"startswith"].location != NSNotFound, @"%@", panel.translation);
+
+  // What the builder cannot show: OData's own options, a case-insensitive
+  // comparison (no row has [c]), a text that does not parse.
+  for (NSString *text in @[ @"$filter=UnitPrice gt 1", @"name ==[c] 'chai'", @"unitPrice >" ]) {
+    query.predicateText = text;
+    [panel showQueryControls];
+    XCTAssertFalse(panel.showsPredicateBuilder, @"%@", text);
+    XCTAssertFalse([panel.predicateModeControl isEnabledForSegment:0], @"%@", text);
+    XCTAssertEqualObjects(panel.predicateView.string, text, @"the text kept as it is");
+  }
+
+  // Typed: Builder is on again once the text can be shown, and shows it.
+  panel.predicateView.string = @"unitPrice < 5";
+  [panel predicateChanged:[NSNotification notificationWithName:NSTextDidChangeNotification object:panel.predicateView]];
+  XCTAssertTrue([panel.predicateModeControl isEnabledForSegment:0]);
+  panel.predicateModeControl.selectedSegment = 0;
+  [panel predicateModeChanged:panel.predicateModeControl];
+  XCTAssertTrue(panel.showsPredicateBuilder);
+  XCTAssertEqualObjects(panel.predicateEditor.predicate.predicateFormat, @"unitPrice < 5");
+
+  // Text chosen stays chosen; an empty predicate is All of nothing.
+  panel.predicateModeControl.selectedSegment = 1;
+  [panel predicateModeChanged:panel.predicateModeControl];
+  query.predicateText = @"";
+  [panel showQueryControls];
+  XCTAssertFalse(panel.showsPredicateBuilder, @"Text was chosen");
+  panel.predicateModeControl.selectedSegment = 0;
+  [panel predicateModeChanged:panel.predicateModeControl];
+  XCTAssertTrue(panel.showsPredicateBuilder);
+  XCTAssertEqual(panel.predicateEditor.numberOfRows, 1, @"All, with no rows under it");
+  XCTAssertEqualObjects([panel currentQuery].predicateText, @"");
+}
+
 #pragma mark The XIBs
 
 - (void)testBothPanelLayoutsLoadConnected
 {
   NSArray *outlets = @[ @"entityPopup", @"resultTypePopup", @"limitField", @"skipField", @"batchSizeField", @"subentitiesButton",
-                        @"faultsButton", @"predicateView", @"timeField", @"sortTable", @"expandOutline", @"selectTable",
+                        @"faultsButton", @"predicateView", @"predicateEditor", @"predicateModeControl", @"timeField", @"sortTable", @"expandOutline", @"selectTable",
                         @"searchField", @"computeField", @"groupField", @"aggregateField", @"wireURLField", @"explainButton",
                         @"executeButton" ];
   for (NSNumber *stacked in @[ @NO, @YES ]) {
@@ -471,6 +533,9 @@
       XCTAssertNotNil([panel valueForKey:outlet], @"%@, stacked %@", outlet, stacked);
     }
     if (!stacked.boolValue) XCTAssertEqualObjects(NSStringFromSelector(panel.executeButton.action), @"runFetch:");
+    XCTAssertEqualObjects(NSStringFromSelector(panel.predicateEditor.action), @"predicateEdited:", @"stacked %@", stacked);
+    XCTAssertEqual(panel.predicateEditor.target, (id)panel, @"stacked %@", stacked);
+    XCTAssertEqualObjects(NSStringFromSelector(panel.predicateModeControl.action), @"predicateModeChanged:", @"stacked %@", stacked);
     XCTAssertEqual(panel.sortTable.dataSource, (id)panel);
     XCTAssertEqual(panel.expandOutline.dataSource, (id)panel);
     XCTAssertEqual(panel.selectTable.dataSource, (id)panel);

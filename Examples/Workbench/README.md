@@ -70,7 +70,12 @@ What you can do:
   salesOrganization.id`); `ISNODE`, `ISROOT`, `ISLEAF` and `ISSIBLING`
   too; or, beginning with `$`, OData query options sent as they are
   written, by an `ODataQuery`: `$apply=traverse(…)&$expand=Superordinate`,
-  objects, or dictionaries for that result type, the other fields unused),
+  objects, or dictionaries for that result type, the other fields unused).
+  **Builder** shows the predicate as rows of the entity's attributes under
+  All, Any or None, and what you build there is the predicate's text;
+  **Text** is the text itself, and the only page for a text the builder
+  cannot show (OData's own options, a hierarchy's tests, a comparison with
+  options such as `[c]`). Then
   `$top`, `$skip`, a page size, sub-entities or not, and a result
   type (objects, object IDs, dictionaries, a count). The panel below holds
   the rest of what a fetch request can say: sort keys, as many as you like,

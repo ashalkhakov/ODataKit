@@ -20,6 +20,10 @@
                 <outlet property="groupField" destination="GRP" id="oGRP"/>
                 <outlet property="limitField" destination="LIM" id="c8"/>
                 <outlet property="predicateView" destination="PRED" id="c9"/>
+                <outlet property="predicateEditor" destination="PED" id="c9e"/>
+                <outlet property="predicateModeControl" destination="PMODE" id="c9m"/>
+                <outlet property="predicateTabView" destination="PTAB" id="c9t"/>
+                <outlet property="predicateNote" destination="PNOTE" id="c9n"/>
                 <outlet property="resultTypePopup" destination="RES" id="c4"/>
                 <outlet property="searchField" destination="SRCH" id="oSRCH"/>
                 <outlet property="selectTable" destination="SELT" id="oSELT"/>
@@ -37,11 +41,11 @@
              to the first responder: the Workbench's window controller, or a
              host's editor (UDCode's OData builder). -->
         <customView translatesAutoresizingMaskIntoConstraints="NO" id="QP-root" userLabel="Query Panel">
-            <rect key="frame" x="0.0" y="0.0" width="1084" height="297"/>
+            <rect key="frame" x="0.0" y="0.0" width="1084" height="361"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
             <subviews>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LENT">
-                        <rect key="frame" x="0.0" y="277" width="80" height="16"/>
+                        <rect key="frame" x="0.0" y="341" width="80" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Entity" id="LENTC">
                             <font key="font" metaFont="system"/>
@@ -49,7 +53,7 @@
                         </textFieldCell>
                     </textField>
                     <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ENT">
-                        <rect key="frame" x="0.0" y="253" width="150" height="24"/>
+                        <rect key="frame" x="0.0" y="317" width="150" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="borderAndBezel" inset="2" id="ENTC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -60,7 +64,7 @@
                         </connections>
                     </popUpButton>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LRES">
-                        <rect key="frame" x="160" y="277" width="80" height="16"/>
+                        <rect key="frame" x="160" y="341" width="80" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="Result" id="LRESC">
                             <font key="font" metaFont="system"/>
@@ -68,7 +72,7 @@
                         </textFieldCell>
                     </textField>
                     <popUpButton fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RES">
-                        <rect key="frame" x="160" y="253" width="150" height="24"/>
+                        <rect key="frame" x="160" y="317" width="150" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" title="objects" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" inset="2" selectedItem="R0" id="RESC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -86,7 +90,7 @@
                         </connections>
                     </popUpButton>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LLIM">
-                        <rect key="frame" x="320" y="277" width="60" height="16"/>
+                        <rect key="frame" x="320" y="341" width="60" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="$top" id="LLIMC">
                             <font key="font" metaFont="system"/>
@@ -94,7 +98,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LIM">
-                        <rect key="frame" x="320" y="253" width="60" height="22"/>
+                        <rect key="frame" x="320" y="317" width="60" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="∞" drawsBackground="YES" id="LIMC">
                             <font key="font" metaFont="system"/>
@@ -103,7 +107,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LSKP">
-                        <rect key="frame" x="388" y="277" width="60" height="16"/>
+                        <rect key="frame" x="388" y="341" width="60" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="$skip" id="LSKPC">
                             <font key="font" metaFont="system"/>
@@ -111,7 +115,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SKP">
-                        <rect key="frame" x="388" y="253" width="60" height="22"/>
+                        <rect key="frame" x="388" y="317" width="60" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="0" drawsBackground="YES" id="SKPC">
                             <font key="font" metaFont="system"/>
@@ -120,7 +124,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LBAT">
-                        <rect key="frame" x="456" y="277" width="80" height="16"/>
+                        <rect key="frame" x="456" y="341" width="80" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="page size" id="LBATC">
                             <font key="font" metaFont="system"/>
@@ -128,7 +132,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="BAT">
-                        <rect key="frame" x="456" y="253" width="70" height="22"/>
+                        <rect key="frame" x="456" y="317" width="70" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="service's" drawsBackground="YES" id="BATC">
                             <font key="font" metaFont="system"/>
@@ -137,7 +141,7 @@
                         </textFieldCell>
                     </textField>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SUB">
-                        <rect key="frame" x="538" y="253" width="130" height="24"/>
+                        <rect key="frame" x="538" y="317" width="130" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="sub-entities" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="SUBC">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -148,7 +152,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FLT">
-                        <rect key="frame" x="674" y="253" width="140" height="24"/>
+                        <rect key="frame" x="674" y="317" width="140" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="check" title="return as faults" bezelStyle="regularSquare" imagePosition="left" state="on" inset="2" id="FLTC">
                             <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
@@ -159,7 +163,7 @@
                         </connections>
                     </button>
                     <button fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GO">
-                        <rect key="frame" x="944" y="249" width="140" height="32"/>
+                        <rect key="frame" x="944" y="313" width="140" height="32"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                         <buttonCell key="cell" type="push" title="Execute" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="GOC">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
@@ -169,34 +173,125 @@
                         </connections>
                     </button>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LPRED">
-                        <rect key="frame" x="0.0" y="213" width="120" height="16"/>
+                        <rect key="frame" x="0.0" y="277" width="100" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="NSPredicate" id="LPREDC">
                             <font key="font" metaFont="system"/>
                             <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
-                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PSCR">
-                        <rect key="frame" x="0.0" y="173" width="1084" height="38"/>
+                    <!-- The predicate: built in the predicate editor, or written as text
+                         (WBQueryPanel shows the text where the builder cannot show it). -->
+                    <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="PMODE">
+                        <rect key="frame" x="104" y="274" width="136" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <segmentedCell key="cell" controlSize="small" borderStyle="border" alignment="left" style="rounded" trackingMode="selectOne" id="PMODEC">
+                            <font key="font" metaFont="smallSystem"/>
+                            <segments>
+                                <segment label="Builder" width="64" selected="YES"/>
+                                <segment label="Text" width="64" tag="1"/>
+                            </segments>
+                        </segmentedCell>
+                        <connections>
+                            <action selector="predicateModeChanged:" target="-2" id="PMODEA"/>
+                        </connections>
+                    </segmentedControl>
+                    <textField hidden="YES" focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="PNOTE">
+                        <rect key="frame" x="248" y="277" width="500" height="16"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" title="Text only: the builder cannot show this predicate." id="PNOTEC">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <tabView fixedFrame="YES" type="noTabsNoBorder" translatesAutoresizingMaskIntoConstraints="NO" id="PTAB">
+                        <rect key="frame" x="0" y="173" width="1084" height="102"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-                        <clipView key="contentView" id="PCLIP">
-                            <rect key="frame" x="1" y="1" width="1082" height="36"/>
-                            <autoresizingMask key="autoresizingMask"/>
-                            <subviews>
-                                <textView importsGraphics="NO" richText="NO" verticallyResizable="NO" id="PRED">
-                                    <rect key="frame" x="0.0" y="0.0" width="1082" height="36"/>
+                        <font key="font" metaFont="system"/>
+                        <tabViewItems>
+                            <tabViewItem label="Builder" identifier="builder" id="PTB">
+                                <view key="view" id="PTBV">
+                                    <rect key="frame" x="0.0" y="0.0" width="1084" height="102"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                    <size key="minSize" width="1082" height="36"/>
-                                    <size key="maxSize" width="1084" height="38"/>
-                                </textView>
-                            </subviews>
-                        </clipView>
-                        <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="PVS">
-                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
-                        </scroller>
-                    </scrollView>
+                                    <subviews>
+                                        <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PESCR">
+                                            <rect key="frame" x="0.0" y="0.0" width="1084" height="102"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" id="PECLIP">
+                                                <rect key="frame" x="1" y="1" width="1082" height="100"/>
+                                                <autoresizingMask key="autoresizingMask"/>
+                                                <subviews>
+                                                    <predicateEditor verticalHuggingPriority="750" nestingMode="compound" rowHeight="25" id="PED">
+                                                        <rect key="frame" x="0.0" y="0.0" width="1082" height="100"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                        <rowTemplates>
+                                                            <predicateEditorRowTemplate rowType="compound" id="PEDC">
+                                                                <popUpMenus>
+                                                                    <menu id="PEDM1">
+                                                                        <items>
+                                                                            <menuItem title="All" state="on" id="PEDA">
+                                                                                <integer key="representedObject" value="1"/>
+                                                                            </menuItem>
+                                                                            <menuItem title="Any" id="PEDO">
+                                                                                <integer key="representedObject" value="2"/>
+                                                                            </menuItem>
+                                                                            <menuItem title="None" id="PEDN">
+                                                                                <integer key="representedObject" value="0"/>
+                                                                            </menuItem>
+                                                                        </items>
+                                                                    </menu>
+                                                                    <menu id="PEDM2">
+                                                                        <items>
+                                                                            <menuItem title="of the following are true" state="on" id="PEDF"/>
+                                                                        </items>
+                                                                    </menu>
+                                                                </popUpMenus>
+                                                            </predicateEditorRowTemplate>
+                                                        </rowTemplates>
+                                                        <connections>
+                                                            <action selector="predicateEdited:" target="-2" id="PEDACT"/>
+                                                        </connections>
+                                                    </predicateEditor>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="PEVS">
+                                                <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                                            </scroller>
+                                        </scrollView>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="Text" identifier="text" id="PTT">
+                                <view key="view" id="PTTV">
+                                    <rect key="frame" x="0.0" y="0.0" width="1084" height="102"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                    <scrollView fixedFrame="YES" autohidesScrollers="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PSCR">
+                                        <rect key="frame" x="0.0" y="0.0" width="1084" height="102"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                        <clipView key="contentView" id="PCLIP">
+                                            <rect key="frame" x="1" y="1" width="1082" height="100"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <textView importsGraphics="NO" richText="NO" verticallyResizable="NO" id="PRED">
+                                                    <rect key="frame" x="0.0" y="0.0" width="1082" height="100"/>
+                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                    <size key="minSize" width="1082" height="100"/>
+                                                    <size key="maxSize" width="1084" height="102"/>
+                                                </textView>
+                                            </subviews>
+                                        </clipView>
+                                        <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="PVS">
+                                            <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMaxY="YES"/>
+                                        </scroller>
+                                    </scrollView>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                        </tabViewItems>
+                    </tabView>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="LTIME">
-                        <rect key="frame" x="820" y="277" width="120" height="16"/>
+                        <rect key="frame" x="820" y="341" width="120" height="16"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" title="application time" id="LTIMEC">
                             <font key="font" metaFont="system"/>
@@ -204,7 +299,7 @@
                         </textFieldCell>
                     </textField>
                     <textField focusRingType="none" horizontalCompressionResistancePriority="250" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TIME">
-                        <rect key="frame" x="820" y="253" width="118" height="22"/>
+                        <rect key="frame" x="820" y="317" width="118" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <textFieldCell key="cell" selectable="YES" editable="YES" state="on" borderStyle="bezel" placeholderString="2024-10-01, a..b" drawsBackground="YES" id="TIMEC">
                             <font key="font" metaFont="system"/>
