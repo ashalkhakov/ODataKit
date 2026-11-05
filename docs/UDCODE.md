@@ -24,7 +24,8 @@ Each ODataKit release attaches a package for each platform:
 Install it with **UDCode > Extensions… > Install from Package…**, or from a
 shell with `UDCode --install-extension odata-<version>-<platform>.udcx`,
 then start UDCode again. A package states which UDCode versions it is for
-(`engines.udcode` in its `package.json`: 0.19 and later), and UDCode refuses
+(`engines.udcode` in its `package.json`: 0.19.2 and later 0.19 releases, whose
+GNUstep has the predicate editor its query builder uses), and UDCode refuses
 one built for another version or another platform.
 
 ## Services
