@@ -16,6 +16,10 @@
 // A delta link the remote no longer follows.
 static const NSInteger ODSGone = 410;
 
+// How long a delta link that brought nothing new is kept over the one
+// given with it.
+static const NSTimeInterval ODSDeltaLinkKept = 3600;
+
 @implementation ODSDownloader {
   ODataSyncEngine *_engine;
   ODataSyncRemote *_remote;
@@ -23,6 +27,8 @@ static const NSInteger ODSGone = 410;
   ODSCodec *_codec;
   ODSRequests *_requests;
   ODataClient *_client;
+  // Rows and removals the pages read so far held.
+  NSUInteger _entries;
 }
 
 - (instancetype)initWithEngine:(ODataSyncEngine *)engine remote:(ODataSyncRemote *)remote
@@ -291,6 +297,7 @@ static const NSInteger ODSGone = 410;
       NSMutableArray *rows = [NSMutableArray array];
       for (NSDictionary *entry in [page[@"value"] isKindOfClass:[NSArray class]] ? page[@"value"] : @[]) {
         if (![entry isKindOfClass:[NSDictionary class]]) continue;
+        _entries++;
         BOOL removed = entry[@"@odata.removed"] != nil || [entry[@"@odata.context"] hasSuffix:@"$deletedEntity"];
         if (!removed) {
           [rows addObject:entry];
@@ -374,8 +381,10 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
 {
   OTSpan *span = [_engine.tracer startSpanNamed:[@"download " stringByAppendingString:entity.name] attributes:nil];
   NSManagedObject *state = [_engine.store stateOf:_remote inContext:context];
-  NSMutableDictionary *links = [ODSUnarchive([state valueForKey:@"deltaLinks"]) mutableCopy] ?: [NSMutableDictionary dictionary];
-  NSMutableDictionary *filters = [ODSUnarchive([state valueForKey:@"filters"]) mutableCopy] ?: [NSMutableDictionary dictionary];
+  NSDictionary *linksBefore = ODSUnarchive([state valueForKey:@"deltaLinks"]) ?: @{};
+  NSDictionary *filtersBefore = ODSUnarchive([state valueForKey:@"filters"]) ?: @{};
+  NSMutableDictionary *links = [linksBefore mutableCopy];
+  NSMutableDictionary *filters = [filtersBefore mutableCopy];
   NSString *filter = _remote.filters[entity.name];
   NSString *link = links[entity.name];
   // A filter that changed is another set: read again.
@@ -386,6 +395,7 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
   if (link && !ODSLinkIsUnder(link, _remote.serviceRoot)) link = nil;
   NSString *next = nil;
   BOOL ok = NO;
+  _entries = 0;
   if (link) {
     BOOL gone = NO;
     ok = [self follow:link entity:entity context:context deltaLink:&next gone:&gone error:error];
@@ -399,12 +409,28 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
     [span end];
     return NO;
   }
+  // Nothing new by the link: it is kept, not the one given now, which may
+  // differ only by when it was given (ODataService's do) -- else every sync
+  // of a remote with nothing new would write a link. A link given an hour
+  // after the one kept is kept instead, so the one kept stays well within
+  // the history a service keeps.
+  NSString *setName = entity.name;
+  if (ok && link && next && !_entries) {
+    NSDate *saved = [_engine deltaLinkSavedOf:_remote entity:setName];
+    if (saved && -saved.timeIntervalSinceNow < ODSDeltaLinkKept) next = link;
+  }
   // Read again: the context was emptied between pages.
   state = [_engine.store stateOf:_remote inContext:context];
   if (next) links[entity.name] = next; else [links removeObjectForKey:entity.name];
   if (filter) filters[entity.name] = filter; else [filters removeObjectForKey:entity.name];
-  [state setValue:ODSArchive(links) forKey:@"deltaLinks"];
-  [state setValue:ODSArchive(filters) forKey:@"filters"];
+  // Kept only when they moved: a link written again unchanged (each sync
+  // of a remote with nothing new) would be a transaction in the history
+  // for nothing.
+  if (![links isEqualToDictionary:linksBefore]) {
+    [state setValue:ODSArchive(links) forKey:@"deltaLinks"];
+    [_engine noteDeltaLinkSavedOf:_remote entity:setName];
+  }
+  if (![filters isEqualToDictionary:filtersBefore]) [state setValue:ODSArchive(filters) forKey:@"filters"];
   // The rows and the link that follows them, together.
   ok = [context save:error];
   [span end];

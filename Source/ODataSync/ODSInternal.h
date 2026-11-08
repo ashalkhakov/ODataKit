@@ -126,6 +126,10 @@ FOUNDATION_EXPORT NSSet<NSString *> *ODSChangedNames(NSDictionary *_Nullable bef
 - (ODataClient *)clientOf:(ODataSyncRemote *)remote;
 // The remote added with this identifier.
 - (nullable ODataSyncRemote *)remoteWithIdentifier:(NSString *)identifier;
+// When this engine last saved the remote's delta link for the set (nil:
+// not since it was made), and that it did now.
+- (nullable NSDate *)deltaLinkSavedOf:(ODataSyncRemote *)remote entity:(NSString *)entityName;
+- (void)noteDeltaLinkSavedOf:(ODataSyncRemote *)remote entity:(NSString *)entityName;
 // Deletions older than tombstoneRetention, forgotten.
 - (void)pruneTombstones;
 // What a sync did, as it goes: downloaded, removed, uploaded, refused, conflicts.

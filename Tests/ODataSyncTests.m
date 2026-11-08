@@ -874,6 +874,43 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
   XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"nothing folded twice: %@", _engine.lastResult);
 }
 
+// The transactions in the device's history.
+- (NSUInteger)historyCountOf:(NSPersistentStoreCoordinator *)coordinator
+{
+  __block NSUInteger count = 0;
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    NSPersistentHistoryChangeRequest *request = [NSPersistentHistoryChangeRequest fetchHistoryAfterToken:nil];
+    request.resultType = NSPersistentHistoryResultTypeTransactionsOnly;
+    count = [[(NSPersistentHistoryResult *)[context executeRequest:request error:NULL] result] count];
+  }];
+  return count;
+}
+
+// A sync with nothing new either way writes nothing: not the delta links
+// again, nor the history token past its own last saving (which, saved, was
+// one more transaction for the next sync to read, at every sync).
+- (void)testASyncWithNothingNewWritesNothing
+{
+  [self sync];
+  [self inspect:@"Once" asset:@1];
+  [self sync];
+  [self sync];
+  NSUInteger settled = [self historyCountOf:_device];
+  for (int i = 0; i < 3; i++) [self sync];
+  XCTAssertEqual([self historyCountOf:_device], settled, @"nothing written by syncs with nothing new");
+  // Something new still goes, and comes.
+  [self inspect:@"Twice" asset:@2];
+  [self atServer:^(NSManagedObjectContext *context) {
+    [[self object:@"Asset" id:@3 in:context] setValue:@"Boiler (new)" forKey:@"name"];
+  }];
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 1u, @"%@", _engine.lastResult);
+  XCTAssertEqual(_engine.lastResult.downloaded, 1u, @"%@", _engine.lastResult);
+  XCTAssertEqual([self values:@"id" of:@"Inspection" in:_server].count, 2u);
+  [self sync];
+  XCTAssertEqual(_engine.lastResult.uploaded, 0u, @"not sent again: %@", _engine.lastResult);
+}
+
 - (void)testSendingAgainIsHarmless
 {
   [self sync];

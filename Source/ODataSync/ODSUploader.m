@@ -16,6 +16,20 @@
 // before it waits for the next.
 static const NSInteger ODSConflictRounds = 3;
 
+// The engine saved a remote's history token and nothing else (collecting
+// or uploading, as itself or as the remote).
+static BOOL ODSOnlyHistoryTokens(NSPersistentHistoryTransaction *transaction)
+{
+  if (![transaction.author hasPrefix:@"ODataSync."] || !transaction.changes.count) return NO;
+  for (NSPersistentHistoryChange *change in transaction.changes) {
+    if (change.changeType != NSPersistentHistoryChangeTypeUpdate) return NO;
+    if (![change.changedObjectID.entity.name isEqualToString:ODSRemoteStateEntity]) return NO;
+    NSSet *names = [change.updatedProperties valueForKey:@"name"];
+    if (![names isEqualToSet:[NSSet setWithObject:@"historyToken"]]) return NO;
+  }
+  return YES;
+}
+
 @implementation ODSUploader {
   ODataSyncEngine *_engine;
   ODataSyncRemote *_remote;
@@ -129,9 +143,14 @@ static const NSInteger ODSConflictRounds = 3;
   NSUInteger unsaved = 0;
   NSError *failure = nil;
   BOOL failed = NO;
+  // Whether anything was read but the history tokens saved by earlier
+  // passes: saving the token past only those would be one more of them, for
+  // the next pass to read, and so on at every sync.
+  BOOL moved = NO;
   for (NSPersistentHistoryTransaction *transaction in result.result) @autoreleasepool {
     if (failed) break;
     last = transaction.token ?: last;
+    if (!moved && !ODSOnlyHistoryTokens(transaction)) moved = YES;
     BOOL relayed = NO, fromPeer = NO;
     if ([transaction.author hasPrefix:@"ODataSync."]) {
       // What came from this remote is not sent back, nor the engine's own
@@ -214,7 +233,7 @@ static const NSInteger ODSConflictRounds = 3;
     if (error) *error = failure;
     return NO;
   }
-  if (last) [state setValue:[NSKeyedArchiver archivedDataWithRootObject:last requiringSecureCoding:YES error:NULL] forKey:@"historyToken"];
+  if (last && moved) [state setValue:[NSKeyedArchiver archivedDataWithRootObject:last requiringSecureCoding:YES error:NULL] forKey:@"historyToken"];
   return [context save:error];
 }
 
