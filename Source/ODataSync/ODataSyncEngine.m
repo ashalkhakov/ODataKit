@@ -108,6 +108,9 @@ NSManagedObjectModel *ODataSyncModelAtURL(NSURL *url, NSError **error)
   ODataSyncPhase _phase;
   NSUInteger _phaseDone, _phaseTotal, _phaseToldDone;
   NSTimeInterval _phaseTold;
+  // When each remote's delta link for each set was last saved, by
+  // "identifier entity".
+  NSMutableDictionary<NSString *, NSDate *> *_linksSaved;
 }
 
 + (void)addBookkeepingToModel:(NSManagedObjectModel *)model configuration:(NSString *)configuration
@@ -198,6 +201,21 @@ NSManagedObjectModel *ODataSyncModelAtURL(NSURL *url, NSError **error)
   ODataClient *client = [[ODataClient alloc] initWithConfiguration:configuration];
   client.transport = remote.transport;
   return client;
+}
+
+- (NSDate *)deltaLinkSavedOf:(ODataSyncRemote *)remote entity:(NSString *)entityName
+{
+  @synchronized (self) {
+    return _linksSaved[[NSString stringWithFormat:@"%@ %@", remote.identifier, entityName]];
+  }
+}
+
+- (void)noteDeltaLinkSavedOf:(ODataSyncRemote *)remote entity:(NSString *)entityName
+{
+  @synchronized (self) {
+    if (!_linksSaved) _linksSaved = [NSMutableDictionary dictionary];
+    _linksSaved[[NSString stringWithFormat:@"%@ %@", remote.identifier, entityName]] = [NSDate date];
+  }
 }
 
 - (id<ODataSyncResolving>)resolverForEntityName:(NSString *)entityName
