@@ -6,6 +6,6 @@
   "version": "0.0.0",
   "license": "LGPL-2.1-or-later",
   "repository": "https://github.com/ashalkhakov/ODataKit",
-  "engines": { "udcode": "^0.19.2" },
+  "engines": { "udcode": "^0.22.2" },
   "main": "./OData.bundle"
 }
