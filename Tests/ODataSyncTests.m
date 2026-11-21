@@ -70,6 +70,34 @@
 }
 @end
 
+// The service, but where its block answers a request a status of its own
+// (0: the service answers).
+@interface OSTAnsweringTransport : NSObject <ODataTransport>
+@property (nonatomic, strong) ODataService *service;
+@property (atomic, copy) NSInteger (^answer)(NSURLRequest *request);
+@property (atomic, strong) NSMutableArray<NSURLRequest *> *requests;
+@end
+
+@implementation OSTAnsweringTransport
+- (void)startExchange:(ODataExchange *)exchange
+{
+  @synchronized (self) {
+    if (!_requests) _requests = [NSMutableArray array];
+    [_requests addObject:exchange.request];
+  }
+  NSInteger status = self.answer ? self.answer(exchange.request) : 0;
+  if (status) {
+    exchange.URLResponse = [[NSHTTPURLResponse alloc] initWithURL:exchange.request.URL statusCode:status HTTPVersion:@"HTTP/1.1"
+                                                     headerFields:@{ @"Content-Type": @"application/json" }];
+    exchange.data = [[NSString stringWithFormat:@"{\"error\":{\"code\":\"%ld\",\"message\":\"answered so\"}}", (long)status]
+        dataUsingEncoding:NSUTF8StringEncoding];
+    [exchange finish];
+    return;
+  }
+  [_service startExchange:exchange];
+}
+@end
+
 // Keeps the version agreed on of the attachment, the rest as the remote
 // has it: a resolver that names a file by the base's digest.
 @interface OSTBaseAttachment : NSObject <ODataSyncResolving>
@@ -291,11 +319,14 @@ static NSManagedObjectModel *OSTPartsModel(BOOL service)
   NSRelationshipDescription *tags = OSTRelationship(@"tags", tag, YES), *parts = OSTRelationship(@"parts", part, YES);
   tags.inverseRelationship = parts;
   parts.inverseRelationship = tags;
+  // Its own inverse: a part's related parts, each the other's.
+  NSRelationshipDescription *related = OSTRelationship(@"related", part, YES);
+  related.inverseRelationship = related;
   NSArray *(^own)(void) = ^NSArray *{
     return @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"name", NSStringAttributeType, NO),
               OSTAttribute(@"versions", NSStringAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
   };
-  part.properties = [own() arrayByAddingObjectsFromArray:@[ bins, preferred, ofLabel, tags ]];
+  part.properties = [own() arrayByAddingObjectsFromArray:@[ bins, preferred, ofLabel, tags, related ]];
   bin.properties = [own() arrayByAddingObjectsFromArray:@[ ofPart, preferredBy ]];
   label.properties = [own() arrayByAddingObjectsFromArray:@[ labelled ]];
   tag.properties = [own() arrayByAddingObjectsFromArray:@[ parts ]];
@@ -2436,6 +2467,270 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
   [self sync:engines[0]];
   XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:devices[0]], ([NSSet setWithObjects:@"steel", @"metric", @"zinc", nil]));
   XCTAssertEqual([engines[0] pendingChanges].count, 0u, @"%@", [engines[0] pendingChanges]);
+}
+
+#pragma mark What a batch withholds
+
+// A server of parts, and a device of it whose requests go through the
+// transport (the service's, answered as it likes).
+- (ODataService *)partsServer:(NSPersistentStoreCoordinator **)server
+{
+  *server = [self coordinatorWithModel:OSTPartsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:*server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  [[ODataSyncService alloc] initWithService:service];
+  return service;
+}
+
+- (ODataSyncEngine *)partsDevice:(NSPersistentStoreCoordinator **)device transport:(id<ODataTransport>)transport
+{
+  *device = [self coordinatorWithModel:OSTPartsModel(NO)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:*device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = transport;
+  [engine addRemote:remote];
+  return engine;
+}
+
+- (NSSet *)waitingProperties:(ODataSyncEngine *)engine of:(NSString *)entity
+{
+  NSMutableSet *names = [NSMutableSet set];
+  for (ODataSyncChange *change in engine.pendingChanges) {
+    if ([change.entityName isEqualToString:entity]) [names addObjectsFromArray:change.properties ?: @[ @"(all)" ]];
+  }
+  return names;
+}
+
+// A batch that stops (a 503) before what an entry withheld is sent: its
+// set's members wait, and go at the next sync.
+- (void)testWhatAStoppedBatchWithheldWaits
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  __block BOOL busy = YES;
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    for (NSManagedObject *object in context.insertedObjects) {
+      if (busy && [[object valueForKey:@"name"] isEqual:@"busy"]) {
+        if (error) *error = ODataServiceError(503, @"Busy");
+        return NO;
+      }
+    }
+    return YES;
+  };
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self insert:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObject:[self insert:@"Tag" id:@"steel" in:context]] forKey:@"tags"];
+    [self insert:@"Label" id:@"busy" in:context];
+  }];
+  NSError *error = nil;
+  [engine syncWithError:&error];
+  busy = NO;
+  [self sync:engine];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"steel"]);
+  XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+}
+
+// Members added and taken away, one refused: the remote's set agreed on
+// as it is, the rest waiting, and sent again till taken.
+- (void)testASetsRefusedMemberIsSentAgain
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  __block BOOL refusing = NO;
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    for (NSManagedObject *object in context.updatedObjects) {
+      if (refusing && [object.entity.name isEqualToString:@"Part"] && [[[object valueForKey:@"tags"] valueForKey:@"name"] containsObject:@"b"]) {
+        if (error) *error = ODataServiceError(400, @"Not b");
+        return NO;
+      }
+    }
+    return YES;
+  };
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [self insert:@"Tag" id:@"b" in:context];
+    [self insert:@"Tag" id:@"c" in:context];
+    [[self insert:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObject:[self insert:@"Tag" id:@"a" in:context]] forKey:@"tags"];
+  }];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"a"]);
+  refusing = YES;
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self object:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObjects:[self object:@"Tag" id:@"b" in:context],
+                                                                                [self object:@"Tag" id:@"c" in:context], nil]
+                                                   forKey:@"tags"];
+  }];
+  NSError *error = nil;
+  [engine syncWithError:&error];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"c"], @"a taken away, c added, b refused");
+  XCTAssertTrue([[self waitingProperties:engine of:@"Part"] containsObject:@"tags"] || engine.issues.count, @"b waits: %@", engine.pendingChanges);
+  refusing = NO;
+  for (ODataSyncIssue *issue in engine.issues) [engine retryIssue:issue];
+  [self sync:engine];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], ([NSSet setWithObjects:@"b", @"c", nil]));
+  XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+}
+
+// A link left out of an insert (its target's insert to come) is agreed on
+// as the remote has it, and waits: the target's insert refused, the link
+// is still the device's to send.
+- (void)testALinkLeftOutWaits
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  __block BOOL refusing = YES;
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    for (NSManagedObject *object in context.insertedObjects) {
+      if (refusing && [object.entity.name isEqualToString:@"Label"]) {
+        if (error) *error = ODataServiceError(400, @"No labels yet");
+        return NO;
+      }
+    }
+    return YES;
+  };
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self insert:@"Label" id:@"M8" in:context] setValue:[self insert:@"Part" id:@"bolt" in:context] forKey:@"part"];
+  }];
+  NSError *error = nil;
+  [engine syncWithError:&error];
+  XCTAssertEqualObjects([self values:@"name" of:@"Label" in:server], @[]);
+  // The label refused, and the part's link to it with it (sent again in the
+  // same sync, there is no such label): both the device's, set aside.
+  XCTAssertEqualObjects([NSSet setWithArray:[engine.issues valueForKey:@"entityName"]], ([NSSet setWithObjects:@"Label", @"Part", nil]),
+                        @"%@", [engine.issues valueForKey:@"message"]);
+  refusing = NO;
+  for (ODataSyncIssue *issue in engine.issues) [engine retryIssue:issue];
+  [self sync:engine];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"label" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"M8"]);
+  XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+}
+
+// A cycle split across batches (a batch of one): the first insert's link
+// waits for the next sync, nothing refused.
+- (void)testACycleAcrossBatches
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  engine.remotes.firstObject.batchSize = 1;
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    NSManagedObject *bolt = [self insert:@"Part" id:@"bolt" in:context];
+    NSManagedObject *shelf = [self insert:@"Bin" id:@"shelf" in:context];
+    [shelf setValue:bolt forKey:@"part"];
+    [bolt setValue:shelf forKey:@"preferredBin"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.issues.count, 0u, @"%@", [engine.issues valueForKey:@"message"]);
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"shelf"]);
+  XCTAssertEqualObjects([self names:@"part" of:@"Bin" id:@"shelf" in:server], [NSSet setWithObject:@"bolt"]);
+  XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+}
+
+// A service that takes a JSON batch but no atomicity group (a 400 for the
+// batch): the batch goes again without, and batches go on.
+- (void)testAServiceWithoutAtomicityGroups
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  OSTAnsweringTransport *transport = [[OSTAnsweringTransport alloc] init];
+  transport.service = service;
+  transport.answer = ^NSInteger(NSURLRequest *request) {
+    NSString *body = request.HTTPBody ? [[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding] : @"";
+    return [request.URL.path hasSuffix:@"$batch"] && [body containsString:@"atomicityGroup"] ? 400 : 0;
+  };
+  ODataSyncEngine *engine = [self partsDevice:&device transport:transport];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [self insert:@"Part" id:@"bolt" in:context];
+    [self insert:@"Part" id:@"nut" in:context];
+  }];
+  [transport.requests removeAllObjects];
+  [self sync:engine];
+  XCTAssertEqualObjects([self values:@"name" of:@"Part" in:server], (@[ @"bolt", @"nut" ]));
+  NSUInteger alone = 0;
+  for (NSURLRequest *request in transport.requests) alone += [request.HTTPMethod isEqualToString:@"PATCH"] ? 1 : 0;
+  XCTAssertEqual(alone, 0u, @"still in a batch");
+}
+
+// A to-one whose target is not on the device (its set's filter leaves it
+// out) is unlinked, not left as it was.
+- (void)testALinkToWhatIsNotHereIsUnlinked
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  [self in:server do:^(NSManagedObjectContext *context) {
+    NSManagedObject *bolt = [self insert:@"Part" id:@"bolt" in:context];
+    [bolt setValue:[self insert:@"Bin" id:@"shelf" in:context] forKey:@"preferredBin"];
+    [self insert:@"Bin" id:@"hidden" in:context];
+  }];
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  engine.remotes.firstObject.filters = @{ @"Bin": @"Name ne 'hidden'" };
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:device], [NSSet setWithObject:@"shelf"]);
+  [self in:server do:^(NSManagedObjectContext *context) {
+    [[self object:@"Part" id:@"bolt" in:context] setValue:[self object:@"Bin" id:@"hidden" in:context] forKey:@"preferredBin"];
+  }];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:device], [NSSet set]);
+}
+
+// A download that stops after a row's link waited for a set read later:
+// the link is made at the next sync (its set's delta link was not kept).
+- (void)testALinkWaitingSurvivesAStoppedDownload
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  [self in:server do:^(NSManagedObjectContext *context) {
+    NSManagedObject *bolt = [self insert:@"Part" id:@"bolt" in:context];
+    NSManagedObject *shelf = [self insert:@"Bin" id:@"shelf" in:context];
+    [shelf setValue:bolt forKey:@"part"];
+    [bolt setValue:shelf forKey:@"preferredBin"];
+  }];
+  OSTAnsweringTransport *transport = [[OSTAnsweringTransport alloc] init];
+  transport.service = service;
+  // The second of the two sets read fails, once.
+  NSMutableArray *read = [NSMutableArray array];
+  __block BOOL failed = NO;
+  transport.answer = ^NSInteger(NSURLRequest *request) {
+    if (failed || ![request.HTTPMethod isEqualToString:@"GET"]) return 0;
+    NSString *set = request.URL.lastPathComponent;
+    if (![set isEqualToString:@"Parts"] && ![set isEqualToString:@"Bins"]) return 0;
+    if (![read containsObject:set]) [read addObject:set];
+    if (read.count < 2) return 0;
+    failed = YES;
+    return 503;
+  };
+  ODataSyncEngine *engine = [self partsDevice:&device transport:transport];
+  NSError *error = nil;
+  XCTAssertFalse([engine syncWithError:&error]);
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:device], [NSSet setWithObject:@"shelf"]);
+  XCTAssertEqualObjects([self names:@"part" of:@"Bin" id:@"shelf" in:device], [NSSet setWithObject:@"bolt"]);
+}
+
+// A many-to-many that is its own inverse (a part's related parts) syncs.
+- (void)testASetThatIsItsOwnInverse
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  ODataSyncEngine *engine = [self partsDevice:&device transport:service];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self insert:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObject:[self insert:@"Part" id:@"nut" in:context]] forKey:@"related"];
+  }];
+  [self sync:engine];
+  XCTAssertEqual(engine.issues.count, 0u, @"%@", [engine.issues valueForKey:@"message"]);
+  XCTAssertEqualObjects([self names:@"related" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"nut"]);
+  XCTAssertEqualObjects([self names:@"related" of:@"Part" id:@"nut" in:server], [NSSet setWithObject:@"bolt"]);
 }
 
 // A save the service refuses as one goes again, each change standing

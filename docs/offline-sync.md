@@ -102,7 +102,9 @@ outbox entry names the relationship), and they go up as `$ref` (5.2) and
 come down expanded (4). Which side carries it: the one whose
 relationship's `userInfo` says `ODataSync.carried` = YES (or whose
 inverse's says NO); unsaid, the side whose entity's name, then
-relationship's, comes first (`Answer.options` before `Option.answers`).
+relationship's, comes first (`Answer.options` before `Option.answers`);
+a relationship that is its own inverse (a person's friends) is its own
+side's.
 The other side's to-many is not synced, as no one-to-many's is.
 
 ### 3.2 Keys
@@ -227,7 +229,12 @@ Per remote, per `down` and `both` entity set:
    local objects by key; a set's members (expanded, their keys) likewise.
    A link to an object that has not come yet (of a set read later: a
    cycle, a stock item's preferred supplier item of the stock item) is
-   left as it is and made at the end of the download, once it has.
+   unlinked, noted by object and relationship (a later row of the object
+   says it again), and made at the end of the download, once it has; the
+   delta links of the sets read while one waits are kept only then, so a
+   download that stops reads those rows, and their links, again. A link to
+   an object that never comes (its set's filter leaves it out) stays
+   unlinked.
 5. **Saving**: the changes and the new delta link (in ODSRemoteState)
    in one save. A crash before it loses nothing: the old link is read
    again.
@@ -332,15 +339,27 @@ come). Refused as one, they go again each standing alone: which was
 refused is said and set aside, and the rest go in. A peer takes each
 alone.
 
-A to-one's link to an object inserted after it is not in its request: a
-one-to-one's is left to the other's insert, which binds back (the service
-sets the inverse); another's (a cycle through two relationships) goes
-after the batch's other requests, an update of the link alone. A set's
-members go after them too: each added (`POST Set(key)/Nav/$ref`, its
+A request withholds what the remote cannot take yet, and what goes by
+`$ref`: a to-one's link to an object whose insert has not gone (later in
+the batch, or in a later batch: a cycle, a contact's address of the
+contact), and a set's members. A link to an object later in the batch goes
+after the batch's other requests, an update of the link alone; a set's
+members go after them too, each added (`POST Set(key)/Nav/$ref`, its
 `@odata.id`) or taken away (`DELETE Set(key)/Nav/$ref?$id=...`) against
-those agreed on with the remote (none, for an object new there). A
-follow-up not taken leaves its object agreed on as the remote has it, and
-an update of that link or set waiting.
+those agreed on with the remote (none, for an object new there). The
+shadow is only ever what the remote has: an entry taken is agreed on with
+what it withheld as the remote has it, and kept as an update of that,
+which each follow-up taken settles (a link, the set's member added or gone).
+So a batch that stops before them, a member refused, or a link to an
+insert refused leaves the update waiting, sent again.
+
+The outbox's order is read once a pass (each entry's object read once,
+not each batch). What waits at its end -- what entries withheld, their
+targets in now; a conflict's outcome -- goes in another pass, three at
+most; the rest at the next sync.
+
+A service that takes a JSON batch but answers an atomicity group 400 is
+sent the batch again without it, and its batches go without from then on.
 
 | Entry | `up` | `both` |
 |---|---|---|

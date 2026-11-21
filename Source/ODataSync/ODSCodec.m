@@ -184,11 +184,22 @@ static NSArray *ODSSortedKeys(NSArray *keys)
   [self applyJSON:json toObject:object waiting:nil];
 }
 
-// A link to an object not here yet (of an entity read later: a cycle) left
-// as it is, and said in waiting: [entity, key, relationship, its
-// destination, the key it names] (-linkWaiting:inContext:).
-- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(NSMutableArray *)waiting
+// A link to an object not here yet (of an entity read later: a cycle)
+// unlinked, as the row has no object here to name, and said in waiting,
+// by the object and relationship (a later row of it says it again, or
+// that it has none): [entity, key, relationship, the key it names, or a
+// set's keys not here] (-linkWaiting:inContext:).
+static NSString *ODSWaitingName(NSManagedObject *object, NSDictionary *key, NSRelationshipDescription *relationship)
 {
+  NSMutableString *text = [NSMutableString stringWithFormat:@"%@|", object.entity.name];
+  for (NSString *name in [key.allKeys sortedArrayUsingSelector:@selector(compare:)]) [text appendFormat:@"%@=%@;", name, key[name]];
+  [text appendFormat:@"|%@", relationship.name];
+  return text;
+}
+
+- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(NSMutableDictionary *)waiting
+{
+  NSDictionary *objectKey = waiting ? [self keyOfObject:object] : nil;
   ODataValueCoder *values = self.mapper.values;
   for (NSAttributeDescription *attribute in [self.model attributesOf:object.entity]) {
     id raw = json[[self.mapper propertyForAttribute:attribute]];
@@ -204,39 +215,49 @@ static NSArray *ODSSortedKeys(NSArray *keys)
     if ([raw isKindOfClass:[NSDictionary class]]) {
       NSDictionary *key = [self keyFromJSON:raw entity:toOne.destinationEntity];
       related = key ? [self objectOfEntity:toOne.destinationEntity key:key inContext:object.managedObjectContext] : nil;
-      if (key && !related && waiting) {
-        [waiting addObject:@[ object.entity, [self keyOfObject:object], toOne, key ]];
-        continue;
+      if (waiting) {
+        NSString *name = ODSWaitingName(object, objectKey, toOne);
+        if (key && !related) waiting[name] = @[ object.entity, objectKey, toOne, key ];
+        else [waiting removeObjectForKey:name];
       }
+    } else if (waiting) {
+      [waiting removeObjectForKey:ODSWaitingName(object, objectKey, toOne)];
     }
     if ([object valueForKey:toOne.name] != related) [object setValue:related forKey:toOne.name];
   }
   for (NSRelationshipDescription *set in [self.model setsOf:object.entity]) {
     id raw = json[[self.mapper propertyForRelationship:set]];
     if (![raw isKindOfClass:[NSArray class]]) continue;
-    NSMutableArray *keys = [NSMutableArray array];
+    NSMutableArray *keys = [NSMutableArray array], *missing = [NSMutableArray array];
     for (id each in raw) {
       NSDictionary *key = [each isKindOfClass:[NSDictionary class]] ? [self keyFromJSON:each entity:set.destinationEntity] : nil;
       if (!key) continue;
       [keys addObject:key];
-      if (waiting && ![self objectOfEntity:set.destinationEntity key:key inContext:object.managedObjectContext])
-        [waiting addObject:@[ object.entity, [self keyOfObject:object], set, key ]];
+      if (waiting && ![self objectOfEntity:set.destinationEntity key:key inContext:object.managedObjectContext]) [missing addObject:key];
+    }
+    if (waiting) {
+      NSString *name = ODSWaitingName(object, objectKey, set);
+      if (missing.count) waiting[name] = @[ object.entity, objectKey, set, missing ];
+      else [waiting removeObjectForKey:name];
     }
     [self setMembers:[self membersOfKeys:keys set:set context:object.managedObjectContext] ofSet:set object:object];
   }
 }
 
-- (BOOL)linkWaiting:(NSArray *)waiting inContext:(NSManagedObjectContext *)context
+- (BOOL)linkWaiting:(NSDictionary *)waiting inContext:(NSManagedObjectContext *)context
 {
   BOOL linked = NO;
-  for (NSArray *link in waiting) {
+  for (NSArray *link in waiting.allValues) {
     NSManagedObject *object = [self objectOfEntity:link[0] key:link[1] inContext:context];
     NSRelationshipDescription *relationship = link[2];
-    NSManagedObject *related = [self objectOfEntity:relationship.destinationEntity key:link[3] inContext:context];
-    if (!object || !related) continue;
-    if (relationship.isToMany) [[object mutableSetValueForKey:relationship.name] addObject:related];
-    else if ([object valueForKey:relationship.name] != related) [object setValue:related forKey:relationship.name];
-    linked = YES;
+    if (!object) continue;
+    for (NSDictionary *key in relationship.isToMany ? link[3] : @[ link[3] ]) {
+      NSManagedObject *related = [self objectOfEntity:relationship.destinationEntity key:key inContext:context];
+      if (!related) continue;
+      if (relationship.isToMany) [[object mutableSetValueForKey:relationship.name] addObject:related];
+      else if ([object valueForKey:relationship.name] != related) [object setValue:related forKey:relationship.name];
+      linked = YES;
+    }
   }
   return linked;
 }

@@ -80,8 +80,8 @@ FOUNDATION_EXPORT id _Nullable ODSUnarchiveReporting(NSData *_Nullable data, NSE
 // those name (nil when none is local: the next download may bring it).
 - (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object;
 // Links to objects not here yet said in waiting, and made once they are.
-- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(nullable NSMutableArray *)waiting;
-- (BOOL)linkWaiting:(NSArray *)waiting inContext:(NSManagedObjectContext *)context;
+- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(nullable NSMutableDictionary *)waiting;
+- (BOOL)linkWaiting:(NSDictionary *)waiting inContext:(NSManagedObjectContext *)context;
 // A body for a PATCH: these properties (nil: all synced), attributes as
 // JSON and to-ones as Nav@odata.bind (null to unlink).
 - (NSDictionary *)JSONOfObject:(NSManagedObject *)object properties:(nullable NSSet<NSString *> *)properties;
