@@ -100,7 +100,7 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   return items;
 }
 
-// $expand of the to-ones' keys, for reading an entity's rows: its own, and
+// $expand of the to-ones' keys (and the sets' members'), for reading an entity's rows: its own, and
 // each sub-entity's own behind its type's cast (Default.FillUp/Unit), so
 // that a derived row comes with all of its to-ones.
 - (NSArray<ODataExpandItem *> *)expandOfEntity:(NSEntityDescription *)entity error:(NSError **)error
@@ -111,7 +111,7 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
 
 - (BOOL)addExpandOfEntity:(NSEntityDescription *)entity cast:(NSString *)cast into:(NSMutableArray *)items error:(NSError **)error
 {
-  for (NSRelationshipDescription *toOne in [_model toOnesOf:entity]) {
+  for (NSRelationshipDescription *toOne in [[_model toOnesOf:entity] arrayByAddingObjectsFromArray:[_model setsOf:entity]]) {
     if (cast && entity.superentity.relationshipsByName[toOne.name]) continue;  // the base type's, expanded already
     ODataMutableQueryOptions *keys = [[ODataMutableQueryOptions alloc] init];
     keys.select = [self selectOfKeyOfEntity:toOne.destinationEntity error:error];
@@ -266,6 +266,21 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   NSMutableDictionary *typed = [json mutableCopy];
   typed[@"@odata.type"] = [@"#" stringByAppendingString:[mapper qualifiedTypeForEntity:object.entity]];
   return typed;
+}
+
+// A member of an object's collection added (POST, its @odata.id) or taken
+// away (DELETE, its $id): Products(1)/Tags/$ref.
+- (NSDictionary *)referenceOf:(NSString *)path navigation:(NSString *)navigation member:(NSString *)member adding:(BOOL)adding
+{
+  NSMutableDictionary *headers = [[self headers] mutableCopy];
+  NSString *url = [NSString stringWithFormat:@"%@/%@/$ref", path, navigation];
+  if (adding) {
+    headers[@"Content-Type"] = @"application/json";
+    return @{ @"method": @"POST", @"url": url, @"headers": headers, @"body": @{ @"@odata.id": member } };
+  }
+  NSString *escaped = [member stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+  escaped = [escaped stringByReplacingOccurrencesOfString:@"&" withString:@"%26"];
+  return @{ @"method": @"DELETE", @"url": [NSString stringWithFormat:@"%@?$id=%@", url, escaped], @"headers": headers };
 }
 
 - (NSDictionary *)deletionOf:(NSEntityDescription *)root key:(NSDictionary *)key checked:(BOOL)checked etag:(NSString *)etag

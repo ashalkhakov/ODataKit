@@ -131,7 +131,63 @@ static BOOL ODSSame(id a, id b)
   return a == b || [a isEqual:b];
 }
 
+// A set's members as keys, sorted, so that the same members are the same
+// array whatever their order: a row's (its properties' names, JSON) or the
+// store's (attributes' names).
+static NSString *ODSTextOfKey(NSDictionary *key)
+{
+  NSMutableString *text = [NSMutableString string];
+  for (NSString *name in [key.allKeys sortedArrayUsingSelector:@selector(compare:)]) [text appendFormat:@"%@=%@;", name, key[name]];
+  return text;
+}
+
+static NSArray *ODSSortedKeys(NSArray *keys)
+{
+  return [keys sortedArrayUsingComparator:^NSComparisonResult(id a, id b) { return [ODSTextOfKey(a) compare:ODSTextOfKey(b)]; }];
+}
+
+- (NSDictionary *)JSONKeyOfObject:(NSManagedObject *)object
+{
+  ODataValueCoder *coder = self.mapper.values;
+  NSMutableDictionary *key = [NSMutableDictionary dictionary];
+  for (NSAttributeDescription *attribute in [self.model keyAttributesOf:object.entity]) {
+    key[[self.mapper propertyForAttribute:attribute]] = [coder JSONForCoreDataValue:[object valueForKey:attribute.name] attribute:attribute];
+  }
+  return key;
+}
+
+- (NSArray *)JSONKeysOfSet:(NSRelationshipDescription *)set ofObject:(NSManagedObject *)object
+{
+  NSMutableArray *keys = [NSMutableArray array];
+  for (NSManagedObject *member in [object valueForKey:set.name]) [keys addObject:[self JSONKeyOfObject:member]];
+  return ODSSortedKeys(keys);
+}
+
+// The members a set's keys name, of those here.
+- (NSSet *)membersOfKeys:(NSArray *)keys set:(NSRelationshipDescription *)set context:(NSManagedObjectContext *)context
+{
+  NSMutableSet *members = [NSMutableSet set];
+  for (id key in [keys isKindOfClass:[NSArray class]] ? keys : @[]) {
+    NSManagedObject *member = [key isKindOfClass:[NSDictionary class]] ? [self objectOfEntity:set.destinationEntity key:key inContext:context] : nil;
+    if (member) [members addObject:member];
+  }
+  return members;
+}
+
+- (void)setMembers:(NSSet *)members ofSet:(NSRelationshipDescription *)set object:(NSManagedObject *)object
+{
+  if (![[NSSet setWithSet:[object valueForKey:set.name] ?: [NSSet set]] isEqualToSet:members]) [object setValue:members forKey:set.name];
+}
+
 - (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object
+{
+  [self applyJSON:json toObject:object waiting:nil];
+}
+
+// A link to an object not here yet (of an entity read later: a cycle) left
+// as it is, and said in waiting: [entity, key, relationship, its
+// destination, the key it names] (-linkWaiting:inContext:).
+- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(NSMutableArray *)waiting
 {
   ODataValueCoder *values = self.mapper.values;
   for (NSAttributeDescription *attribute in [self.model attributesOf:object.entity]) {
@@ -148,9 +204,41 @@ static BOOL ODSSame(id a, id b)
     if ([raw isKindOfClass:[NSDictionary class]]) {
       NSDictionary *key = [self keyFromJSON:raw entity:toOne.destinationEntity];
       related = key ? [self objectOfEntity:toOne.destinationEntity key:key inContext:object.managedObjectContext] : nil;
+      if (key && !related && waiting) {
+        [waiting addObject:@[ object.entity, [self keyOfObject:object], toOne, key ]];
+        continue;
+      }
     }
     if ([object valueForKey:toOne.name] != related) [object setValue:related forKey:toOne.name];
   }
+  for (NSRelationshipDescription *set in [self.model setsOf:object.entity]) {
+    id raw = json[[self.mapper propertyForRelationship:set]];
+    if (![raw isKindOfClass:[NSArray class]]) continue;
+    NSMutableArray *keys = [NSMutableArray array];
+    for (id each in raw) {
+      NSDictionary *key = [each isKindOfClass:[NSDictionary class]] ? [self keyFromJSON:each entity:set.destinationEntity] : nil;
+      if (!key) continue;
+      [keys addObject:key];
+      if (waiting && ![self objectOfEntity:set.destinationEntity key:key inContext:object.managedObjectContext])
+        [waiting addObject:@[ object.entity, [self keyOfObject:object], set, key ]];
+    }
+    [self setMembers:[self membersOfKeys:keys set:set context:object.managedObjectContext] ofSet:set object:object];
+  }
+}
+
+- (BOOL)linkWaiting:(NSArray *)waiting inContext:(NSManagedObjectContext *)context
+{
+  BOOL linked = NO;
+  for (NSArray *link in waiting) {
+    NSManagedObject *object = [self objectOfEntity:link[0] key:link[1] inContext:context];
+    NSRelationshipDescription *relationship = link[2];
+    NSManagedObject *related = [self objectOfEntity:relationship.destinationEntity key:link[3] inContext:context];
+    if (!object || !related) continue;
+    if (relationship.isToMany) [[object mutableSetValueForKey:relationship.name] addObject:related];
+    else if ([object valueForKey:relationship.name] != related) [object setValue:related forKey:relationship.name];
+    linked = YES;
+  }
+  return linked;
 }
 
 - (NSDictionary *)JSONOfObject:(NSManagedObject *)object properties:(NSSet<NSString *> *)properties
@@ -186,6 +274,11 @@ static BOOL ODSSame(id a, id b)
     NSManagedObject *related = [object valueForKey:toOne.name];
     values[toOne.name] = related ? [self keyOfObject:related] : [NSNull null];
   }
+  for (NSRelationshipDescription *set in [self.model setsOf:object.entity]) {
+    NSMutableArray *keys = [NSMutableArray array];
+    for (NSManagedObject *member in [object valueForKey:set.name]) [keys addObject:[self keyOfObject:member]];
+    values[set.name] = ODSSortedKeys(keys);
+  }
   return values;
 }
 
@@ -204,6 +297,16 @@ static BOOL ODSSame(id a, id b)
     NSDictionary *key = [raw isKindOfClass:[NSDictionary class]] ? [self keyFromJSON:raw entity:toOne.destinationEntity] : nil;
     values[toOne.name] = key ?: [NSNull null];
   }
+  for (NSRelationshipDescription *set in [self.model setsOf:entity]) {
+    id raw = json[[self.mapper propertyForRelationship:set]];
+    if (![raw isKindOfClass:[NSArray class]]) continue;
+    NSMutableArray *keys = [NSMutableArray array];
+    for (id each in raw) {
+      NSDictionary *key = [each isKindOfClass:[NSDictionary class]] ? [self keyFromJSON:each entity:set.destinationEntity] : nil;
+      if (key) [keys addObject:key];
+    }
+    values[set.name] = ODSSortedKeys(keys);
+  }
   return values;
 }
 
@@ -221,6 +324,11 @@ static BOOL ODSSame(id a, id b)
     NSManagedObject *related = [key isKindOfClass:[NSDictionary class]]
         ? [self objectOfEntity:toOne.destinationEntity key:key inContext:object.managedObjectContext] : nil;
     if ([object valueForKey:toOne.name] != related) [object setValue:related forKey:toOne.name];
+  }
+  for (NSRelationshipDescription *set in [self.model setsOf:object.entity]) {
+    id keys = values[set.name];
+    if (![keys isKindOfClass:[NSArray class]]) continue;
+    [self setMembers:[self membersOfKeys:keys set:set context:object.managedObjectContext] ofSet:set object:object];
   }
 }
 
@@ -301,6 +409,9 @@ static ODataSyncDigest *ODSDigestOfMarker(id marker)
       key[[self.mapper propertyForAttribute:attribute]] = [coder JSONForCoreDataValue:[related valueForKey:attribute.name] attribute:attribute];
     }
     row[[self.mapper propertyForRelationship:toOne]] = key ?: [NSNull null];
+  }
+  for (NSRelationshipDescription *set in [self.model setsOf:object.entity]) {
+    row[[self.mapper propertyForRelationship:set]] = [self JSONKeysOfSet:set ofObject:object];
   }
   return row;
 }

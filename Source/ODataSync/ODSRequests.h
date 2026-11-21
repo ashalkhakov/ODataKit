@@ -28,6 +28,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSURL *)URLOfLink:(NSString *)link relativeTo:(nullable NSURL *)base;
 // What every request has: to a peer, this replica.
 - (NSDictionary<NSString *, NSString *> *)headers;
+// A $ref request (a batch's): a member added to an object's collection, or
+// taken away.
+- (NSDictionary *)referenceOf:(NSString *)path navigation:(NSString *)navigation member:(NSString *)member adding:(BOOL)adding;
 
 // A set's rows (its to-ones' keys expanded), as the remote's filter for it
 // has them, or only their keys; those of these keys; an object's row.

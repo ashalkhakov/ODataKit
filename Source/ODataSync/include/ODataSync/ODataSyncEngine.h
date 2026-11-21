@@ -69,6 +69,11 @@ ODATASYNC_EXPORT NSString * const ODataSyncDirectionKey;    // @"ODataSync.direc
 ODATASYNC_EXPORT NSString * const ODataSyncConflictsKey;    // @"ODataSync.conflicts"
 ODATASYNC_EXPORT NSString * const ODataSyncModifiedKey;     // @"ODataSync.modified"
 ODATASYNC_EXPORT NSString * const ODataSyncVersionsKey;     // @"ODataSync.versions"
+// userInfo on one side of a many-to-many: YES, its members are its
+// entity's to sync (a change of them a change of its object, sent as
+// $ref); NO, the other side's. Unsaid, the side whose entity's name (then
+// relationship's) comes first carries it.
+ODATASYNC_EXPORT NSString * const ODataSyncCarriedKey;      // @"ODataSync.carried"
 // userInfo on a Binary attribute: NO keeps it in the store's rows. Else
 // +addBookkeepingToModel: lets a synced entity's Binary attributes (but a
 // key's) be kept outside the store (allowsExternalBinaryDataStorage): a

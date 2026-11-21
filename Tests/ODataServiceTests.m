@@ -2369,6 +2369,33 @@ static OTSpan *OISSpanNamed(NSArray<OTSpan *> *spans, NSString *name)
   XCTAssertEqualObjects([self get:@"Categories/$count"].text, @"3", @"g1 saved, g2 not");
 }
 
+// A change set refused at its save by the service's own rule (a willSave's
+// error of the service's, as a request alone is answered): its last
+// request answers with that error's status, not 500, and nothing is saved.
+- (void)testAChangeSetsRefusalHasItsStatus
+{
+  _service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    if (error) *error = ODataServiceError(403, @"Not these");
+    return NO;
+  };
+  NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"http://example.test/odata/$batch"]];
+  request.HTTPMethod = @"POST";
+  [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+  NSDictionary *batch = @{ @"requests": @[
+    @{ @"id": @"a", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Categories", @"body": @{ @"CategoryName": @"Seafood" } },
+    @{ @"id": @"b", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Categories", @"body": @{ @"CategoryName": @"Grains" } },
+  ] };
+  request.HTTPBody = [NSJSONSerialization dataWithJSONObject:batch options:0 error:NULL];
+  [request setValue:@"odata.continue-on-error" forHTTPHeaderField:@"Prefer"];
+  NSString *count = [self get:@"Categories/$count"].text;
+  OISServiceResponse *r = [self exchange:request];
+  XCTAssertEqual(r.status, 200, @"%@", r.text);
+  NSArray *responses = r.json[@"responses"];
+  XCTAssertEqualObjects([responses valueForKey:@"status"], (@[ @424, @403 ]), @"%@", r.text);
+  XCTAssertEqualObjects(responses[1][@"body"][@"error"][@"message"], @"Not these");
+  XCTAssertEqualObjects([self get:@"Categories/$count"].text, count, @"nothing saved");
+}
+
 // An exception at a change set's save (a willSave that raises, #44) is
 // answered as a failed save: the group rolled back, its last request 500,
 // the batch going on as continue-on-error says; not left unanswered.

@@ -251,6 +251,61 @@ static NSManagedObjectModel *OSTVehiclesModel(BOOL service)
   return model;
 }
 
+// Parts (both, with versions), each with its bins, one of them its
+// preferred (a cycle through two relationships: a bin's part, a part's
+// preferred bin); its label, each the other's (a one-to-one); its tags,
+// as many as it has, each a tag of as many parts (a many-to-many, the
+// part's to sync: "Part.tags" before "Tag.parts").
+static NSRelationshipDescription *OSTRelationship(NSString *name, NSEntityDescription *to, BOOL many)
+{
+  NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+  relationship.name = name;
+  relationship.destinationEntity = to;
+  relationship.maxCount = many ? 0 : 1;
+  relationship.optional = YES;
+  relationship.deleteRule = NSNullifyDeleteRule;
+  return relationship;
+}
+
+static NSManagedObjectModel *OSTPartsModel(BOOL service)
+{
+  NSMutableDictionary *entities = [NSMutableDictionary dictionary];
+  for (NSArray *named in @[ @[ @"Part", @"Parts" ], @[ @"Bin", @"Bins" ], @[ @"Label", @"Labels" ], @[ @"Tag", @"Tags" ] ]) {
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    entity.name = named[0];
+    entity.managedObjectClassName = @"NSManagedObject";
+    entity.userInfo = @{ @"OData.entitySet": named[1], ODataSyncDirectionKey: @"both", ODataSyncVersionsKey: @"versions",
+                         ODataSyncModifiedKey: @"modified" };
+    entities[named[0]] = entity;
+  }
+  NSEntityDescription *part = entities[@"Part"], *bin = entities[@"Bin"], *label = entities[@"Label"], *tag = entities[@"Tag"];
+  NSRelationshipDescription *bins = OSTRelationship(@"bins", bin, YES), *ofPart = OSTRelationship(@"part", part, NO);
+  bins.inverseRelationship = ofPart;
+  ofPart.inverseRelationship = bins;
+  NSRelationshipDescription *preferred = OSTRelationship(@"preferredBin", bin, NO), *preferredBy = OSTRelationship(@"preferredBy", part, YES);
+  preferred.inverseRelationship = preferredBy;
+  preferredBy.inverseRelationship = preferred;
+  NSRelationshipDescription *ofLabel = OSTRelationship(@"label", label, NO), *labelled = OSTRelationship(@"part", part, NO);
+  ofLabel.inverseRelationship = labelled;
+  labelled.inverseRelationship = ofLabel;
+  NSRelationshipDescription *tags = OSTRelationship(@"tags", tag, YES), *parts = OSTRelationship(@"parts", part, YES);
+  tags.inverseRelationship = parts;
+  parts.inverseRelationship = tags;
+  NSArray *(^own)(void) = ^NSArray *{
+    return @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"name", NSStringAttributeType, NO),
+              OSTAttribute(@"versions", NSStringAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+  };
+  part.properties = [own() arrayByAddingObjectsFromArray:@[ bins, preferred, ofLabel, tags ]];
+  bin.properties = [own() arrayByAddingObjectsFromArray:@[ ofPart, preferredBy ]];
+  label.properties = [own() arrayByAddingObjectsFromArray:@[ labelled ]];
+  tag.properties = [own() arrayByAddingObjectsFromArray:@[ parts ]];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ part, bin, label, tag ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
 // Keeps this side's, and the conflict it saw.
 @interface OSTKeepingResolver : NSObject <ODataSyncResolving>
 @property (atomic, strong) ODataSyncConflict *last;
@@ -2288,6 +2343,133 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
     ODataSyncResult *again = peers[side].lastResult;
     XCTAssertEqual(again.uploaded + again.downloaded + again.removed, 0u, @"settled: %@", again);
   }
+}
+
+#pragma mark A save as one
+
+- (NSManagedObject *)insert:(NSString *)entity id:(NSString *)identifier in:(NSManagedObjectContext *)context
+{
+  NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+  [object setValue:identifier forKey:@"id"];
+  [object setValue:identifier forKey:@"name"];
+  return object;
+}
+
+- (NSSet *)names:(NSString *)relationship of:(NSString *)entity id:(NSString *)identifier in:(NSPersistentStoreCoordinator *)coordinator
+{
+  __block NSSet *names = nil;
+  [self in:coordinator do:^(NSManagedObjectContext *context) {
+    id value = [[self object:entity id:identifier in:context] valueForKey:relationship];
+    names = [value isKindOfClass:[NSSet class]] ? [value valueForKey:@"name"] : (value ? [NSSet setWithObject:[value valueForKey:@"name"]] : [NSSet set]);
+  }];
+  return names;
+}
+
+// A device's save goes up as one save of the service's (an atomicity
+// group: its rules see it all), however its objects refer to each other:
+// a cycle through two relationships, a one-to-one, a many-to-many's
+// members. Nothing is set aside, and another device has it all as it was.
+- (void)testASaveGoesUpAsOne
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTPartsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  __block NSUInteger saves = 0;
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    saves++;
+    return YES;
+  };
+  NSMutableArray<ODataSyncEngine *> *engines = [NSMutableArray array];
+  NSMutableArray<NSPersistentStoreCoordinator *> *devices = [NSMutableArray array];
+  for (NSUInteger i = 0; i < 2; i++) {
+    NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTPartsModel(NO)];
+    ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+    ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+    remote.transport = service;
+    [engine addRemote:remote];
+    [devices addObject:device];
+    [engines addObject:engine];
+  }
+  [self sync:engines[0]];
+  [self in:devices[0] do:^(NSManagedObjectContext *context) {
+    NSManagedObject *bolt = [self insert:@"Part" id:@"bolt" in:context];
+    NSManagedObject *shelf = [self insert:@"Bin" id:@"shelf" in:context];
+    [shelf setValue:bolt forKey:@"part"];
+    [bolt setValue:shelf forKey:@"preferredBin"];
+    [[self insert:@"Label" id:@"M8" in:context] setValue:bolt forKey:@"part"];
+    [bolt setValue:[NSSet setWithObjects:[self insert:@"Tag" id:@"steel" in:context], [self insert:@"Tag" id:@"metric" in:context], nil]
+            forKey:@"tags"];
+  }];
+  saves = 0;
+  [self sync:engines[0]];
+  XCTAssertEqual(engines[0].issues.count, 0u, @"%@", [engines[0].issues valueForKey:@"message"]);
+  XCTAssertEqual(saves, 1u, @"one save of the service's");
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"shelf"]);
+  XCTAssertEqualObjects([self names:@"part" of:@"Bin" id:@"shelf" in:server], [NSSet setWithObject:@"bolt"]);
+  XCTAssertEqualObjects([self names:@"part" of:@"Label" id:@"M8" in:server], [NSSet setWithObject:@"bolt"]);
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], ([NSSet setWithObjects:@"steel", @"metric", nil]));
+  XCTAssertEqual([engines[0] pendingChanges].count, 0u, @"%@", [engines[0] pendingChanges]);
+
+  [self sync:engines[1]];
+  XCTAssertEqualObjects([self names:@"preferredBin" of:@"Part" id:@"bolt" in:devices[1]], [NSSet setWithObject:@"shelf"]);
+  XCTAssertEqualObjects([self names:@"label" of:@"Part" id:@"bolt" in:devices[1]], [NSSet setWithObject:@"M8"]);
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:devices[1]], ([NSSet setWithObjects:@"steel", @"metric", nil]));
+
+  // Members taken away and added, here and there; each side has the other's.
+  [self in:devices[0] do:^(NSManagedObjectContext *context) {
+    NSManagedObject *bolt = [self object:@"Part" id:@"bolt" in:context];
+    NSMutableSet *now = [bolt mutableSetValueForKey:@"tags"];
+    [now removeObject:[self object:@"Tag" id:@"steel" in:context]];
+    [now addObject:[self insert:@"Tag" id:@"zinc" in:context]];
+  }];
+  [self sync:engines[0]];
+  XCTAssertEqual(engines[0].issues.count, 0u, @"%@", [engines[0].issues valueForKey:@"message"]);
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], ([NSSet setWithObjects:@"metric", @"zinc", nil]));
+  [self sync:engines[1]];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:devices[1]], ([NSSet setWithObjects:@"metric", @"zinc", nil]));
+  [self in:devices[1] do:^(NSManagedObjectContext *context) {
+    [[[self object:@"Part" id:@"bolt" in:context] mutableSetValueForKey:@"tags"] addObject:[self object:@"Tag" id:@"steel" in:context]];
+  }];
+  [self sync:engines[1]];
+  [self sync:engines[0]];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:devices[0]], ([NSSet setWithObjects:@"steel", @"metric", @"zinc", nil]));
+  XCTAssertEqual([engines[0] pendingChanges].count, 0u, @"%@", [engines[0] pendingChanges]);
+}
+
+// A save the service refuses as one goes again, each change standing
+// alone: the one refused is set aside, the rest go in.
+- (void)testARefusedSaveGoesAgainEachAlone
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTPartsModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  ODataSyncService *syncing = [[ODataSyncService alloc] initWithService:service];
+  XCTAssertNotNil(syncing);
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    for (NSManagedObject *object in context.insertedObjects) {
+      if (![[object valueForKey:@"name"] isEqual:@"refused"]) continue;
+      if (error) *error = ODataServiceError(400, @"Not that one");
+      return NO;
+    }
+    return YES;
+  };
+  NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTPartsModel(NO)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = service;
+  [engine addRemote:remote];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self insert:@"Part" id:@"nut" in:context] setValue:[NSSet setWithObject:[self insert:@"Tag" id:@"brass" in:context]] forKey:@"tags"];
+    [self insert:@"Bin" id:@"refused" in:context];
+  }];
+  [self sync:engine];
+  XCTAssertEqualObjects([engine.issues valueForKey:@"entityName"], @[ @"Bin" ], @"%@", [engine.issues valueForKey:@"message"]);
+  XCTAssertEqualObjects([self values:@"name" of:@"Part" in:server], @[ @"nut" ]);
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"nut" in:server], [NSSet setWithObject:@"brass"]);
+  XCTAssertEqualObjects([self values:@"name" of:@"Bin" in:server], @[]);
 }
 
 @end

@@ -49,6 +49,9 @@ FOUNDATION_EXPORT NSAttributeDescription *_Nullable ODSModifiedAttributeOf(NSEnt
 // Whether the entity, or one derived from it, has a merged attribute.
 - (BOOL)mergesEntity:(NSEntityDescription *)entity;
 - (NSArray<NSRelationshipDescription *> *)toOnesOf:(NSEntityDescription *)entity;
+// A many-to-many's side whose members are its object's to sync (the
+// side that carries it, ODataSyncCarriedKey), by name.
+- (NSArray<NSRelationshipDescription *> *)setsOf:(NSEntityDescription *)entity;
 - (NSArray<NSAttributeDescription *> *)keyAttributesOf:(NSEntityDescription *)entity;
 
 // The conflict rule the model names (ODataSync.conflicts: remote, local,

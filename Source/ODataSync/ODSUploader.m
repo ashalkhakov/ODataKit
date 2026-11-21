@@ -63,7 +63,7 @@ static BOOL ODSOnlyHistoryTokens(NSPersistentHistoryTransaction *transaction)
   NSMutableSet *names = [NSMutableSet set];
   NSSet *attributes = [NSSet setWithArray:[[[_model attributesOf:entity] arrayByAddingObjectsFromArray:[_model mergedAttributesOf:entity]]
                                               valueForKey:@"name"]];
-  NSSet *toOnes = [NSSet setWithArray:[[_model toOnesOf:entity] valueForKey:@"name"]];
+  NSSet *toOnes = [NSSet setWithArray:[[[_model toOnesOf:entity] arrayByAddingObjectsFromArray:[_model setsOf:entity]] valueForKey:@"name"]];
   for (NSPropertyDescription *property in properties) {
     if ([attributes containsObject:property.name] || [toOnes containsObject:property.name]) [names addObject:property.name];
   }
@@ -259,7 +259,7 @@ static BOOL ODSOnlyHistoryTokens(NSPersistentHistoryTransaction *transaction)
   // Upserts parents first, deletions children first; in order within.
   NSMutableDictionary *place = [NSMutableDictionary dictionary];
   for (NSUInteger i = 0; i < _entities.count; i++) place[_entities[i].name] = @(i);
-  return [entries sortedArrayUsingComparator:^NSComparisonResult(NSManagedObject *a, NSManagedObject *b) {
+  NSArray *sorted = [entries sortedArrayUsingComparator:^NSComparisonResult(NSManagedObject *a, NSManagedObject *b) {
     BOOL deleteA = [[a valueForKey:@"operation"] integerValue] == ODataSyncOperationDelete;
     BOOL deleteB = [[b valueForKey:@"operation"] integerValue] == ODataSyncOperationDelete;
     if (deleteA != deleteB) return deleteA ? NSOrderedDescending : NSOrderedAscending;
@@ -267,6 +267,48 @@ static BOOL ODSOnlyHistoryTokens(NSPersistentHistoryTransaction *transaction)
     if (pa != pb) return (deleteA ? pa < pb : pa > pb) ? NSOrderedDescending : NSOrderedAscending;
     return [[a valueForKey:@"sequence"] compare:[b valueForKey:@"sequence"]];
   }];
+  return [self referencesFirst:sorted context:context];
+}
+
+// An upsert after the upserts of what its object's to-ones are (a
+// reminder done by a service made in the same save, the reminder's entry
+// changed since and so later): the remote finds what it binds to, in the
+// same atomicity group too. Otherwise as they were; a cycle as it comes.
+- (void)place:(NSManagedObject *)entry into:(NSMutableArray *)ordered upserts:(NSDictionary<NSString *, NSManagedObject *> *)upserts
+       placed:(NSMutableSet *)placed context:(NSManagedObjectContext *)context
+{
+  NSValue *seen = [NSValue valueWithNonretainedObject:entry];
+  if ([placed containsObject:seen]) return;
+  [placed addObject:seen];
+  if ([[entry valueForKey:@"operation"] integerValue] != ODataSyncOperationDelete) {
+    NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
+    id key = ODSUnarchiveReporting([entry valueForKey:@"key"], NULL);
+    NSManagedObject *object = root && [key isKindOfClass:[NSDictionary class]] ? [_codec objectOfEntity:root key:key inContext:context] : nil;
+    for (NSRelationshipDescription *toOne in object ? [_model toOnesOf:object.entity] : @[]) {
+      NSManagedObject *target = [object valueForKey:toOne.name];
+      if (![target isKindOfClass:[NSManagedObject class]]) continue;
+      NSEntityDescription *targetRoot = [_model rootOf:target.entity];
+      NSDictionary *targetKey = [_codec keyOfObject:target];
+      NSString *text = targetKey.count ? [_codec keyTextOf:targetKey entity:targetRoot] : nil;
+      NSManagedObject *first = text ? upserts[[NSString stringWithFormat:@"%@ %@", targetRoot.name, text]] : nil;
+      if (first) [self place:first into:ordered upserts:upserts placed:placed context:context];
+    }
+  }
+  [ordered addObject:entry];
+}
+
+- (NSArray<NSManagedObject *> *)referencesFirst:(NSArray<NSManagedObject *> *)entries context:(NSManagedObjectContext *)context
+{
+  NSMutableDictionary<NSString *, NSManagedObject *> *upserts = [NSMutableDictionary dictionary];
+  for (NSManagedObject *entry in entries) {
+    if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationDelete) continue;
+    upserts[[NSString stringWithFormat:@"%@ %@", [entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"]]] = entry;
+  }
+  if (upserts.count < 2) return entries;
+  NSMutableArray *ordered = [NSMutableArray arrayWithCapacity:entries.count];
+  NSMutableSet *placed = [NSMutableSet set];
+  for (NSManagedObject *entry in entries) [self place:entry into:ordered upserts:upserts placed:placed context:context];
+  return ordered;
 }
 
 // The request an entry is sent as: {method, url, headers, body}; nil when
@@ -550,14 +592,170 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
 
 // One batch of what waits, sent and saved: 1 more to send, 2 done (nothing
 // waits, or the remote said stop), 0 failed.
+// A one-to-one's link to an object not at the remote yet, whose insert
+// comes after, left to that insert, which links back (the remote sets the
+// inverse): neither binds what is not there (a contact and its supplier,
+// each the other's).
+- (NSDictionary *)withoutLinksToCome:(NSDictionary *)request of:(NSManagedObject *)entry toCome:(NSSet<NSString *> *)toCome
+                             context:(NSManagedObjectContext *)context
+{
+  NSDictionary *body = request[@"body"];
+  if (!toCome.count || ![body isKindOfClass:[NSDictionary class]]) return request;
+  NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
+  id key = ODSUnarchiveReporting([entry valueForKey:@"key"], NULL);
+  NSManagedObject *object = root && [key isKindOfClass:[NSDictionary class]] ? [_codec objectOfEntity:root key:key inContext:context] : nil;
+  NSMutableDictionary *kept = nil;
+  for (NSRelationshipDescription *toOne in object ? [_model toOnesOf:object.entity] : @[]) {
+    if (!toOne.inverseRelationship || toOne.inverseRelationship.isToMany) continue;
+    NSManagedObject *target = [object valueForKey:toOne.name];
+    if (![target isKindOfClass:[NSManagedObject class]]) continue;
+    NSEntityDescription *targetRoot = [_model rootOf:target.entity];
+    NSDictionary *targetKey = [_codec keyOfObject:target];
+    NSString *text = targetKey.count ? [_codec keyTextOf:targetKey entity:targetRoot] : nil;
+    if (!text || ![toCome containsObject:[NSString stringWithFormat:@"%@ %@", targetRoot.name, text]]) continue;
+    if (!kept) kept = [body mutableCopy];
+    [kept removeObjectForKey:[[_model.mapper propertyForRelationship:toOne] stringByAppendingString:@"@odata.bind"]];
+  }
+  if (!kept) return request;
+  NSMutableDictionary *changed = [request mutableCopy];
+  changed[@"body"] = kept;
+  return changed;
+}
+
+// Within a batch, a to-one's link to an object inserted after it there (a
+// cycle: a stock item's preferred supplier item, the stock item's; a
+// contact's address, the contact's) goes after that insert: taken out of
+// its request, and sent after the rest, an update of the link alone. One
+// atomicity group saves them together. A one-to-one's is left to the
+// other's insert, which links back (-withoutLinksToCome:...).
+- (NSArray<NSDictionary *> *)linksLaterIn:(NSMutableArray<NSDictionary *> *)requests entries:(NSArray<NSManagedObject *> *)entries
+                                  context:(NSManagedObjectContext *)context
+{
+  NSMutableDictionary<NSString *, NSNumber *> *inserted = [NSMutableDictionary dictionary];
+  for (NSUInteger i = 0; i < entries.count; i++) {
+    if ([[entries[i] valueForKey:@"operation"] integerValue] != ODataSyncOperationInsert) continue;
+    inserted[[NSString stringWithFormat:@"%@ %@", [entries[i] valueForKey:@"entityType"], [entries[i] valueForKey:@"keyText"]]] = @(i);
+  }
+  NSMutableArray *links = [NSMutableArray array];
+  for (NSUInteger i = 0; i < entries.count && inserted.count; i++) {
+    NSDictionary *body = requests[i][@"body"];
+    if (![body isKindOfClass:[NSDictionary class]]) continue;
+    NSEntityDescription *root = _model.model.entitiesByName[[entries[i] valueForKey:@"entityType"]];
+    id key = ODSUnarchiveReporting([entries[i] valueForKey:@"key"], NULL);
+    NSManagedObject *object = root && [key isKindOfClass:[NSDictionary class]] ? [_codec objectOfEntity:root key:key inContext:context] : nil;
+    NSMutableDictionary *kept = nil;
+    for (NSRelationshipDescription *toOne in object ? [_model toOnesOf:object.entity] : @[]) {
+      if (toOne.inverseRelationship && !toOne.inverseRelationship.isToMany) continue;
+      NSManagedObject *target = [object valueForKey:toOne.name];
+      if (![target isKindOfClass:[NSManagedObject class]]) continue;
+      NSEntityDescription *targetRoot = [_model rootOf:target.entity];
+      NSDictionary *targetKey = [_codec keyOfObject:target];
+      NSString *text = targetKey.count ? [_codec keyTextOf:targetKey entity:targetRoot] : nil;
+      NSNumber *at = text ? inserted[[NSString stringWithFormat:@"%@ %@", targetRoot.name, text]] : nil;
+      NSString *bind = [[_model.mapper propertyForRelationship:toOne] stringByAppendingString:@"@odata.bind"];
+      if (at.unsignedIntegerValue <= i || !body[bind]) continue;
+      if (!kept) kept = [body mutableCopy];
+      [kept removeObjectForKey:bind];
+      NSDictionary *link = [_requests upsertOf:object entity:root key:key properties:[NSSet setWithObject:toOne.name] insert:NO
+                                       checked:NO etag:nil];
+      [links addObject:@{ @"request": link, @"object": object, @"root": root, @"key": key,
+                          @"keyText": [entries[i] valueForKey:@"keyText"], @"relationship": toOne }];
+    }
+    if (kept) {
+      NSMutableDictionary *changed = [requests[i] mutableCopy];
+      changed[@"body"] = kept;
+      requests[i] = changed;
+    }
+  }
+  for (NSUInteger i = 0; i < entries.count; i++) [links addObjectsFromArray:[self setsOf:entries[i] context:context]];
+  return links;
+}
+
+// A set's members (a many-to-many this side carries) made the remote's as
+// they are here: each one added or taken away, by its $ref, against those
+// agreed on (none, for an object new there). After the rest of the batch,
+// so that a member made in it is there.
+- (NSArray<NSDictionary *> *)setsOf:(NSManagedObject *)entry context:(NSManagedObjectContext *)context
+{
+  ODataSyncOperation operation = [[entry valueForKey:@"operation"] integerValue];
+  if (operation != ODataSyncOperationInsert && operation != ODataSyncOperationUpdate) return @[];
+  NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
+  id key = ODSUnarchiveReporting([entry valueForKey:@"key"], NULL);
+  NSManagedObject *object = root && [key isKindOfClass:[NSDictionary class]] ? [_codec objectOfEntity:root key:key inContext:context] : nil;
+  NSArray<NSRelationshipDescription *> *sets = object ? [_model setsOf:object.entity] : @[];
+  if (!sets.count) return @[];
+  NSArray *names = ODSUnarchive([entry valueForKey:@"properties"]);
+  NSString *keyText = [entry valueForKey:@"keyText"];
+  NSManagedObject *shadow = [_engine.store shadowOf:root.name keyText:keyText remote:_remote inContext:context make:NO];
+  NSData *kept = [shadow valueForKey:@"values"];
+  id agreedRow = kept.length ? [NSJSONSerialization JSONObjectWithData:kept options:0 error:NULL] : nil;
+  // Members by their keys (the store's): a row's come with annotations.
+  NSDictionary *agreedValues = [agreedRow isKindOfClass:[NSDictionary class]]
+      ? [_codec valuesFromShadow:agreedRow entity:[_codec entityOfRow:agreedRow entity:object.entity]] : @{};
+  NSDictionary *values = [_codec valuesOfObject:object];
+  NSString *path = [_codec pathOfEntity:root key:key];
+  NSMutableArray *requests = [NSMutableArray array];
+  for (NSRelationshipDescription *set in sets) {
+    if (operation == ODataSyncOperationUpdate && names && ![names containsObject:set.name]) continue;
+    NSString *property = [_model.mapper propertyForRelationship:set];
+    id agreed = [agreedRow isKindOfClass:[NSDictionary class]] && [agreedRow[property] isKindOfClass:[NSArray class]] ? agreedRow[property] : @[];
+    NSArray *theirs = [agreedValues[set.name] isKindOfClass:[NSArray class]] ? agreedValues[set.name] : @[];
+    NSArray *mine = [values[set.name] isKindOfClass:[NSArray class]] ? values[set.name] : @[];
+    NSMutableArray *changes = [NSMutableArray array];
+    for (NSDictionary *member in mine) if (![theirs containsObject:member]) [changes addObject:@[ member, @YES ]];
+    for (NSDictionary *member in theirs) if (![mine containsObject:member]) [changes addObject:@[ member, @NO ]];
+    for (NSArray *change in changes) {
+      NSDictionary *request = [_requests referenceOf:path navigation:property member:[_codec pathOfEntity:set.destinationEntity key:change[0]]
+                                              adding:[change[1] boolValue]];
+      [requests addObject:@{ @"request": request, @"object": object, @"root": root, @"key": key, @"keyText": keyText,
+                             @"relationship": set, @"agreed": agreed, @"removing": @(![change[1] boolValue]) }];
+    }
+  }
+  return requests;
+}
+
+// A link sent after (-linksLaterIn:...), or a set's member added or taken
+// away (-setsOf:...): taken, the version its answer gave agreed on (a
+// member gone already, taken); not taken, agreed on as the remote has it
+// (no link; the set's members as they were), and an update of it waits.
+- (void)took:(NSInteger)status headers:(NSDictionary *)headers ofLink:(NSDictionary *)link context:(NSManagedObjectContext *)context
+{
+  NSManagedObject *object = link[@"object"];
+  NSEntityDescription *root = link[@"root"];
+  NSString *keyText = link[@"keyText"];
+  NSRelationshipDescription *toOne = link[@"relationship"];
+  BOOL both = [_model directionOfEntity:root toward:_remote] == ODataSyncDirectionBoth;
+  NSManagedObject *shadow = both ? [_engine.store shadowOf:root.name keyText:keyText remote:_remote inContext:context make:NO] : nil;
+  if ((status >= 200 && status < 300) || (status == 404 && [link[@"removing"] boolValue])) {
+    if (both) [_engine agreeOn:[_codec rowOfObject:object] etag:ODSHeader(headers, @"ETag") ?: [shadow valueForKey:@"etag"] of:root
+                        keyText:keyText remote:_remote context:context];
+    return;
+  }
+  if (both && shadow) {
+    NSMutableDictionary *row = [[_codec rowOfObject:object] mutableCopy];
+    row[[_model.mapper propertyForRelationship:toOne]] = link[@"agreed"] ?: [NSNull null];
+    [_engine agreeOn:row etag:[shadow valueForKey:@"etag"] of:root keyText:keyText remote:_remote context:context];
+  }
+  if ([_engine.store entryOf:root.name keyText:keyText remote:_remote inContext:context]) return;
+  NSManagedObject *entry = [_engine.store newEntryOf:root key:link[@"key"] operation:ODataSyncOperationUpdate remote:_remote context:context];
+  [entry setValue:ODSArchive(@[ toOne.name ]) forKey:@"properties"];
+}
+
 - (NSInteger)sendBatchIn:(NSManagedObjectContext *)context size:(NSUInteger)size error:(NSError **)error
 {
   NSMutableArray *entries = [NSMutableArray array];
   NSMutableArray *requests = [NSMutableArray array];
   // The batch's own: {"requests":[...]}, and each request's "id" and comma.
   NSUInteger bytes = 16, budget = MAX(_remote.batchBytes, 1u);
-  for (NSManagedObject *entry in [self pendingIn:context]) {
-    NSDictionary *request = [self requestOf:entry context:context];
+  NSArray<NSManagedObject *> *pending = [self pendingIn:context];
+  NSMutableSet<NSString *> *toCome = [NSMutableSet set];
+  for (NSManagedObject *entry in pending) {
+    if ([[entry valueForKey:@"operation"] integerValue] == ODataSyncOperationInsert)
+      [toCome addObject:[NSString stringWithFormat:@"%@ %@", [entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"]]];
+  }
+  for (NSManagedObject *entry in pending) {
+    [toCome removeObject:[NSString stringWithFormat:@"%@ %@", [entry valueForKey:@"entityType"], [entry valueForKey:@"keyText"]]];
+    NSDictionary *request = [self withoutLinksToCome:[self requestOf:entry context:context] of:entry toCome:toCome context:context];
     if (!request) continue;
     // Not past the budget: the next batch takes it (the first goes alone).
     NSUInteger more = ODataJSONByteCount(request) + 16;
@@ -568,10 +766,30 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
     if (requests.count == size) break;
   }
   if (!requests.count) return [context save:error] ? 2 : 0;
+  NSArray<NSDictionary *> *links = [self linksLaterIn:requests entries:entries context:context];
+  for (NSDictionary *link in links) [requests addObject:link[@"request"]];
   OTSpan *span = [_engine.tracer startSpanNamed:@"upload batch" attributes:@{ @"odatasync.changes": @(requests.count) }];
   NSInteger batchStatus = 0;
   NSError *failure = nil;
-  NSDictionary<NSString *, ODataBatchPart *> *parts = _batchUnsupported ? nil : [self sendBatch:requests status:&batchStatus error:&failure];
+  // One atomicity group: a service saves the changes together, as this
+  // side saved them, its rules seeing them all, not each before the rest
+  // has come (a reminder closed there by a service before the reminder it
+  // follows came). Refused as one, they go again, each standing alone:
+  // which was refused is said, and the rest go in. A peer takes each alone.
+  NSDictionary<NSString *, ODataBatchPart *> *parts = nil;
+  if (!_batchUnsupported) {
+    BOOL together = requests.count > 1 && !_remote.peer;
+    NSMutableArray *grouped = [NSMutableArray arrayWithCapacity:requests.count];
+    for (NSDictionary *request in requests) {
+      NSMutableDictionary *each = [request mutableCopy];
+      if (together) each[@"atomicityGroup"] = @"changes";
+      [grouped addObject:each];
+    }
+    parts = [self sendBatch:grouped status:&batchStatus error:&failure];
+    BOOL refused = NO;
+    for (ODataBatchPart *part in together ? parts.allValues : @[]) refused = refused || part.status < 200 || part.status >= 300;
+    if (refused) parts = [self sendBatch:requests status:&batchStatus error:&failure];
+  }
   if (!parts && (_batchUnsupported || batchStatus == 400 || batchStatus == 404 || batchStatus == 405 || batchStatus == 415 || batchStatus == 501)) {
     // No JSON $batch there: one at a time.
     _batchUnsupported = YES;
@@ -606,6 +824,19 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
       [context save:NULL];
       return 0;
     }
+  }
+  for (NSUInteger i = 0; i < links.count && !stop; i++) {
+    NSInteger status;
+    NSDictionary *headers = @{};
+    NSData *body = nil;
+    if (parts) {
+      ODataBatchPart *part = parts[[NSString stringWithFormat:@"%lu", (unsigned long)(entries.count + i + 1)]];
+      status = part ? part.status : 0;
+      headers = part.headers ?: @{};
+    } else {
+      status = [self sendAlone:links[i][@"request"] headers:&headers body:&body error:&failure];
+    }
+    [self took:status headers:headers ofLink:links[i] context:context];
   }
   [span end];
   if (![context save:error]) return 0;

@@ -29,6 +29,8 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   ODataClient *_client;
   // Rows and removals the pages read so far held.
   NSUInteger _entries;
+  // Links to objects of an entity read later (a cycle), made at the end.
+  NSMutableArray *_waiting;
 }
 
 - (instancetype)initWithEngine:(ODataSyncEngine *)engine remote:(ODataSyncRemote *)remote
@@ -41,7 +43,17 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   _codec = engine.codec;
   _requests = [[ODSRequests alloc] initWithEngine:engine remote:remote];
   _client = [engine clientOf:remote];
+  _waiting = [NSMutableArray array];
   return self;
+}
+
+// The links that waited for objects read later, made; saved.
+- (BOOL)linkWaitingIn:(NSManagedObjectContext *)context error:(NSError **)error
+{
+  if (!_waiting.count) return YES;
+  BOOL linked = [_codec linkWaiting:_waiting inContext:context];
+  [_waiting removeAllObjects];
+  return !linked || [context save:error];
 }
 
 - (NSString *)author
@@ -230,7 +242,7 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   NSUInteger changed = 0;
   for (NSArray *pair in pairs) {
     NSManagedObject *object = pair[0];
-    [_codec applyJSON:pair[1] toObject:object];
+    [_codec applyJSON:pair[1] toObject:object waiting:_waiting];
     // A row as it is here already (a delta's echo, a peer's copy) is no download.
     if (object.isInserted || object.changedValues.count) changed++;
   }
@@ -454,6 +466,11 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
         break;
       }
     }
+    NSError *e = nil;
+    if (ok && ![self linkWaitingIn:context error:&e]) {
+      failure = e;
+      ok = NO;
+    }
     [self->_engine.store endOutboxIndex];
   }];
   if (!ok && error) *error = failure;
@@ -503,6 +520,11 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
         [context rollback];
         return;
       }
+    }
+    NSError *e = nil;
+    if (![self linkWaitingIn:context error:&e]) {
+      failure = e;
+      ok = NO;
     }
   }];
   if (!ok && error) *error = failure;

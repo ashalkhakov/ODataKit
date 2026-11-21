@@ -361,6 +361,7 @@ static NSString *ODSFingerprint(NSDictionary *values)
   for (NSEntityDescription *side in @[ entity, remoteEntity ]) {
     [everything addObjectsFromArray:[[model attributesOf:side] valueForKey:@"name"]];
     [everything addObjectsFromArray:[[model toOnesOf:side] valueForKey:@"name"]];
+    [everything addObjectsFromArray:[[model setsOf:side] valueForKey:@"name"]];
   }
   if (versionsAttribute) [everything removeObject:versionsAttribute.name];
   NSSet *localChanges = base && local ? ODSChangedNames(base, local) : everything;
