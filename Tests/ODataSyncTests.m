@@ -1049,6 +1049,30 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
 // A change whose key cannot be read back (kept by a Foundation that could
 // write it, read by one that cannot): set aside with why, not dropped, and
 // kept so through later syncs, and when it is retried.
+// A key that is no URL as it is (its spaces) goes up in a batch, its
+// requests' URLs written as URLs: made, changed and deleted.
+- (void)testAKeyWithSpacesGoesUpInABatch
+{
+  NSString *identifier = @"Car wash, inside and out";
+  [self onDevice:^(NSManagedObjectContext *context) {
+    NSManagedObject *task = [NSEntityDescription insertNewObjectForEntityForName:@"Task" inManagedObjectContext:context];
+    [task setValue:identifier forKey:@"id"];
+    [task setValue:@"Wash" forKey:@"title"];
+  }];
+  [self sync];
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+  XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_server], (@[ @"Wash" ]));
+  [self retitle:identifier to:@"Wax" in:_device];
+  [self sync];
+  XCTAssertEqualObjects([self values:@"title" of:@"Task" in:_server], (@[ @"Wax" ]));
+  [self onDevice:^(NSManagedObjectContext *context) {
+    [context deleteObject:[self object:@"Task" id:identifier in:context]];
+  }];
+  [self sync];
+  XCTAssertEqual([self values:@"title" of:@"Task" in:_server].count, 0u);
+  XCTAssertEqual(_engine.pendingChanges.count, 0u, @"%@", _engine.pendingChanges);
+}
+
 - (void)testAChangeWhoseKeyCannotBeReadIsSetAside
 {
   [self sync];
