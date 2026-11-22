@@ -25,14 +25,20 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
 
 #pragma mark URLs
 
+// A request's URL relative to the service root, as a URL writes it: a key's
+// space as %20 ("Kinds('Car wash')"), in a request alone or in a batch.
+- (NSString *)written:(NSString *)relative
+{
+  NSMutableCharacterSet *allowed = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+  [allowed removeCharactersInString:@"+"];
+  return [relative stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+}
+
 - (NSURL *)URLOf:(NSString *)relative
 {
   NSString *root = _remote.serviceRoot.absoluteString;
   if (![root hasSuffix:@"/"]) root = [root stringByAppendingString:@"/"];
-  NSMutableCharacterSet *allowed = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
-  [allowed removeCharactersInString:@"+"];
-  NSString *encoded = [relative stringByAddingPercentEncodingWithAllowedCharacters:allowed];
-  return [self versioned:[NSURL URLWithString:[root stringByAppendingString:encoded]]];
+  return [self versioned:[NSURL URLWithString:[root stringByAppendingString:[self written:relative]]]];
 }
 
 - (NSURL *)URLOfLink:(NSString *)link relativeTo:(NSURL *)base
@@ -310,6 +316,7 @@ static NSString * const ODSUnknownVersion = @"\"ODataSync.unknown\"";
   for (NSUInteger i = 0; i < requests.count; i++) {
     NSMutableDictionary *item = [requests[i] mutableCopy];
     item[@"id"] = [NSString stringWithFormat:@"%lu", (unsigned long)i + 1];
+    item[@"url"] = [self written:item[@"url"]];
     [items addObject:item];
   }
   NSMutableURLRequest *http = [NSMutableURLRequest requestWithURL:[self URLOf:@"$batch"]];
