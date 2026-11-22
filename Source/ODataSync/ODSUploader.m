@@ -253,6 +253,20 @@ static BOOL ODSOnlyHistoryTokens(NSPersistentHistoryTransaction *transaction)
   return direction == ODataSyncDirectionBoth || (direction == ODataSyncDirectionUp && [[entry valueForKey:@"relayed"] boolValue]);
 }
 
+// Whether what the remote took of the entry's object is kept (its
+// shadow): a both entity's, and an up entity's with sets (its members
+// there, so only the ones it has not are sent, a member taken away too),
+// whose version is still not checked (-checksVersionsOf:).
+- (BOOL)keepsShadowOf:(NSManagedObject *)entry
+{
+  if ([self checksVersionsOf:entry]) return YES;
+  NSEntityDescription *root = _model.model.entitiesByName[[entry valueForKey:@"entityType"]];
+  if (!root) return NO;
+  if ([_model setsOf:root].count) return YES;
+  for (NSEntityDescription *sub in root.subentities) if ([_model setsOf:sub].count) return YES;
+  return NO;
+}
+
 - (NSArray<NSManagedObject *> *)pendingIn:(NSManagedObjectContext *)context
 {
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:ODSOutboxEntity];
@@ -547,7 +561,7 @@ static NSString *ODSHeader(NSDictionary *headers, NSString *name)
   BOOL both = [self checksVersionsOf:entry];
   [entry setValue:@([[entry valueForKey:@"attempts"] integerValue] + 1) forKey:@"attempts"];
   if ((status >= 200 && status < 300) || (status == 404 && operation == ODataSyncOperationDelete)) {
-    if (both) {
+    if ([self keepsShadowOf:entry]) {
       // What both have now: the device's version, but what was withheld.
       NSEntityDescription *root = _model.model.entitiesByName[entityName];
       NSManagedObject *object = operation == ODataSyncOperationDelete ? nil
@@ -756,7 +770,7 @@ static NSString *ODSEntryName(NSManagedObject *entry)
     [waiting addObject:name];
     row[property] = there ?: [NSNull null];
   }
-  if ([self checksVersionsOf:entry]) {
+  if ([self keepsShadowOf:entry]) {
     NSManagedObject *shadow = [_engine.store shadowOf:root.name keyText:[entry valueForKey:@"keyText"] remote:_remote inContext:context make:NO];
     [_engine agreeOn:row etag:withheld[@"etag"] ?: [shadow valueForKey:@"etag"] of:root keyText:[entry valueForKey:@"keyText"]
               remote:_remote context:context];

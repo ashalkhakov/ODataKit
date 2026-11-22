@@ -216,7 +216,7 @@ static BOOL ODSCarries(ODSModel *model, NSRelationshipDescription *relationship)
 {
   NSRelationshipDescription *inverse = relationship.inverseRelationship;
   // Its own inverse (a person's friends, each the other's): this one.
-  if (inverse == relationship || [inverse.name isEqualToString:relationship.name] && inverse.entity == relationship.entity) return YES;
+  if (inverse == relationship || ([inverse.name isEqualToString:relationship.name] && inverse.entity == relationship.entity)) return YES;
   NSString *said = [relationship.userInfo[ODataSyncCarriedKey] description].uppercaseString;
   if (said.length) return [said isEqualToString:@"YES"];
   NSString *other = [inverse.userInfo[ODataSyncCarriedKey] description].uppercaseString;

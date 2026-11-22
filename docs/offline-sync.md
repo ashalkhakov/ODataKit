@@ -145,7 +145,10 @@ The bookkeeping's entities:
   and `quarantined` when a remote refused it for good (section 5.4).
 - **ODSShadow**: per `both` object, the last version a remote confirmed:
   its ETag, and its values (for a three-way merge, section 6). Only for
-  `both` entities, and only their synced properties.
+  `both` entities, and for `up` entities with many-to-many sets (the
+  members the remote took, so only those it lacks are added and a member
+  taken away is removed; their versions are still not checked), and only
+  their synced properties.
 
 #### Indexes: ODataSync's part, and the app's
 
@@ -382,7 +385,7 @@ FillUp's properties.
 
 | Answer | What the uploader does |
 |---|---|
-| 2xx | the entry is done (removed, or this remote crossed off); a `both` object's shadow takes the new ETag and values |
+| 2xx | the entry is done (removed, or this remote crossed off); a `both` object's shadow (or an `up` object's with sets) takes the new ETag and values |
 | DELETE 404 | done: it is already gone |
 | 412 (`both`) | a conflict (section 6) |
 | 400, 403, 409, 422 | refused: the entry is quarantined with the error, the app told; the rest go on |

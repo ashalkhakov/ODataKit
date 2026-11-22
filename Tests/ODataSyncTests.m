@@ -295,15 +295,16 @@ static NSRelationshipDescription *OSTRelationship(NSString *name, NSEntityDescri
   return relationship;
 }
 
-static NSManagedObjectModel *OSTPartsModel(BOOL service)
+// (Parts going as said: "up", a device's only to send.)
+static NSManagedObjectModel *OSTPartsModelGoing(BOOL service, NSString *going)
 {
   NSMutableDictionary *entities = [NSMutableDictionary dictionary];
   for (NSArray *named in @[ @[ @"Part", @"Parts" ], @[ @"Bin", @"Bins" ], @[ @"Label", @"Labels" ], @[ @"Tag", @"Tags" ] ]) {
     NSEntityDescription *entity = [[NSEntityDescription alloc] init];
     entity.name = named[0];
     entity.managedObjectClassName = @"NSManagedObject";
-    entity.userInfo = @{ @"OData.entitySet": named[1], ODataSyncDirectionKey: @"both", ODataSyncVersionsKey: @"versions",
-                         ODataSyncModifiedKey: @"modified" };
+    entity.userInfo = @{ @"OData.entitySet": named[1], ODataSyncDirectionKey: [named[0] isEqual:@"Part"] ? going : @"both",
+                         ODataSyncVersionsKey: @"versions", ODataSyncModifiedKey: @"modified" };
     entities[named[0]] = entity;
   }
   NSEntityDescription *part = entities[@"Part"], *bin = entities[@"Bin"], *label = entities[@"Label"], *tag = entities[@"Tag"];
@@ -335,6 +336,11 @@ static NSManagedObjectModel *OSTPartsModel(BOOL service)
   if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
   else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
   return model;
+}
+
+static NSManagedObjectModel *OSTPartsModel(BOOL service)
+{
+  return OSTPartsModelGoing(service, @"both");
 }
 
 // Keeps this side's, and the conflict it saw.
@@ -2573,6 +2579,62 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
   [self sync:engine];
   XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], ([NSSet setWithObjects:@"b", @"c", nil]));
   XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+}
+
+// An upload-only part's tags: what the remote took of them is kept (no
+// version checked, but its members), so a member taken away goes too, and
+// one refused is the only one sent again.
+- (void)testAnUploadOnlySetSendsOnlyWhatTheRemoteHasNot
+{
+  NSPersistentStoreCoordinator *server, *device;
+  ODataService *service = [self partsServer:&server];
+  __block BOOL refusing = NO;
+  service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **error) {
+    for (NSManagedObject *object in context.updatedObjects) {
+      if (refusing && [object.entity.name isEqualToString:@"Part"] && [[[object valueForKey:@"tags"] valueForKey:@"name"] containsObject:@"c"]) {
+        if (error) *error = ODataServiceError(400, @"Not c");
+        return NO;
+      }
+    }
+    return YES;
+  };
+  OSTAnsweringTransport *transport = [[OSTAnsweringTransport alloc] init];
+  transport.service = service;
+  device = [self coordinatorWithModel:OSTPartsModelGoing(NO, @"up")];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = transport;
+  [engine addRemote:remote];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [self insert:@"Tag" id:@"b" in:context];
+    [self insert:@"Tag" id:@"c" in:context];
+    [[self insert:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObject:[self insert:@"Tag" id:@"a" in:context]] forKey:@"tags"];
+  }];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"a"]);
+  refusing = YES;
+  [self in:device do:^(NSManagedObjectContext *context) {
+    [[self object:@"Part" id:@"bolt" in:context] setValue:[NSSet setWithObjects:[self object:@"Tag" id:@"b" in:context],
+                                                                                [self object:@"Tag" id:@"c" in:context], nil]
+                                                   forKey:@"tags"];
+  }];
+  NSError *error = nil;
+  [engine syncWithError:&error];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], [NSSet setWithObject:@"b"], @"a taken away, b added, c refused");
+  refusing = NO;
+  for (ODataSyncIssue *issue in engine.issues) [engine retryIssue:issue];
+  [transport.requests removeAllObjects];
+  [self sync:engine];
+  [self sync:engine];
+  XCTAssertEqualObjects([self names:@"tags" of:@"Part" id:@"bolt" in:server], ([NSSet setWithObjects:@"b", @"c", nil]));
+  XCTAssertEqual(engine.pendingChanges.count, 0u, @"%@", engine.pendingChanges);
+  NSMutableString *sent = [NSMutableString string];
+  for (NSURLRequest *request in transport.requests) {
+    if (request.HTTPBody) [sent appendString:[[NSString alloc] initWithData:request.HTTPBody encoding:NSUTF8StringEncoding]];
+  }
+  XCTAssertTrue([sent containsString:@"Tags('c')"], @"c sent again: %@", sent);
+  XCTAssertFalse([sent containsString:@"Tags('b')"], @"b not sent again: %@", sent);
 }
 
 // A link left out of an insert (its target's insert to come) is agreed on
