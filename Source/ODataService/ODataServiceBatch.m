@@ -423,6 +423,9 @@ static void OISAppendText(NSMutableData *data, NSString *text)
   }
   if (!_groupFailure && !saved) {
     NSInteger status = 500;
+    // As a request alone is answered (-respondError:): a service error's
+    // own status (a willSave's refusal), a failed validation's 400.
+    if ([error.domain isEqualToString:ODataServiceErrorDomain] && error.code >= 400 && error.code < 600) status = error.code;
     if ([error.domain isEqualToString:NSCocoaErrorDomain] && error.code >= NSValidationErrorMinimum && error.code <= NSValidationErrorMaximum) status = 400;
     if ([error.domain isEqualToString:NSCocoaErrorDomain] && (error.code == 133020 || error.code == 133021)) status = 409;
     // The save is the change set's; its last request answers for it.

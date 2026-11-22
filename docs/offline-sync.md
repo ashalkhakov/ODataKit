@@ -95,6 +95,18 @@ The entity set and keys are the service's, as the mapper reads them
 (`OData.entitySet`, `OData.key`): an entity syncs with the set its
 `userInfo` names.
 
+A many-to-many (both sides to-many: an answer's options, each an option
+of many answers) is a **set** of one side's objects: its members are that
+object's, a change of them a change of it (its version goes on, its
+outbox entry names the relationship), and they go up as `$ref` (5.2) and
+come down expanded (4). Which side carries it: the one whose
+relationship's `userInfo` says `ODataSync.carried` = YES (or whose
+inverse's says NO); unsaid, the side whose entity's name, then
+relationship's, comes first (`Answer.options` before `Option.answers`);
+a relationship that is its own inverse (a person's friends) is its own
+side's.
+The other side's to-many is not synced, as no one-to-many's is.
+
 ### 3.2 Keys
 
 - `up` and `both` entities have a **UUID key**, made on the device when the
@@ -133,7 +145,10 @@ The bookkeeping's entities:
   and `quarantined` when a remote refused it for good (section 5.4).
 - **ODSShadow**: per `both` object, the last version a remote confirmed:
   its ETag, and its values (for a three-way merge, section 6). Only for
-  `both` entities, and only their synced properties.
+  `both` entities, and for `up` entities with many-to-many sets (the
+  members the remote took, so only those it lacks are added and a member
+  taken away is removed; their versions are still not checked), and only
+  their synced properties.
 
 #### Indexes: ODataSync's part, and the app's
 
@@ -214,8 +229,15 @@ Per remote, per `down` and `both` entity set:
    `ODataSync.down.<remote>`: update or insert by key (a key index makes
    this a lookup); to-one navigation values (`@odata.bind`-shaped
    references, or the foreign key properties the model maps) resolve to
-   local objects by key, inserting a fault-like placeholder when the
-   related row has not come yet (filled when it does).
+   local objects by key; a set's members (expanded, their keys) likewise.
+   A link to an object that has not come yet (of a set read later: a
+   cycle, a stock item's preferred supplier item of the stock item) is
+   unlinked, noted by object and relationship (a later row of the object
+   says it again), and made at the end of the download, once it has; the
+   delta links of the sets read while one waits are kept only then, so a
+   download that stops reads those rows, and their links, again. A link to
+   an object that never comes (its set's filter leaves it out) stays
+   unlinked.
 5. **Saving**: the changes and the new delta link (in ODSRemoteState)
    in one save. A crash before it loses nothing: the old link is read
    again.
@@ -308,9 +330,39 @@ remotes still need it.
 
 ### 5.2 Sending
 
-Entries go in dependency order (an object before those whose to-ones point
-to it), as one `$batch` with `Prefer: odata.continue-on-error`, at most a
-configured number per batch:
+Entries go in dependency order: an entity's before those whose to-ones
+point to it, and within that, an object after the objects its to-ones
+point to that go with it (a reminder done by a service saved with it).
+They go as one `$batch` with `Prefer: odata.continue-on-error`, at most a
+configured number per batch, and the batch's requests as **one atomicity
+group**: the service saves them together, and its rules (a `willSave`)
+see them as the device saved them, not each before the rest has come (a
+reminder closed there by a service before the reminder it follows had
+come). Refused as one, they go again each standing alone: which was
+refused is said and set aside, and the rest go in. A peer takes each
+alone.
+
+A request withholds what the remote cannot take yet, and what goes by
+`$ref`: a to-one's link to an object whose insert has not gone (later in
+the batch, or in a later batch: a cycle, a contact's address of the
+contact), and a set's members. A link to an object later in the batch goes
+after the batch's other requests, an update of the link alone; a set's
+members go after them too, each added (`POST Set(key)/Nav/$ref`, its
+`@odata.id`) or taken away (`DELETE Set(key)/Nav/$ref?$id=...`) against
+those agreed on with the remote (none, for an object new there). The
+shadow is only ever what the remote has: an entry taken is agreed on with
+what it withheld as the remote has it, and kept as an update of that,
+which each follow-up taken settles (a link, the set's member added or gone).
+So a batch that stops before them, a member refused, or a link to an
+insert refused leaves the update waiting, sent again.
+
+The outbox's order is read once a pass (each entry's object read once,
+not each batch). What waits at its end -- what entries withheld, their
+targets in now; a conflict's outcome -- goes in another pass, three at
+most; the rest at the next sync.
+
+A service that takes a JSON batch but answers an atomicity group 400 is
+sent the batch again without it, and its batches go without from then on.
 
 | Entry | `up` | `both` |
 |---|---|---|
@@ -333,7 +385,7 @@ FillUp's properties.
 
 | Answer | What the uploader does |
 |---|---|
-| 2xx | the entry is done (removed, or this remote crossed off); a `both` object's shadow takes the new ETag and values |
+| 2xx | the entry is done (removed, or this remote crossed off); a `both` object's shadow (or an `up` object's with sets) takes the new ETag and values |
 | DELETE 404 | done: it is already gone |
 | 412 (`both`) | a conflict (section 6) |
 | 400, 403, 409, 422 | refused: the entry is quarantined with the error, the app told; the rest go on |
@@ -665,9 +717,12 @@ What exists, and how it goes (`ODataSyncEngine.h`):
   each down and both set read (whole the first time, by its delta link
   after, whole again after a 410 or a change of filter, with what the
   remote no longer has swept), then the outbox sent.
-- The outbox goes as JSON `$batch` requests that stand or fall alone
-  (`odata.continue-on-error`), one at a time where a service takes no
-  JSON batch; upserts parents first, deletions children first.
+- The outbox goes as JSON `$batch` requests, each batch one atomicity
+  group (the service saves it as one; refused as one, its requests go
+  again standing alone, `odata.continue-on-error`), one at a time where
+  a service takes no JSON batch; upserts parents first (an object after
+  those its to-ones point to), deletions children first; links to
+  objects inserted later, and sets' members (`$ref`), after.
 - What waits to be sent: `-pendingChanges` (each an `ODataSyncChange`:
   its entity, key, operation, properties, attempts; an `ODataSyncIssue`
   when set aside), for a "3 changes to send".
@@ -776,13 +831,13 @@ What ODataService needs, and what it has:
   enough for most; a set whose filter changes (a user moves region) needs
   a re-read, which the engine can do when the filter differs from the one
   the delta link was made with.
-- Changes that must arrive together: order is kept (history's order,
-  parents first), but not all-or-nothing. A batch goes on after an error,
-  so a refused order header leaves its lines taken; a download saves set
-  by set, so a peer can hold an order's lines before its header changes;
-  relayed changes are folded by object. A history transaction sent as one
-  change set (all or nothing), by the app's choice, would make a group
-  arrive whole, at the price of one refusal holding all of it.
+- Changes that must arrive together: a batch is one atomicity group, so
+  the service saves what a device sends together (5.2); refused, its
+  changes go again each alone, and then a refused order header leaves its
+  lines taken. A batch is a number of changes, not a save of the app's: a
+  save larger than a batch arrives in parts. A download saves set by set,
+  so a peer can hold an order's lines before its header changes; relayed
+  changes are folded by object.
 - Schema versions: see section 13.
 
 ## 12. Causal history: what each version has seen

@@ -29,6 +29,11 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   ODataClient *_client;
   // Rows and removals the pages read so far held.
   NSUInteger _entries;
+  // Links to objects of an entity read later (a cycle), made at the end;
+  // till then, the delta links of the sets read since some waited, not
+  // kept (a sync that stops reads those rows again, and their links).
+  NSMutableDictionary *_waiting;
+  NSMutableDictionary<NSString *, id> *_heldLinks;
 }
 
 - (instancetype)initWithEngine:(ODataSyncEngine *)engine remote:(ODataSyncRemote *)remote
@@ -41,7 +46,29 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   _codec = engine.codec;
   _requests = [[ODSRequests alloc] initWithEngine:engine remote:remote];
   _client = [engine clientOf:remote];
+  _waiting = [NSMutableDictionary dictionary];
+  _heldLinks = [NSMutableDictionary dictionary];
   return self;
+}
+
+// The links that waited for objects read later, made (those whose objects
+// never came, unlinked); then the delta links held, kept; saved together.
+- (BOOL)linkWaitingIn:(NSManagedObjectContext *)context error:(NSError **)error
+{
+  if (_waiting.count) [_codec linkWaiting:_waiting inContext:context];
+  [_waiting removeAllObjects];
+  if (_heldLinks.count) {
+    NSManagedObject *state = [_engine.store stateOf:_remote inContext:context];
+    NSMutableDictionary *links = [ODSUnarchive([state valueForKey:@"deltaLinks"]) ?: @{} mutableCopy];
+    for (NSString *name in _heldLinks) {
+      if (_heldLinks[name] == [NSNull null]) [links removeObjectForKey:name];
+      else links[name] = _heldLinks[name];
+      [_engine noteDeltaLinkSavedOf:_remote entity:name];
+    }
+    [state setValue:ODSArchive(links) forKey:@"deltaLinks"];
+    [_heldLinks removeAllObjects];
+  }
+  return !context.hasChanges || [context save:error];
 }
 
 - (NSString *)author
@@ -230,7 +257,7 @@ static const NSTimeInterval ODSDeltaLinkKept = 3600;
   NSUInteger changed = 0;
   for (NSArray *pair in pairs) {
     NSManagedObject *object = pair[0];
-    [_codec applyJSON:pair[1] toObject:object];
+    [_codec applyJSON:pair[1] toObject:object waiting:_waiting];
     // A row as it is here already (a delta's echo, a peer's copy) is no download.
     if (object.isInserted || object.changedValues.count) changed++;
   }
@@ -421,6 +448,12 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
   }
   // Read again: the context was emptied between pages.
   state = [_engine.store stateOf:_remote inContext:context];
+  // Links waiting (this set's, or an earlier one's): its delta link kept
+  // with them, at the end (-linkWaitingIn:...).
+  if (_waiting.count) {
+    _heldLinks[entity.name] = next ?: (id)[NSNull null];
+    next = linksBefore[entity.name];
+  }
   if (next) links[entity.name] = next; else [links removeObjectForKey:entity.name];
   if (filter) filters[entity.name] = filter; else [filters removeObjectForKey:entity.name];
   // Kept only when they moved: a link written again unchanged (each sync
@@ -440,6 +473,8 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
 - (BOOL)download:(NSError **)error
 {
   [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
+  [_waiting removeAllObjects];
+  [_heldLinks removeAllObjects];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;
@@ -453,6 +488,11 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
         [context rollback];
         break;
       }
+    }
+    NSError *e = nil;
+    if (ok && ![self linkWaitingIn:context error:&e]) {
+      failure = e;
+      ok = NO;
     }
     [self->_engine.store endOutboxIndex];
   }];
@@ -491,6 +531,8 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
 - (BOOL)reconcile:(NSError **)error
 {
   [_engine beginPhase:ODataSyncPhaseReceiving remote:_remote total:0];
+  [_waiting removeAllObjects];
+  [_heldLinks removeAllObjects];
   NSManagedObjectContext *context = [_engine.store contextWritingAs:[self author]];
   __block BOOL ok = YES;
   __block NSError *failure = nil;
@@ -503,6 +545,11 @@ static BOOL ODSLinkIsUnder(NSString *link, NSURL *root)
         [context rollback];
         return;
       }
+    }
+    NSError *e = nil;
+    if (![self linkWaitingIn:context error:&e]) {
+      failure = e;
+      ok = NO;
     }
   }];
   if (!ok && error) *error = failure;

@@ -93,8 +93,11 @@
     // are): one that gained or lost a member (a child bound to it, whose
     // own to-one changed) is no change of this object's, and its version
     // stays (#58: a catalog's ETag changed as warehouses were added).
+    // A set's members (a many-to-many this side carries) are the object's
+    // own, though: a change of them is its change.
+    NSSet *sets = [NSSet setWithArray:[[model setsOf:object.entity] valueForKey:@"name"]];
     for (NSString *name in changes.allKeys) {
-      if ([object.entity.relationshipsByName[name] isToMany]) [changes removeObjectForKey:name];
+      if ([object.entity.relationshipsByName[name] isToMany] && ![sets containsObject:name]) [changes removeObjectForKey:name];
     }
     if (!object.isInserted && !changes.count) continue;
     if (stamp && !stamped) [object setValue:[clock tick] forKey:stamp.name];

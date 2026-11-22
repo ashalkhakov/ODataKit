@@ -79,6 +79,9 @@ FOUNDATION_EXPORT id _Nullable ODSUnarchiveReporting(NSData *_Nullable data, NSE
 // the related keys expanded in it (Nav: {key}), to the local objects
 // those name (nil when none is local: the next download may bring it).
 - (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object;
+// Links to objects not here yet said in waiting, and made once they are.
+- (void)applyJSON:(NSDictionary *)json toObject:(NSManagedObject *)object waiting:(nullable NSMutableDictionary *)waiting;
+- (BOOL)linkWaiting:(NSDictionary *)waiting inContext:(NSManagedObjectContext *)context;
 // A body for a PATCH: these properties (nil: all synced), attributes as
 // JSON and to-ones as Nav@odata.bind (null to unlink).
 - (NSDictionary *)JSONOfObject:(NSManagedObject *)object properties:(nullable NSSet<NSString *> *)properties;
@@ -95,6 +98,9 @@ FOUNDATION_EXPORT id _Nullable ODSUnarchiveReporting(NSData *_Nullable data, NSE
 // to-ones' keys expanded, and the type of a derived one, as a row read
 // from its set has it).
 - (NSDictionary *)rowOfObject:(NSManagedObject *)object;
+// A set's members' keys as a row has them (sorted), and one object's.
+- (NSArray *)JSONKeysOfSet:(NSRelationshipDescription *)set ofObject:(NSManagedObject *)object;
+- (NSDictionary *)JSONKeyOfObject:(NSManagedObject *)object;
 // A row as a shadow keeps it: each binary value larger than
 // ODataSyncShadowDigestBytes replaced by its digest
 // ({"@odatasync.sha256": base64, "@odatasync.length": n}).

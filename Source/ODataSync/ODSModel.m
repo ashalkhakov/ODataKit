@@ -13,6 +13,7 @@ NSString * const ODataSyncDirectionKey = @"ODataSync.direction";
 NSString * const ODataSyncConflictsKey = @"ODataSync.conflicts";
 NSString * const ODataSyncModifiedKey = @"ODataSync.modified";
 NSString * const ODataSyncVersionsKey = @"ODataSync.versions";
+NSString * const ODataSyncCarriedKey = @"ODataSync.carried";
 NSString * const ODataSyncMergeKey = @"ODataSync.merge";
 NSString * const ODataSyncExternalKey = @"ODataSync.external";
 
@@ -38,6 +39,7 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
 @implementation ODSModel {
   NSMutableDictionary<NSString *, NSArray *> *_attributes;
   NSMutableDictionary<NSString *, NSArray *> *_toOnes;
+  NSMutableDictionary<NSString *, NSArray *> *_sets;
 }
 
 - (instancetype)initWithModel:(NSManagedObjectModel *)model
@@ -48,6 +50,7 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
   _mapper = [[ODataPropertyMapper alloc] init];
   _attributes = [NSMutableDictionary dictionary];
   _toOnes = [NSMutableDictionary dictionary];
+  _sets = [NSMutableDictionary dictionary];
   return self;
 }
 
@@ -103,7 +106,8 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
 - (void)visitDestinationsOf:(NSEntityDescription *)entity roots:(NSArray *)roots visiting:(NSMutableSet *)visiting
                     ordered:(NSMutableArray *)ordered
 {
-  for (NSRelationshipDescription *toOne in [self toOnesOf:entity]) {
+  // A set's members' too: read before the objects whose sets they are in.
+  for (NSRelationshipDescription *toOne in [[self toOnesOf:entity] arrayByAddingObjectsFromArray:[self setsOf:entity]]) {
     NSEntityDescription *destination = [self rootOf:toOne.destinationEntity];
     if ([roots containsObject:destination]) [self visit:destination roots:roots visiting:visiting ordered:ordered];
   }
@@ -205,6 +209,41 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
     _toOnes[entity.name] = toOnes;
   }
   return toOnes;
+}
+
+// Whether a many-to-many's members are this side's (ODataSyncCarriedKey).
+static BOOL ODSCarries(ODSModel *model, NSRelationshipDescription *relationship)
+{
+  NSRelationshipDescription *inverse = relationship.inverseRelationship;
+  // Its own inverse (a person's friends, each the other's): this one.
+  if (inverse == relationship || ([inverse.name isEqualToString:relationship.name] && inverse.entity == relationship.entity)) return YES;
+  NSString *said = [relationship.userInfo[ODataSyncCarriedKey] description].uppercaseString;
+  if (said.length) return [said isEqualToString:@"YES"];
+  NSString *other = [inverse.userInfo[ODataSyncCarriedKey] description].uppercaseString;
+  if (other.length) return ![other isEqualToString:@"YES"];
+  NSString *mine = [NSString stringWithFormat:@"%@.%@", [model rootOf:relationship.entity].name, relationship.name];
+  NSString *theirs = [NSString stringWithFormat:@"%@.%@", [model rootOf:inverse.entity].name, inverse.name];
+  return [mine compare:theirs] == NSOrderedAscending;
+}
+
+- (NSArray<NSRelationshipDescription *> *)setsOf:(NSEntityDescription *)entity
+{
+  @synchronized (_sets) {
+    NSArray *known = _sets[entity.name];
+    if (known) return known;
+  }
+  NSMutableArray *sets = [NSMutableArray array];
+  for (NSString *name in [entity.relationshipsByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+    NSRelationshipDescription *relationship = entity.relationshipsByName[name];
+    if (!relationship.isToMany || !relationship.inverseRelationship.isToMany || relationship.isTransient || !relationship.destinationEntity) continue;
+    if ([self directionOfEntity:relationship.destinationEntity] == ODataSyncDirectionNone) continue;
+    if (![self.mapper servesProperty:relationship] || !ODSCarries(self, relationship)) continue;
+    [sets addObject:relationship];
+  }
+  @synchronized (_sets) {
+    _sets[entity.name] = sets;
+  }
+  return sets;
 }
 
 - (NSArray<NSAttributeDescription *> *)keyAttributesOf:(NSEntityDescription *)entity
