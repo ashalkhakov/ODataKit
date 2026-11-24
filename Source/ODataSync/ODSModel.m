@@ -88,31 +88,78 @@ NSAttributeDescription *ODSModifiedAttributeOf(NSEntityDescription *entity)
   }
   // Parents first: depth-first, an entity after the destinations of its to-ones.
   NSMutableArray *ordered = [NSMutableArray array];
-  NSMutableSet *visiting = [NSMutableSet set];
-  for (NSEntityDescription *entity in roots) [self visit:entity roots:roots visiting:visiting ordered:ordered];
+  NSMutableArray *path = [NSMutableArray array];
+  for (NSEntityDescription *entity in roots) [self visit:entity roots:roots path:path ordered:ordered];
   return ordered;
 }
 
-// A root after the destinations of its to-ones, and of its sub-entities'
-// (a fill-up's unit before the records that are fill-ups).
-- (void)visit:(NSEntityDescription *)entity roots:(NSArray *)roots visiting:(NSMutableSet *)visiting ordered:(NSMutableArray *)ordered
+// A to-one an object is not saved well without: one it must have, or one a
+// uniqueness constraint names (saved with none, objects that differ in it
+// only are the same as far as the constraint goes, and merged into one).
+static BOOL ODSNeedsToOne(NSEntityDescription *entity, NSRelationshipDescription *toOne)
 {
-  if ([ordered containsObject:entity] || [visiting containsObject:entity.name]) return;
-  [visiting addObject:entity.name];
-  [self visitDestinationsOf:entity roots:roots visiting:visiting ordered:ordered];
+  if (!toOne.isOptional) return YES;
+  for (NSEntityDescription *each = entity; each; each = each.superentity) {
+    for (NSArray *constraint in each.uniquenessConstraints) {
+      for (id property in constraint) {
+        NSString *name = [property isKindOfClass:[NSPropertyDescription class]] ? [property name] : property;
+        if ([name isEqual:toOne.name]) return YES;
+      }
+    }
+  }
+  return NO;
+}
+
+// The roots an entity needs read before it, by the to-ones it needs (its
+// sub-entities' too), and theirs.
+- (NSSet<NSEntityDescription *> *)rootsNeededBy:(NSEntityDescription *)root roots:(NSArray *)roots
+{
+  NSMutableSet *needed = [NSMutableSet set];
+  NSMutableArray *next = [NSMutableArray arrayWithObject:root];
+  while (next.count) {
+    NSEntityDescription *entity = next.lastObject;
+    [next removeLastObject];
+    NSMutableArray *family = [NSMutableArray arrayWithObject:entity];
+    for (NSUInteger at = 0; at < family.count; at++) [family addObjectsFromArray:[family[at] subentities]];
+    for (NSEntityDescription *each in family) {
+      for (NSRelationshipDescription *toOne in [self toOnesOf:each]) {
+        NSEntityDescription *destination = [self rootOf:toOne.destinationEntity];
+        if (!ODSNeedsToOne(each, toOne) || ![roots containsObject:destination] || [needed containsObject:destination]) continue;
+        [needed addObject:destination];
+        [next addObject:destination];
+      }
+    }
+  }
+  return needed;
+}
+
+// A root after the destinations of its to-ones, and of its sub-entities'
+// (a fill-up's unit before the records that are fill-ups). In a cycle, the
+// root met again is read later: a destination that needs a root on the
+// path waits for it, unless this to-one is one this root needs (then the
+// cycle is of needed to-ones, and broken where it is met).
+- (void)visit:(NSEntityDescription *)entity roots:(NSArray *)roots path:(NSMutableArray *)path ordered:(NSMutableArray *)ordered
+{
+  if ([ordered containsObject:entity] || [path containsObject:entity]) return;
+  [path addObject:entity];
+  [self visitDestinationsOf:entity roots:roots path:path ordered:ordered];
+  [path removeLastObject];
   [ordered addObject:entity];
 }
 
-- (void)visitDestinationsOf:(NSEntityDescription *)entity roots:(NSArray *)roots visiting:(NSMutableSet *)visiting
+- (void)visitDestinationsOf:(NSEntityDescription *)entity roots:(NSArray *)roots path:(NSMutableArray *)path
                     ordered:(NSMutableArray *)ordered
 {
   // A set's members' too: read before the objects whose sets they are in.
   for (NSRelationshipDescription *toOne in [[self toOnesOf:entity] arrayByAddingObjectsFromArray:[self setsOf:entity]]) {
     NSEntityDescription *destination = [self rootOf:toOne.destinationEntity];
-    if ([roots containsObject:destination]) [self visit:destination roots:roots visiting:visiting ordered:ordered];
+    if (![roots containsObject:destination]) continue;
+    if (!(!toOne.isToMany && ODSNeedsToOne(entity, toOne)) && [[self rootsNeededBy:destination roots:roots] intersectsSet:[NSSet setWithArray:path]])
+      continue;
+    [self visit:destination roots:roots path:path ordered:ordered];
   }
   for (NSEntityDescription *subentity in entity.subentities) {
-    [self visitDestinationsOf:subentity roots:roots visiting:visiting ordered:ordered];
+    [self visitDestinationsOf:subentity roots:roots path:path ordered:ordered];
   }
 }
 
