@@ -343,6 +343,47 @@ static NSManagedObjectModel *OSTPartsModel(BOOL service)
   return OSTPartsModelGoing(service, @"both");
 }
 
+// Items, each with its offers, one of them its preferred (a cycle, as
+// parts' and bins'); an offer is of an item and a seller, at most one of
+// each item by each seller (a uniqueness constraint through the two
+// to-ones). By name, items are read first: an item before its preferred
+// offer, unless the offers' items count for more.
+static NSManagedObjectModel *OSTOffersModel(BOOL service)
+{
+  NSMutableDictionary *entities = [NSMutableDictionary dictionary];
+  for (NSArray *named in @[ @[ @"Item", @"Items" ], @[ @"Offer", @"Offers" ], @[ @"Seller", @"Sellers" ] ]) {
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    entity.name = named[0];
+    entity.managedObjectClassName = @"NSManagedObject";
+    entity.userInfo = @{ @"OData.entitySet": named[1], ODataSyncDirectionKey: @"both", ODataSyncVersionsKey: @"versions",
+                         ODataSyncModifiedKey: @"modified" };
+    entities[named[0]] = entity;
+  }
+  NSEntityDescription *item = entities[@"Item"], *offer = entities[@"Offer"], *seller = entities[@"Seller"];
+  NSRelationshipDescription *offers = OSTRelationship(@"offers", offer, YES), *ofItem = OSTRelationship(@"item", item, NO);
+  offers.inverseRelationship = ofItem;
+  ofItem.inverseRelationship = offers;
+  NSRelationshipDescription *preferred = OSTRelationship(@"preferredOffer", offer, NO), *preferredBy = OSTRelationship(@"preferredBy", item, YES);
+  preferred.inverseRelationship = preferredBy;
+  preferredBy.inverseRelationship = preferred;
+  NSRelationshipDescription *sells = OSTRelationship(@"offers", offer, YES), *bySeller = OSTRelationship(@"seller", seller, NO);
+  sells.inverseRelationship = bySeller;
+  bySeller.inverseRelationship = sells;
+  NSArray *(^own)(void) = ^NSArray *{
+    return @[ OSTAttribute(@"id", NSStringAttributeType, YES), OSTAttribute(@"name", NSStringAttributeType, NO),
+              OSTAttribute(@"versions", NSStringAttributeType, NO), OSTAttribute(@"modified", NSStringAttributeType, NO) ];
+  };
+  item.properties = [own() arrayByAddingObjectsFromArray:@[ offers, preferred ]];
+  offer.properties = [own() arrayByAddingObjectsFromArray:@[ ofItem, preferredBy, bySeller ]];
+  offer.uniquenessConstraints = @[ @[ @"id" ], @[ @"item", @"seller" ] ];
+  seller.properties = [own() arrayByAddingObjectsFromArray:@[ sells ]];
+  NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+  model.entities = @[ item, offer, seller ];
+  if (service) [ODataSyncService addBookkeepingToModel:model configuration:nil];
+  else [ODataSyncEngine addBookkeepingToModel:model configuration:nil];
+  return model;
+}
+
 // Keeps this side's, and the conflict it saw.
 @interface OSTKeepingResolver : NSObject <ODataSyncResolving>
 @property (atomic, strong) ODataSyncConflict *last;
@@ -2529,6 +2570,42 @@ static NSManagedObjectModel *OSTGroupsModel(BOOL bookkeeping)
     if ([change.entityName isEqualToString:entity]) [names addObjectsFromArray:change.properties ?: @[ @"(all)" ]];
   }
   return names;
+}
+
+// A seller's offers of two items, read by a device: both, each of its item.
+// Read before the items (by name, after the preferred offer an item has),
+// each was saved with no item yet, the same as the other as far as the
+// uniqueness constraint goes, and merged into one: the offers are read
+// after their items, the cycle broken at the item's preferred offer.
+- (void)testAUniquenessConstraintsToOnesAreReadFirst
+{
+  NSPersistentStoreCoordinator *server = [self coordinatorWithModel:OSTOffersModel(YES)];
+  ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:server
+                                                                       serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  [[ODataSyncService alloc] initWithService:service];
+  [self in:server do:^(NSManagedObjectContext *context) {
+    NSManagedObject *shop = [self insert:@"Seller" id:@"shop" in:context];
+    for (NSString *name in @[ @"bolt", @"nut" ]) {
+      NSManagedObject *item = [self insert:@"Item" id:name in:context];
+      NSManagedObject *offer = [self insert:@"Offer" id:[name stringByAppendingString:@"-at-shop"] in:context];
+      [offer setValue:item forKey:@"item"];
+      [offer setValue:shop forKey:@"seller"];
+      [item setValue:offer forKey:@"preferredOffer"];
+    }
+  }];
+  NSPersistentStoreCoordinator *device = [self coordinatorWithModel:OSTOffersModel(NO)];
+  ODataSyncEngine *engine = [[ODataSyncEngine alloc] initWithCoordinator:device];
+  ODataSyncRemote *remote = [ODataSyncRemote remoteWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+  remote.transport = service;
+  [engine addRemote:remote];
+  [self sync:engine];
+  [self in:device do:^(NSManagedObjectContext *context) {
+    NSArray *offers = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Offer"] error:NULL];
+    NSDictionary *items = [NSDictionary dictionaryWithObjects:[offers valueForKeyPath:@"item.name"] forKeys:[offers valueForKey:@"name"]];
+    XCTAssertEqualObjects(items, (@{ @"bolt-at-shop": @"bolt", @"nut-at-shop": @"nut" }));
+    NSArray *preferred = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Item"] error:NULL] valueForKeyPath:@"preferredOffer.name"];
+    XCTAssertEqualObjects([NSSet setWithArray:preferred], ([NSSet setWithObjects:@"bolt-at-shop", @"nut-at-shop", nil]), @"linked once read");
+  }];
 }
 
 // A batch that stops (a 503) before what an entry withheld is sent: its
