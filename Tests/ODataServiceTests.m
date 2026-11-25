@@ -8874,6 +8874,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     "    Location = {\n"
     "      read = ( { relation = read; from = warehouse; } );\n"
     "      insert = ( { relation = manager; from = warehouse; } );\n"
+    "      update = ( { relation = manager; from = warehouse; } );\n"
     "    };\n"
     "  };\n"
     "}"];
@@ -8885,7 +8886,10 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     return [r.json[@"responses"] valueForKey:@"status"];
   };
 
-  // The location first, its warehouse not bound; the warehouse; the link.
+  // As ODataSync sends a cycle: the location first, its warehouse not
+  // bound; the warehouse; then the link, an update of a row the change set
+  // made (Location's update needs the warehouse's manager, which the
+  // location as it was, with no warehouse, cannot have).
   XCTAssertEqualObjects(statuses(@[
     @{ @"id": @"l", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @30, @"Name": @"L1" } },
     @{ @"id": @"w", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Warehouses",

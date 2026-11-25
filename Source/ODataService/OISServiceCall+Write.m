@@ -1478,7 +1478,15 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
         if (values.count && ![self permitsTo:OISAccessUpdate entity:object.entity]) return NO;
         // The relation update, on the row as it is and as it will be (one
         // moved to another warehouse needs it there too).
-        if (values.count) {
+        // A row this change set made (ODataSync links a cycle's rows after
+        // inserting them): no row as it was to guard, it is judged by its
+        // insert as the change set ends, on the row as it is then.
+        BOOL madeHere = values.count && OISIsChangeSetContext(self.request.context)
+                        && [OISMadeIn(self.request.context, NO) containsObject:object.objectID];
+        if (madeHere) {
+          if (![OISDeferredIn(self.request.context, YES) containsObject:object.objectID])
+            [OISDeferredIn(self.request.context, YES) addObject:object.objectID];
+        } else if (values.count) {
           if (![self holds:@"update" on:object entity:object.entity existing:object]) return NO;
           OISRowToBe *after = [[OISRowToBe alloc] initWithValues:[self rowsIn:values object:object] object:object];
           if (![self holds:@"update" on:after entity:object.entity existing:object]) return NO;
