@@ -50,6 +50,38 @@ static NSMutableSet<NSManagedObjectID *> *OISMadeIn(NSManagedObjectContext *cont
   return made;
 }
 
+static char OISChangeSetContextKey, OISDeferredInsertsKey;
+
+void OISMarkChangeSetContext(NSManagedObjectContext *context)
+{
+  objc_setAssociatedObject(context, &OISChangeSetContextKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+BOOL OISIsChangeSetContext(NSManagedObjectContext *context)
+{
+  return [objc_getAssociatedObject(context, &OISChangeSetContextKey) boolValue];
+}
+
+static NSMutableArray<NSManagedObjectID *> *OISDeferredIn(NSManagedObjectContext *context, BOOL create)
+{
+  NSMutableArray *deferred = objc_getAssociatedObject(context, &OISDeferredInsertsKey);
+  if (!deferred && create) {
+    deferred = [NSMutableArray array];
+    objc_setAssociatedObject(context, &OISDeferredInsertsKey, deferred, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+  return deferred;
+}
+
+NSArray<NSManagedObjectID *> *OISDeferredInsertChecks(NSManagedObjectContext *context)
+{
+  return [OISDeferredIn(context, NO) copy] ?: @[];
+}
+
+NSSet<NSManagedObjectID *> *OISRowsMadeIn(NSManagedObjectContext *context)
+{
+  return [OISMadeIn(context, NO) copy] ?: [NSSet set];
+}
+
 static BOOL OISIsWrite(OISPlanNode *node)
 {
   switch (node.op) {
@@ -1404,17 +1436,26 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
       // warehouse); through a row made in this request too, its own insert
       // decides, and through one an earlier request of the change set made
       // (bound by its key), not saved yet.
-      BOOL throughNew = NO;
+      BOOL throughNew = NO, unbound = NO;
       NSSet *made = OISMadeIn(self.request.context, NO);
       for (NSString *name in [self.service.authorization relationshipsOfRelation:@"insert" entity:node.entity]) {
         id value = node.values[name];
+        if (!value || value == [NSNull null]) unbound = YES;
         if (![value isKindOfClass:[OISPlanNode class]]) continue;
         if (OISIsWrite(value)) throughNew = YES;
         NSManagedObject *bound = made.count ? [self resultOf:value] : nil;
         if ([bound isKindOfClass:[NSManagedObject class]] && bound.isInserted && [made containsObject:bound.objectID]) throughNew = YES;
       }
       OISRowToBe *row = [[OISRowToBe alloc] initWithValues:[self rowsIn:node.values object:nil] object:nil];
-      if (!throughNew && ![self holds:@"insert" on:row entity:node.entity existing:nil]) return NO;
+      if (!throughNew) {
+        /* In a change set, a to-one the relation reaches through not bound
+           yet: decided as the change set ends (OISDeferredInsertChecks),
+           when a later request may have bound it. */
+        NSPredicate *holding = unbound && OISIsChangeSetContext(self.request.context)
+            ? [self.service.authorization predicateForRelation:@"insert" entity:node.entity principal:self.request.principal] : nil;
+        if (holding && ![holding evaluateWithObject:row]) self.planMemo[OISWriteKey(@"d", node)] = @YES;
+        else if (![self holds:@"insert" on:row entity:node.entity existing:nil]) return NO;
+      }
       NSMutableDictionary *keys = [NSMutableDictionary dictionary];
       for (NSString *name in node.sequences) keys[name] = [self nextKeyOf:node.sequences[name]];
       self.planMemo[OISWriteKey(@"k", node)] = keys;
@@ -1758,6 +1799,8 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
       written = [self objectAnswered:made what:@"created" entity:node.entity];
       if (!written) return nil;
       if ([written isKindOfClass:[NSManagedObject class]]) [OISMadeIn(self.request.context, YES) addObject:[written objectID]];
+      if ([written isKindOfClass:[NSManagedObject class]] && self.planMemo[OISWriteKey(@"d", node)])
+        [OISDeferredIn(self.request.context, YES) addObject:[written objectID]];
       if (node.values[OISDynamicKey]) self.planMemo[OISWriteKey(@"y", node)] = @[ @[ written, node.values[OISDynamicKey] ] ];
       break;
     }

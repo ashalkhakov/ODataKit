@@ -8853,6 +8853,61 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   XCTAssertEqualObjects([self namesAs:@"eve@example.org" path:@"Locations"], (@[ @"A1", @"B1", @"E1" ]));
 }
 
+// A row whose insert reaches its object through a to-one a later request
+// of the same change set binds (ODataSync sends a cycle's other row
+// first, linked after): decided as the change set ends, on the row as it
+// is then. Bound to a warehouse the change set made, that warehouse's
+// insert decides; to one where the caller is no manager, the change set is
+// refused, nothing of it saved. Outside a change set, refused at once.
+- (void)testAChangeSetsInsertBoundLaterIsDecidedAtItsEnd
+{
+  [self serveWarehouses];
+  _service.permissions = [self permissions:@"{ Version = 1;\n"
+    "  Tuples = { WarehouseStaff = { object = warehouse; relation = role; user = \"user.email\"; }; };\n"
+    "  Entities = {\n"
+    "    Catalog = { insert = ( { where = \"$user.@count > 0\"; } ); };\n"
+    "    Warehouse = {\n"
+    "      manager = ( { direct = YES; } );\n"
+    "      read = ( { where = \"$user.@count > 0\"; } );\n"
+    "      insert = ( { where = \"$user.@count > 0\"; } );\n"
+    "    };\n"
+    "    Location = {\n"
+    "      read = ( { relation = read; from = warehouse; } );\n"
+    "      insert = ( { relation = manager; from = warehouse; } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  NSArray *(^statuses)(NSArray *) = ^NSArray *(NSArray *requests) {
+    OISServiceResponse *r = [self as:@"eve@example.org" claims:@{} send:@"POST" path:@"$batch" body:@{ @"requests": requests }
+                             headers:@{ @"Prefer": @"odata.continue-on-error" }];
+    XCTAssertEqual(r.status, 200, @"%@", r.text);
+    return [r.json[@"responses"] valueForKey:@"status"];
+  };
+
+  // The location first, its warehouse not bound; the warehouse; the link.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"l", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @30, @"Name": @"L1" } },
+    @{ @"id": @"w", @"atomicityGroup": @"g", @"method": @"post", @"url": @"Warehouses",
+       @"body": @{ @"Id": @12, @"Name": @"Eve's third", @"Catalog@odata.bind": @"Catalogs(1)" } },
+    @{ @"id": @"k", @"atomicityGroup": @"g", @"method": @"patch", @"url": @"Locations(30)",
+       @"body": @{ @"Warehouse@odata.bind": @"Warehouses(12)" } },
+  ]), (@[ @201, @201, @204 ]));
+  // Bound later to a warehouse eve does not manage: the change set refused.
+  NSArray *refused = statuses(@[
+    @{ @"id": @"l", @"atomicityGroup": @"h", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @31, @"Name": @"L2" } },
+    @{ @"id": @"k", @"atomicityGroup": @"h", @"method": @"patch", @"url": @"Locations(31)",
+       @"body": @{ @"Warehouse@odata.bind": @"Warehouses(1)" } },
+  ]);
+  XCTAssertEqualObjects(refused.lastObject, @403, @"%@", refused);
+  // Alone, its warehouse not bound: refused as it is made.
+  XCTAssertEqualObjects(statuses(@[
+    @{ @"id": @"l", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @32, @"Name": @"L3" } },
+  ]), (@[ @403 ]));
+  NSArray *names = [self namesAs:@"eve@example.org" path:@"Locations"];
+  XCTAssertTrue([names containsObject:@"L1"] && ![names containsObject:@"L2"] && ![names containsObject:@"L3"], @"%@", names);
+}
+
 // Zanzibar's intersection (all), on an entity and on the service; and a
 // where with a subquery's count, through a from.
 - (void)testPermissionsOfAllAndSubqueries

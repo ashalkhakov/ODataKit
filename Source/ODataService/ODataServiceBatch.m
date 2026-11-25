@@ -3,6 +3,7 @@
 
 #import "ODataServiceBatch.h"
 #import "ODataServiceInternal.h"
+#import "OISAuthorization.h"
 #import <HTTPServerKit/HSAuthentication.h>
 #import "ODataBatch.h"
 #import "ODataError.h"
@@ -385,6 +386,34 @@ static void OISAppendText(NSMutableData *data, NSString *text)
   _groupFailure = nil;
   _groupContext = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
   _groupContext.persistentStoreCoordinator = _service.coordinator;
+  OISMarkChangeSetContext(_groupContext);
+}
+
+// The inserts the change set's requests left to its end
+// (OISDeferredInsertChecks): each on its row as it is now, its links
+// bound. One that reaches its object through a row the change set made is
+// that row's to decide, as in one request; else the relation must hold.
+// nil, or the first that does not, said.
+- (NSString *)refusedDeferredInsertIn:(NSManagedObjectContext *)context
+{
+  OISAuthorization *authorization = _service.authorization;
+  NSSet<NSManagedObjectID *> *made = OISRowsMadeIn(context);
+  for (NSManagedObjectID *objectID in OISDeferredInsertChecks(context)) {
+    NSManagedObject *row = [context existingObjectWithID:objectID error:NULL];
+    if (!row || row.isDeleted) continue;
+    BOOL throughNew = NO;
+    for (NSString *name in [authorization relationshipsOfRelation:@"insert" entity:row.entity]) {
+      if (!row.entity.relationshipsByName[name] || row.entity.relationshipsByName[name].isToMany) continue;
+      NSManagedObject *through = [row valueForKey:name];
+      if (through && [made containsObject:through.objectID] && ![OISDeferredInsertChecks(context) containsObject:through.objectID]) throughNew = YES;
+    }
+    if (throughNew) continue;
+    NSPredicate *holding = [authorization predicateForRelation:@"insert" entity:row.entity principal:_principal];
+    if (holding && ![holding evaluateWithObject:row]) {
+      return [NSString stringWithFormat:@"That needs the relation insert on a new entity of %@", [_service entitySetForEntity:row.entity] ?: row.entity.name];
+    }
+  }
+  return nil;
 }
 
 // All of it, or none: saved when every request succeeded, else rolled back.
@@ -402,7 +431,9 @@ static void OISAppendText(NSMutableData *data, NSString *text)
       @autoreleasepool {
         NSError *e = nil;
         @try {
-          saved = !context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e);
+          NSString *refused = [self refusedDeferredInsertIn:context];
+          if (refused) e = [NSError errorWithDomain:ODataServiceErrorDomain code:403 userInfo:@{ NSLocalizedDescriptionKey: refused }];
+          saved = !refused && (!context.hasChanges || OISTimedSave(self->_service, context, self.span, nil, &e));
           if (saved) [self answerGroupAgain];
         } @catch (NSException *exception) {
           OISLog(HSLogLevelError, self->_exchange.request, @"%@ %@: change set %@'s save raised %@: %@", self->_exchange.request.HTTPMethod,

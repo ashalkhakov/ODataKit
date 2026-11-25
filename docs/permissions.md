@@ -235,7 +235,13 @@ What this gives:
   sends each row as its own request (ODataSync does) is answered as one
   that nests them. A row the server's own code made (a handler, a save
   hook) does not count, since no `insert` checked it; neither does one
-  made outside the change set, which is saved and simply there. This rule
+  made outside the change set, which is saved and simply there. In a
+  change set, a row whose `insert` reaches its object through a to-one
+  not bound yet (a later request binds it: ODataSync sends a cycle's
+  other row first, a contact's address before the contact, and links
+  them after) is decided as the change set ends, on the row as it is
+  then: through a row the change set made, by that row's insert; else the
+  relation must hold, or the whole change set is refused (403). This rule
   is ODataKit's: Zanzibar checks writes, not creation.
 - **Updates:** the caller must hold `update` on the row as it is, *and* as
   it will be. Moving a location to another warehouse needs `update` there

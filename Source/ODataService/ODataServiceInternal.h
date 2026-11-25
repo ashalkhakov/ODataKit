@@ -485,6 +485,18 @@ typedef NS_ENUM(NSInteger, OISStoreAsk) { OISAskObjects, OISAskCount, OISAskGrou
 - (void)addWritesOf:(OISPlanNode *)node into:(NSMutableDictionary *)permissions;
 @end
 
+// A change set's (an atomicity group's) context: its requests share it.
+// An insert there whose relation insert reaches its object through a
+// to-one not bound yet (a client that sends each row as its own request
+// binds it by a later one: ODataSync, a cycle's other row first) is
+// checked as the change set ends, on the row as it is then, rather than
+// refused as it is made.
+void OISMarkChangeSetContext(NSManagedObjectContext *context);
+BOOL OISIsChangeSetContext(NSManagedObjectContext *context);
+// Those inserts, by their objects' IDs; and the rows the change set made.
+NSArray<NSManagedObjectID *> *OISDeferredInsertChecks(NSManagedObjectContext *context);
+NSSet<NSManagedObjectID *> *OISRowsMadeIn(NSManagedObjectContext *context);
+
 NSArray<ODataExpression *> *OISTheseOfFilter(ODataQueryOptions *options);
 NSArray<ODataExpression *> *OISTheseOfOrder(ODataQueryOptions *options);
 NSString * _Nullable OISHierarchyFunction(NSString *name);
