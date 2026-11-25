@@ -2219,7 +2219,9 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
       if (!none) [self describeStream:attribute of:object prefix:[self.mapper propertyForAttribute:attribute] full:full into:json];
       continue;
     }
-    json[[self.mapper propertyForAttribute:attribute]] = [self.coder JSONForCoreDataValue:[object valueForKey:attribute.name] attribute:attribute];
+    NSString *keyPath = [self.mapper keyPathOfAttribute:attribute];
+    id value = keyPath ? [object valueForKeyPath:keyPath] : [object valueForKey:attribute.name];
+    json[[self.mapper propertyForAttribute:attribute]] = [self.coder JSONForCoreDataValue:value attribute:attribute];
   }
   NSDictionary *dynamic = handler.isOpenType ? self.planDynamic[object.objectID] : nil;
   for (NSString *name in ([dynamic isKindOfClass:[NSDictionary class]] ? dynamic : nil)) {
@@ -5467,6 +5469,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
 // Core.Computed: derived, the version, or userInfo says so (or read only).
 - (BOOL)isComputedAttribute:(NSAttributeDescription *)attribute
 {
+  if ([self.mapper keyPathOfAttribute:attribute]) return YES;
   Class derived = NSClassFromString(@"NSDerivedAttributeDescription");
   if (derived && [attribute isKindOfClass:derived]) return YES;
   if (attribute == [self versionAttributeOfEntity:attribute.entity]) return YES;

@@ -121,7 +121,7 @@ static BOOL OISYes(id value)
 
 - (NSString *)typeNameForAttribute:(NSAttributeDescription *)attribute
 {
-  if (attribute.isTransient) return nil;
+  if (attribute.isTransient && ![self.mapper keyPathOfAttribute:attribute]) return nil;
   if (![self.mapper servesProperty:attribute]) return nil;
   if ([self.mapper attributeHoldsDynamicProperties:attribute]) return nil;  // its entries are properties, it is none
   if ([self isPartOfStream:attribute]) return nil;
@@ -421,6 +421,8 @@ static void OISAddChildren(ODataXMLElement *parent, NSArray<ODataXMLElement *> *
     }
   }
   [annotations addEntriesFromDictionary:[self annotationsFromUserInfo:attribute.userInfo]];
+  // A key path's property (OData.keyPath): read only, the row's to say.
+  if ([self.mapper keyPathOfAttribute:attribute]) annotations[[OISCore stringByAppendingString:@".Computed"]] = @YES;
   // An amount's currency: a code, or the attribute that holds one, as a path.
   id currency = attribute.userInfo[ODataUserInfoISOCurrency];
   if ([currency isKindOfClass:[NSString class]]) {

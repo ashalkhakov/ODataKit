@@ -8493,7 +8493,11 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   catalog.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   warehouse.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   staff.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"role", NSStringAttributeType, NO) ];
-  location.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
+  // Its warehouse's name, served as its own (OData.keyPath), not stored.
+  NSAttributeDescription *warehouseName = attribute(@"warehouseName", NSStringAttributeType, NO);
+  warehouseName.transient = YES;
+  warehouseName.userInfo = @{ @"OData.keyPath": @"warehouse.name" };
+  location.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO), warehouseName ];
   item.properties = @[ attribute(@"id", NSInteger32AttributeType, YES), attribute(@"name", NSStringAttributeType, NO) ];
   pair(catalog, @"owner", user, @"ownedCatalogs");
   pair(item, @"catalog", catalog, @"items");
@@ -8925,6 +8929,38 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   ]), (@[ @403 ]));
   NSArray *names = [self namesAs:@"eve@example.org" path:@"Locations"];
   XCTAssertTrue([names containsObject:@"L1"] && [names containsObject:@"D1"] && ![names containsObject:@"L2"] && ![names containsObject:@"L3"], @"%@", names);
+}
+
+// A property that is a key path from the row (OData.keyPath on a transient
+// attribute): served as the row's own, read only (Core.Computed), filtered
+// and sorted by as the store reaches it; a write of it changes nothing.
+- (void)testAKeyPathsPropertyIsServedFilteredAndSorted
+{
+  [self serveWarehouses];
+  _service.permissions = nil;  // what is served, not who sees it
+  OISServiceResponse *metadata = [self send:@"GET" path:@"$metadata" headers:nil body:nil];
+  NSRange property = [metadata.text rangeOfString:@"<Property Name=\"WarehouseName\""];
+  XCTAssertTrue(property.location != NSNotFound, @"%@", metadata.text);
+  NSString *after = property.location != NSNotFound ? [metadata.text substringFromIndex:property.location] : @"";
+  NSRange end = [after rangeOfString:@"</Property>"];
+  NSRange selfClosed = [after rangeOfString:@"/>"];
+  NSString *declared = end.location != NSNotFound && (selfClosed.location == NSNotFound || end.location < selfClosed.location + 400)
+      ? [after substringToIndex:end.location] : after.length > 300 ? [after substringToIndex:300] : after;
+  XCTAssertTrue([declared containsString:@"Core.Computed"] || [declared containsString:@"Org.OData.Core.V1.Computed"], @"%@", declared);
+
+  OISServiceResponse *sorted = [self send:@"GET" path:@"Locations?$select=Name,WarehouseName&$orderby=WarehouseName desc,Name" headers:nil body:nil];
+  XCTAssertEqual(sorted.status, 200, @"%@", sorted.text);
+  XCTAssertEqualObjects([sorted.json[@"value"] valueForKey:@"WarehouseName"], (@[ @"Shed", @"Garage" ]), @"%@", sorted.text);
+  XCTAssertEqualObjects([sorted.json[@"value"] valueForKey:@"Name"], (@[ @"B1", @"A1" ]));
+  OISServiceResponse *filtered = [self send:@"GET" path:@"Locations?$filter=WarehouseName eq 'Shed'" headers:nil body:nil];
+  XCTAssertEqual(filtered.status, 200, @"%@", filtered.text);
+  XCTAssertEqualObjects([filtered.json[@"value"] valueForKey:@"Name"], (@[ @"B1" ]), @"%@", filtered.text);
+  OISServiceResponse *written = [self send:@"PATCH" path:@"Locations(1)" headers:nil body:@{ @"WarehouseName": @"Elsewhere" }];
+  XCTAssertTrue(written.status < 300 || written.status == 400, @"%@", written.text);
+  OISServiceResponse *again = [self send:@"GET" path:@"Locations(1)?$select=WarehouseName" headers:nil body:nil];
+  XCTAssertEqualObjects(again.json[@"WarehouseName"], @"Garage", @"a key path's value is the row's to say: %@", again.text);
+  OISServiceResponse *warehouses = [self send:@"GET" path:@"Warehouses?$filter=Name eq 'Elsewhere'" headers:nil body:nil];
+  XCTAssertEqual([warehouses.json[@"value"] count], (NSUInteger)0, @"nothing written through it");
 }
 
 // Logbook's permissions for a contact and its shipping address, over the

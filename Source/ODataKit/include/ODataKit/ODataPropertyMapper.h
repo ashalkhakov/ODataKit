@@ -64,6 +64,13 @@ ODATAKIT_EXPORT NSString * const ODataUserInfoDynamicProperties;
 // filter or sort by it, and keeps what a save gives it in memory, for as
 // long as the store is open: the service never has it.
 ODATAKIT_EXPORT NSString * const ODataUserInfoServed;
+// userInfo on a transient attribute: OData.keyPath, a key path from the row
+// to what it stands for (processInstance.businessKey): a property served as
+// any other, but read only (Core.Computed), its value the key path's, and
+// filtered and sorted by it as the store reaches it, in the same fetch. A
+// value kept once, where it is, and served beside the rows that reach it,
+// with no copy to keep in step and no migration.
+ODATAKIT_EXPORT NSString * const ODataUserInfoKeyPath;
 // Application time (the Temporal vocabulary), userInfo on an entity whose
 // rows are time slices, each valid for a period (Temporal.TimelineVisible):
 // OData.periodStart and OData.periodEnd name its Date attributes, the
@@ -87,6 +94,9 @@ ODATAKIT_EXPORT NSString * const ODataUserInfoClosedClosedPeriods;
 - (NSArray<NSAttributeDescription *> *)keyAttributesForEntity:(NSEntityDescription *)entity;
 // The other way: the attribute or relationship of an entity (its own or
 // inherited) that a service calls this; nil when there is none.
+// A transient attribute's OData.keyPath: the key path it is served as; nil
+// for any other attribute.
+- (nullable NSString *)keyPathOfAttribute:(NSAttributeDescription *)attribute;
 - (nullable NSPropertyDescription *)propertyForWireName:(NSString *)name entity:(NSEntityDescription *)entity;
 // The root entities a service serves, by name (each with its
 // sub-entities); nil, the default: every one. A relationship to an entity

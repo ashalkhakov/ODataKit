@@ -11,6 +11,7 @@ NSString * const ODataUserInfoKey = @"OData.key";
 NSString * const ODataUserInfoDescription = @"OData.description";
 NSString * const ODataUserInfoLongDescription = @"OData.longDescription";
 NSString * const ODataUserInfoComputed = @"OData.computed";
+NSString * const ODataUserInfoKeyPath = @"OData.keyPath";
 NSString * const ODataUserInfoImmutable = @"OData.immutable";
 NSString * const ODataUserInfoPermissions = @"OData.permissions";
 NSString * const ODataUserInfoUnit = @"OData.unit";
@@ -105,8 +106,16 @@ NSString * const ODataUserInfoServed = @"OData.served";
   return type ? [self.schema annotation:term forProperty:[self propertyForAttribute:attribute] ofEntityType:type] : nil;
 }
 
+- (NSString *)keyPathOfAttribute:(NSAttributeDescription *)attribute
+{
+  if (!attribute.isTransient) return nil;
+  id path = attribute.userInfo[ODataUserInfoKeyPath];
+  return [path isKindOfClass:[NSString class]] && [path length] ? path : nil;
+}
+
 - (BOOL)attributeIsComputed:(NSAttributeDescription *)attribute
 {
+  if ([self keyPathOfAttribute:attribute]) return YES;
   id computed = [self annotation:@"Core.Computed" userInfo:ODataUserInfoComputed ofAttribute:attribute];
   if ([computed respondsToSelector:@selector(boolValue)] && [computed boolValue]) return YES;
   id permissions = [self annotation:@"Core.Permissions" userInfo:ODataUserInfoPermissions ofAttribute:attribute];
@@ -717,7 +726,7 @@ static void OISAddNameProblems(NSArray<NSEntityDescription *> *entities, NSMutab
     NSEntityDescription *parent = entity.superentity;
     for (NSString *name in [entity.attributesByName.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
       NSAttributeDescription *attr = entity.attributesByName[name];
-      if (attr.isTransient || parent.attributesByName[name] || ![self servesProperty:attr]) continue;
+      if ((attr.isTransient && ![self keyPathOfAttribute:attr]) || parent.attributesByName[name] || ![self servesProperty:attr]) continue;
       if ([self attributeHoldsDynamicProperties:attr]) {
         if (![self.schema entityTypeIsOpen:type]) {
           [problems addObject:[NSString stringWithFormat:@"%@.%@: dynamic properties, but %@ is not an open type", entity.name, name, type.qualifiedName]];
