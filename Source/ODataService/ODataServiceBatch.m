@@ -403,7 +403,8 @@ static void OISAppendText(NSMutableData *data, NSString *text)
     if (!row || row.isDeleted) continue;
     BOOL throughNew = NO;
     for (NSString *name in [authorization relationshipsOfRelation:@"insert" entity:row.entity]) {
-      if (!row.entity.relationshipsByName[name] || row.entity.relationshipsByName[name].isToMany) continue;
+      NSRelationshipDescription *relationship = row.entity.relationshipsByName[name];
+      if (!relationship || [relationship isToMany]) continue;
       NSManagedObject *through = [row valueForKey:name];
       if (through && [made containsObject:through.objectID] && ![OISDeferredInsertChecks(context) containsObject:through.objectID]) throughNew = YES;
     }
