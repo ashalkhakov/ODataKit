@@ -92,10 +92,13 @@ HTTPSERVERKIT_EXPORT NSString * const HSRequestIDKey;
 // elsewhere (it must not wait).
 //
 // As text (the default): remote principal "METHOD target" status size
-// duration request-id. As JSON, a line a log collector reads as it is:
-// time, level (warn for a 5xx, or slower than slowRequestThreshold),
-// remote, principal, method, target, route, operation, status, bytes,
-// duration_ms, request_id, trace_id, span_id, user_agent.
+// duration request-id, and for a request the sign-in refused, "refused
+// (reason): why". As JSON, a line a log collector reads as it is: time,
+// level (warn for a 5xx, a refused sign-in, or slower than
+// slowRequestThreshold), remote, principal, method, target, route,
+// operation, status, bytes, duration_ms, request_id, trace_id, span_id,
+// user_agent; refused, auth_failure (HSAuthenticationFailureKey's reason:
+// audience, issuer, expired, ...) and auth_error (the refusal's words).
 typedef NS_ENUM(NSInteger, HSAccessLogFormat) { HSAccessLogText, HSAccessLogJSON };
 @interface HSAccessLogStage : HSStage
 @property (nonatomic) HSAccessLogFormat format;

@@ -53,12 +53,17 @@ static NSString * const HSStartKey = @"HS.started";
 @property (nonatomic, strong) OTSpan *span;
 @end
 
+// A refused request's refusal, in its words: the access log's.
+static NSString * const HSRefusalKey = @"HSRefusal";
+
 @implementation HSAuthenticationStep
 
 - (void)didAuthenticate:(HSAuthenticationReply *)answer
 {
   NSString *reason = answer.error.userInfo[HSAuthenticationFailureKey];
   if (reason) self.request.userInfo[HSAuthenticationFailureKey] = reason;
+  // Why, in the refusal's words, for the access log.
+  if (answer.error) self.request.userInfo[HSRefusalKey] = answer.error.localizedDescription ?: @"";
   [self.span setAttribute:answer.error ? @"refused" : answer.principal ? @"authenticated" : @"anonymous" forKey:@"auth.outcome"];
   [self.span setAttribute:reason forKey:@"auth.failure_reason"];
   if ([HSResponse statusOfError:answer.error] >= 500) [self.span recordError:answer.error];
@@ -348,7 +353,8 @@ FOUNDATION_EXPORT NSString *HSLogTimestamp(void);
   if (self.format == HSAccessLogJSON) {
     NSMutableDictionary *entry = [NSMutableDictionary dictionary];
     entry[@"time"] = HSLogTimestamp();
-    entry[@"level"] = response.status >= 500 || milliseconds > self.slowRequestThreshold * 1000 ? @"warn" : @"info";
+    NSString *refusal = request.userInfo[HSRefusalKey];
+    entry[@"level"] = response.status >= 500 || refusal || milliseconds > self.slowRequestThreshold * 1000 ? @"warn" : @"info";
     entry[@"remote"] = request.remoteAddress ?: [NSNull null];
     entry[@"principal"] = request.principal.subject ?: [NSNull null];
     entry[@"method"] = request.method;
@@ -361,6 +367,12 @@ FOUNDATION_EXPORT NSString *HSLogTimestamp(void);
     entry[@"trace_id"] = request.userInfo[HSTraceIDKey] ?: [NSNull null];
     entry[@"span_id"] = request.userInfo[HSSpanIDKey] ?: [NSNull null];
     entry[@"user_agent"] = [request valueForHeader:@"User-Agent"] ?: [NSNull null];
+    // Who was refused, and why: a token from the wrong issuer, for another
+    // audience, expired.
+    if (refusal) {
+      entry[@"auth_failure"] = request.userInfo[HSAuthenticationFailureKey] ?: [NSNull null];
+      entry[@"auth_error"] = refusal;
+    }
     NSData *json = [NSJSONSerialization dataWithJSONObject:entry options:0 error:NULL];
     NSString *line = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
     // The duration as text, so it is written as 0.7, not as the double
@@ -375,6 +387,10 @@ FOUNDATION_EXPORT NSString *HSLogTimestamp(void);
   NSString *line = [NSString stringWithFormat:@"%@ %@ \"%@ %@\" %ld %@ %.1fms %@", request.remoteAddress ?: @"-", who, request.method,
                                               request.target, (long)response.status, size, milliseconds,
                                               request.userInfo[HSRequestIDKey] ?: @"-"];
+  NSString *refusal = request.userInfo[HSRefusalKey];
+  if (refusal) {
+    line = [line stringByAppendingFormat:@" refused (%@): %@", request.userInfo[HSAuthenticationFailureKey] ?: @"-", refusal];
+  }
   [self writeLine:line];
 }
 

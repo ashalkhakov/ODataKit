@@ -89,6 +89,12 @@ typedef NS_ENUM(NSInteger, ODataSignInKind) {
 @property (nonatomic, readonly, getter=isSignedIn) BOOL signedIn;
 // Who: preferred_username (or e-mail, or the subject), from the tokens.
 @property (nonatomic, readonly, copy, nullable) NSString *userName;
+// The signed-in user's email, as the identity provider's token says it
+// (its email claim), which a service that knows its users by email names
+// them by; nil when the token says none (or for a user and password: the
+// user, when it is an email). Kept from the tokens of a sign-in made
+// before there was this too: read from the access token kept.
+@property (nonatomic, readonly, copy, nullable) NSString *email;
 
 // A configuration for the service, its credentials this sign-in's: asked
 // for once the service refuses a request (the reads of a store or a sync
