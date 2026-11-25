@@ -680,7 +680,11 @@ static BOOL OISIsIntegerType(NSAttributeType type)
   OISTerm *t = [[OISTerm alloc] init];
   t.guard = base.guard;
   t.variable = base.variable;
-  t.keyPath = base.keyPath ? [NSString stringWithFormat:@"%@.%@", base.keyPath, property.name] : property.name;
+  // A key path's property (OData.keyPath): what it stands for, reached by
+  // the store in the same fetch.
+  NSString *name = [property isKindOfClass:[NSAttributeDescription class]]
+      ? ([self.mapper keyPathOfAttribute:(NSAttributeDescription *)property] ?: property.name) : property.name;
+  t.keyPath = base.keyPath ? [NSString stringWithFormat:@"%@.%@", base.keyPath, name] : name;
   t.wireName = base.wireName ? [NSString stringWithFormat:@"%@/%@", base.wireName, e.name] : e.name;
   if ([property isKindOfClass:[NSAttributeDescription class]]) {
     t.kind = OISTermValue;

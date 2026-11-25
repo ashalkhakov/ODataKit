@@ -1893,6 +1893,17 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
     id members = [self.parent valueForKey:self.navigation.name];
     if (![members containsObject:object]) object = nil;
   }
+  // One an earlier request of this change set made, which the read hides
+  // until a later one links it: that row, not a second of the same key.
+  if (!object && !self.parent && self.lookedUpKey) {
+    NSMutableArray *conditions = [NSMutableArray array];
+    for (NSString *name in self.lookedUpKey) {
+      [conditions addObject:[NSComparisonPredicate predicateWithLeftExpression:[NSExpression expressionForKeyPath:name]
+                                                               rightExpression:[NSExpression expressionForConstantValue:self.lookedUpKey[name]]
+                                                                      modifier:NSDirectPredicateModifier type:NSEqualToPredicateOperatorType options:0]];
+    }
+    object = OISRowMadeInChangeSet(self.request.context, self.entity, [NSCompoundPredicate andPredicateWithSubpredicates:conditions]);
+  }
   if (!object) {
     if ([self upsertsMissingEntity]) return;
     [self fail:404 message:[NSString stringWithFormat:@"%@ has no such entity", self.request.path.segments[self.index > 0 ? self.index - 1 : 0].name]];
@@ -2208,7 +2219,9 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
       if (!none) [self describeStream:attribute of:object prefix:[self.mapper propertyForAttribute:attribute] full:full into:json];
       continue;
     }
-    json[[self.mapper propertyForAttribute:attribute]] = [self.coder JSONForCoreDataValue:[object valueForKey:attribute.name] attribute:attribute];
+    NSString *keyPath = [self.mapper keyPathOfAttribute:attribute];
+    id value = keyPath ? [object valueForKeyPath:keyPath] : [object valueForKey:attribute.name];
+    json[[self.mapper propertyForAttribute:attribute]] = [self.coder JSONForCoreDataValue:value attribute:attribute];
   }
   NSDictionary *dynamic = handler.isOpenType ? self.planDynamic[object.objectID] : nil;
   for (NSString *name in ([dynamic isKindOfClass:[NSDictionary class]] ? dynamic : nil)) {
@@ -5456,6 +5469,7 @@ static NSNumber *OISScalarReturnValue(NSInvocation *invocation, char type)
 // Core.Computed: derived, the version, or userInfo says so (or read only).
 - (BOOL)isComputedAttribute:(NSAttributeDescription *)attribute
 {
+  if ([self.mapper keyPathOfAttribute:attribute]) return YES;
   Class derived = NSClassFromString(@"NSDerivedAttributeDescription");
   if (derived && [attribute isKindOfClass:derived]) return YES;
   if (attribute == [self versionAttributeOfEntity:attribute.entity]) return YES;

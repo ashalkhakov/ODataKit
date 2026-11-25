@@ -70,6 +70,7 @@ types are not mapped.
 | `OData.unmapped` | entity | Written by `ois-model`: what could not be mapped (spatial types) |
 | `OData.dynamicProperties` | Transformable attribute | `YES`: the property bag of an open type's dynamic properties |
 | `OData.served` | attribute, relationship | `NO`: not served, nor sent by a client; the application's own |
+| `OData.keyPath` | transient attribute | a key path from the row (`processInstance.businessKey`): served as the row's own property, read only (`Core.Computed`), its value the key path's, filtered and sorted by as the store reaches it; nothing stored, nothing to migrate |
 
 `$metadata` fills in whatever the model does not say. When both say
 something, the model's `userInfo` wins.
