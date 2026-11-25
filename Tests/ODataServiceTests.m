@@ -8501,6 +8501,9 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
   pair(staff, @"warehouse", warehouse, @"staffs");
   pair(staff, @"user", user, @"staffs");
   pair(location, @"warehouse", warehouse, @"locations");
+  // A cycle with it, as a contact's shipping address is one with its
+  // addresses: a warehouse's default location.
+  pair(warehouse, @"defaultLocation", location, @"defaultOf");
   NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
   model.entities = entities;
   _coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
@@ -8868,7 +8871,7 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     "    Catalog = { insert = ( { where = \"$user.@count > 0\"; } ); };\n"
     "    Warehouse = {\n"
     "      manager = ( { direct = YES; } );\n"
-    "      read = ( { where = \"$user.@count > 0\"; } );\n"
+    "      read = ( { where = \"name != nil\"; } );\n"
     "      insert = ( { where = \"$user.@count > 0\"; } );\n"
     "    };\n"
     "    Location = {\n"
@@ -8897,6 +8900,18 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     @{ @"id": @"k", @"atomicityGroup": @"g", @"method": @"patch", @"url": @"Locations(30)",
        @"body": @{ @"Warehouse@odata.bind": @"Warehouses(12)" } },
   ]), (@[ @201, @201, @204 ]));
+  // Exactly as ODataSync sends a cycle (a contact and its shipping
+  // address): upserts, the location with no warehouse, then the warehouse
+  // binding it as its default (a row the change set made, which eve could
+  // not read yet: its read is through its warehouse), then the link.
+  NSArray *cycle = statuses(@[
+    @{ @"id": @"l", @"atomicityGroup": @"c", @"method": @"patch", @"url": @"Locations(40)", @"body": @{ @"Id": @40, @"Name": @"D1" } },
+    @{ @"id": @"w", @"atomicityGroup": @"c", @"method": @"patch", @"url": @"Warehouses(14)",
+       @"body": @{ @"Id": @14, @"Name": @"Eve's fourth", @"Catalog@odata.bind": @"Catalogs(1)", @"DefaultLocation@odata.bind": @"Locations(40)" } },
+    @{ @"id": @"k", @"atomicityGroup": @"c", @"method": @"patch", @"url": @"Locations(40)",
+       @"body": @{ @"Warehouse@odata.bind": @"Warehouses(14)" } },
+  ]);
+  for (NSNumber *status in cycle) XCTAssertTrue(status.integerValue >= 200 && status.integerValue < 300, @"a cycle as ODataSync sends it: %@", cycle);
   // Bound later to a warehouse eve does not manage: the change set refused.
   NSArray *refused = statuses(@[
     @{ @"id": @"l", @"atomicityGroup": @"h", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @31, @"Name": @"L2" } },
@@ -8909,7 +8924,60 @@ static NSExpressionDescription *OISAggregateOf(NSString *function, NSString *key
     @{ @"id": @"l", @"method": @"post", @"url": @"Locations", @"body": @{ @"Id": @32, @"Name": @"L3" } },
   ]), (@[ @403 ]));
   NSArray *names = [self namesAs:@"eve@example.org" path:@"Locations"];
-  XCTAssertTrue([names containsObject:@"L1"] && ![names containsObject:@"L2"] && ![names containsObject:@"L3"], @"%@", names);
+  XCTAssertTrue([names containsObject:@"L1"] && [names containsObject:@"D1"] && ![names containsObject:@"L2"] && ![names containsObject:@"L3"], @"%@", names);
+}
+
+// Logbook's permissions for a contact and its shipping address, over the
+// warehouses (a warehouse its contact, a location its address, its
+// default location its shipping address): the catalog's owner owns them,
+// reads them; and the requests exactly as ODataSync sends a new contact
+// with its address, in one change set.
+- (void)testAContactAndItsAddressAsLogbookSyncsThem
+{
+  [self serveWarehouses];
+  _service.permissions = [self permissions:@"{ Version = 1;\n"
+    "  Entities = {\n"
+    "    Catalog = {\n"
+    "      owner = ( { where = \"owner.email IN $user\"; } );\n"
+    "      read = ( { relation = owner; } );\n"
+    "      insert = ( { where = \"$user.@count > 0\"; } );\n"
+    "    };\n"
+    "    Warehouse = {\n"
+    "      owner = ( { relation = owner; from = catalog; } );\n"
+    "      read = ( { relation = owner; from = catalog; } );\n"
+    "      insert = ( { relation = owner; } );\n"
+    "      update = ( { relation = owner; } );\n"
+    "    };\n"
+    "    Location = {\n"
+    "      read = ( { relation = owner; from = warehouse; } );\n"
+    "      insert = ( { relation = owner; from = warehouse; } );\n"
+    "      update = ( { relation = owner; from = warehouse; } );\n"
+    "    };\n"
+    "  };\n"
+    "}"];
+  XCTAssertEqualObjects(_service.metadataProblems, @[]);
+  OISServiceResponse *r = [self as:@"ann@example.org" claims:@{} send:@"POST" path:@"$batch" body:@{ @"requests": @[
+    @{ @"id": @"1", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Locations(50)", @"body": @{ @"Id": @50, @"Name": @"1 Yard Lane" } },
+    @{ @"id": @"2", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Warehouses(20)",
+       @"body": @{ @"Id": @20, @"Name": @"Bob's Garage", @"Catalog@odata.bind": @"Catalogs(1)", @"DefaultLocation@odata.bind": @"Locations(50)" } },
+    @{ @"id": @"3", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Locations(50)", @"body": @{ @"Warehouse@odata.bind": @"Warehouses(20)" } },
+  ] } headers:@{ @"Prefer": @"odata.continue-on-error" }];
+  XCTAssertEqual(r.status, 200, @"%@", r.text);
+  NSArray *statuses = [r.json[@"responses"] valueForKey:@"status"];
+  for (NSNumber *status in statuses) XCTAssertTrue(status.integerValue >= 200 && status.integerValue < 300, @"%@", r.text);
+  XCTAssertTrue([[self namesAs:@"ann@example.org" path:@"Locations"] containsObject:@"1 Yard Lane"]);
+  // The same, by one who owns no catalog: refused, nothing of it saved.
+  OISServiceResponse *refused = [self as:@"dee@example.org" claims:@{} send:@"POST" path:@"$batch" body:@{ @"requests": @[
+    @{ @"id": @"1", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Locations(51)", @"body": @{ @"Id": @51, @"Name": @"2 Yard Lane" } },
+    @{ @"id": @"2", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Warehouses(21)",
+       @"body": @{ @"Id": @21, @"Name": @"Dee's", @"Catalog@odata.bind": @"Catalogs(1)", @"DefaultLocation@odata.bind": @"Locations(51)" } },
+    @{ @"id": @"3", @"atomicityGroup": @"changes", @"method": @"patch", @"url": @"Locations(51)", @"body": @{ @"Warehouse@odata.bind": @"Warehouses(21)" } },
+  ] } headers:@{ @"Prefer": @"odata.continue-on-error" }];
+  NSArray *refusedStatuses = [refused.json[@"responses"] valueForKey:@"status"];
+  BOOL anySaved = NO;
+  for (NSNumber *status in refusedStatuses) anySaved = anySaved || (status.integerValue >= 200 && status.integerValue < 300);
+  XCTAssertFalse(anySaved, @"%@", refused.text);
+  XCTAssertFalse([[self namesAs:@"ann@example.org" path:@"Locations"] containsObject:@"2 Yard Lane"]);
 }
 
 // Zanzibar's intersection (all), on an entity and on the service; and a

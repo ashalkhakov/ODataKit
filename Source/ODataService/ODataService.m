@@ -1893,6 +1893,17 @@ static NSUInteger OISExpandDepth(ODataQueryOptions *options)
     id members = [self.parent valueForKey:self.navigation.name];
     if (![members containsObject:object]) object = nil;
   }
+  // One an earlier request of this change set made, which the read hides
+  // until a later one links it: that row, not a second of the same key.
+  if (!object && !self.parent && self.lookedUpKey) {
+    NSMutableArray *conditions = [NSMutableArray array];
+    for (NSString *name in self.lookedUpKey) {
+      [conditions addObject:[NSComparisonPredicate predicateWithLeftExpression:[NSExpression expressionForKeyPath:name]
+                                                               rightExpression:[NSExpression expressionForConstantValue:self.lookedUpKey[name]]
+                                                                      modifier:NSDirectPredicateModifier type:NSEqualToPredicateOperatorType options:0]];
+    }
+    object = OISRowMadeInChangeSet(self.request.context, self.entity, [NSCompoundPredicate andPredicateWithSubpredicates:conditions]);
+  }
   if (!object) {
     if ([self upsertsMissingEntity]) return;
     [self fail:404 message:[NSString stringWithFormat:@"%@ has no such entity", self.request.path.segments[self.index > 0 ? self.index - 1 : 0].name]];

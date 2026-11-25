@@ -82,6 +82,18 @@ NSSet<NSManagedObjectID *> *OISRowsMadeIn(NSManagedObjectContext *context)
   return [OISMadeIn(context, NO) copy] ?: [NSSet set];
 }
 
+NSManagedObject *OISRowMadeInChangeSet(NSManagedObjectContext *context, NSEntityDescription *entity, NSPredicate *byKey)
+{
+  if (!context || !OISIsChangeSetContext(context)) return nil;
+  NSString *root = OISRootEntity(entity).name;
+  for (NSManagedObjectID *objectID in OISMadeIn(context, NO)) {
+    NSManagedObject *made = [context existingObjectWithID:objectID error:NULL];
+    if (!made || made.isDeleted || ![OISRootEntity(made.entity).name isEqualToString:root]) continue;
+    if ([byKey evaluateWithObject:made]) return made;
+  }
+  return nil;
+}
+
 static BOOL OISIsWrite(OISPlanNode *node)
 {
   switch (node.op) {
@@ -1310,6 +1322,7 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
                                                                      options:0]];
   }
   ODataEntitySetHandler *handler = lookup.handler;
+  NSPredicate *byKey = [NSCompoundPredicate andPredicateWithSubpredicates:conditions];
   NSPredicate *visible = [handler predicateForVisibleObjectsInRequest:self.request];
   if (visible) [conditions addObject:visible];
   NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:OISRootEntity(lookup.entity).name];
@@ -1318,6 +1331,11 @@ static BOOL OISConditionAllows(NSString *condition, NSString *current)
   NSArray *rows = [self answerFor:OISWriteKey(@"r", lookup) ask:OISAskObjects fetch:fetch handler:handler];
   if (!rows) return nil;
   found = [rows isKindOfClass:[NSArray class]] ? [rows firstObject] : nil;
+  // A row an earlier request of this change set made is the caller's to
+  // bind to, though the read it is seen by reaches through a link a later
+  // request makes (ODataSync binds a cycle's rows so): its insert decides,
+  // as the change set ends.
+  if (!found) found = OISRowMadeInChangeSet(self.request.context, lookup.entity, byKey);
   if (!found && !lookup.optional) {
     [self fail:400 message:[NSString stringWithFormat:@"There is no %@", lookup.reference]];
     return nil;

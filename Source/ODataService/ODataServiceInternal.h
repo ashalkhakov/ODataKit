@@ -496,6 +496,11 @@ BOOL OISIsChangeSetContext(NSManagedObjectContext *context);
 // Those inserts, by their objects' IDs; and the rows the change set made.
 NSArray<NSManagedObjectID *> *OISDeferredInsertChecks(NSManagedObjectContext *context);
 NSSet<NSManagedObjectID *> *OISRowsMadeIn(NSManagedObjectContext *context);
+// A row an earlier request of the change set made, of the entity (its
+// root's), as the key says: the caller's to bind to and to change, though
+// the read it is seen by reaches through a link a later request makes
+// (ODataSync binds a cycle's rows so); its insert decides, at the end.
+NSManagedObject * _Nullable OISRowMadeInChangeSet(NSManagedObjectContext * _Nullable context, NSEntityDescription *entity, NSPredicate *byKey);
 
 NSArray<ODataExpression *> *OISTheseOfFilter(ODataQueryOptions *options);
 NSArray<ODataExpression *> *OISTheseOfOrder(ODataQueryOptions *options);
