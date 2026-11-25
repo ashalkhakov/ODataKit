@@ -2978,7 +2978,8 @@ static NSString *OSTFormValue(NSString *form, NSString *name)
 - (NSString *)tokenFor:(NSString *)user
 {
   NSTimeInterval now = [NSDate date].timeIntervalSince1970;
-  return HSSignJWT(@{ @"iss": @"https://id.test", @"sub": user, @"preferred_username": user, @"iat": @((long)now), @"exp": @((long)now + 3600) },
+  return HSSignJWT(@{ @"iss": @"https://id.test", @"sub": user, @"preferred_username": user,
+                       @"email": [user stringByAppendingString:@"@example.org"], @"iat": @((long)now), @"exp": @((long)now + 3600) },
                    _key, NULL);
 }
 
@@ -3157,6 +3158,7 @@ static NSString *OSTFormValue(NSString *form, NSString *name)
   XCTAssertEqualObjects(_code, @"WDJB-MJHT");
   XCTAssertTrue(signIn.signedIn);
   XCTAssertEqualObjects(signIn.userName, @"alice");
+  XCTAssertEqualObjects(signIn.email, @"alice@example.org", @"the token's email, as a service that knows its users by email names them");
   XCTAssertGreaterThanOrEqual(signIn.polls, 2, @"pending once, then the tokens");
 
   NSManagedObjectModel *model = OSTModel();

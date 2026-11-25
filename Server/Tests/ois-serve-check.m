@@ -1229,6 +1229,33 @@ int main(int argc, const char *argv[])
       check(NO, @"anonymous-metadata-setting", error.localizedDescription ?: @"");
     }
 
+    // A refused token, said in the access log: why (its reason and the
+    // refusal's words), at warn, where a log collector shows it.
+    HSConfiguration *checkingSettings = [[HSConfiguration alloc] initWithSettings:@{
+      @"Model": modelPath, @"AccessLog": @"json", @"JWTIssuer": @"https://id.example.test/realms/notes" }];
+    OISObservedApplication *checking = [[OISObservedApplication alloc] initWithConfiguration:checkingSettings];
+    if ([checking prepare:&error] && [checking.server startOnPort:0 error:&error]) {
+      NSUInteger before = port;
+      port = checking.server.port;
+      OISReply *refused = OISSend(@"GET", @"/odata/Products", @{ @"Authorization": @"Bearer not-a-token" }, nil);
+      port = before;
+      [checking.server stop];
+      NSDictionary *refusedLine = nil;
+      NSArray *refusedLines;
+      @synchronized (checking.log) {
+        refusedLines = [checking.log.lines copy];
+      }
+      for (NSString *line in refusedLines) {
+        NSDictionary *entry = [NSJSONSerialization JSONObjectWithData:[line dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+        if ([entry[@"status"] integerValue] == 401) refusedLine = entry;
+      }
+      check(refused.status == 401 && [refusedLine[@"auth_failure"] isEqual:@"malformed"] &&
+            [refusedLine[@"auth_error"] isEqual:@"The token is not a signed JWT"] && [refusedLine[@"level"] isEqual:@"warn"],
+            @"access-log-refusal", refusedLine ? refusedLine.description : [refusedLines componentsJoinedByString:@"\n"]);
+    } else {
+      check(NO, @"access-log-refusal", error.localizedDescription ?: @"");
+    }
+
     // A request's trace, in memory: the server's span under the caller's,
     // the service's under it, and its plan, execution and store requests
     // under that; the access log's line with the same trace.

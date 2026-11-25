@@ -131,6 +131,14 @@ NSString *ODataSignInChallengeOfVerifier(NSString *verifier) {
     return k[@"name"];
 }
 
+- (NSString *)email {
+    NSDictionary *k = [self kept];
+    if (_kind == ODataSignInPassword) return [k[@"user"] containsString:@"@"] ? k[@"user"] : nil;
+    id email = k[@"email"];
+    if (![email isKindOfClass:[NSString class]] && [k[@"access"] isKindOfClass:[NSString class]]) email = ODSClaimsOfJWT(k[@"access"])[@"email"];
+    return [email isKindOfClass:[NSString class]] && [email length] ? email : nil;
+}
+
 - (void)signOut {
     [self cancel];
     [_secrets setSecrets:@{ @"kind": @(_kind), @"issuer": _issuer.absoluteString ?: @"" } forAccount:[self account]];
@@ -334,6 +342,7 @@ static NSDictionary *ODSSignInJSON(NSData *data) {
     NSDictionary *claims = ODSClaimsOfJWT([d[@"id_token"] isKindOfClass:[NSString class]] ? d[@"id_token"] : d[@"access_token"]);
     NSString *name = claims[@"preferred_username"] ?: claims[@"email"] ?: claims[@"sub"];
     if ([name isKindOfClass:[NSString class]]) k[@"name"] = name;
+    if ([claims[@"email"] isKindOfClass:[NSString class]]) k[@"email"] = claims[@"email"];
     [self keep:k];
 }
 
